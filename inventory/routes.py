@@ -75,6 +75,7 @@ def inventory():
 
 
 @inventory_bp.route('/add', methods=['POST'])
+@inventory_bp.route('/add_inventory', methods=['POST'])
 def add_inventory():
     pack_item_id = request.form.get('pack_item_id', '').strip()
     quantity = request.form.get('quantity', '').strip()
