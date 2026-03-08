@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>库存盘点录入</title>
+
+    <style>
+        body {
+            font-family: Arial, "Microsoft YaHei", sans-serif;
+            margin: 30px;
+            line-height: 1.6;
+        }
+
+        h1 {
+            margin-bottom: 25px;
+            font-size: 24px;
+        }
+
+        .form-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 15px;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+        }
+
+        .form-group label {
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .form-group input, .form-group select {
+            padding: 10px;
+            width: 100%;
+            font-size: 16px;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+
+        .submit-btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .submit-btn:hover {
+            background-color: #45a049;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 25px;
+        }
+
+        table th, table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        table th {
+            position: sticky;
+            top: 0;
+            background-color: #fff;
+            z-index: 1;
+        }
+
+        table td {
+            text-align: right;
+        }
+
+        .table-container {
+            overflow: auto;
+            margin-top: 15px;
+        }
+
+        .form-group input[type="number"] {
+            -moz-appearance: textfield;
+        }
+
+        .form-group input[type="number"]::-webkit-outer-spin-button,
+        .form-group input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+
+    <script>
+        // 页面加载完成后设置默认当前时间
+        window.addEventListener('DOMContentLoaded', function () {
+            var input = document.getElementById('stocktake_ts');
+
+            // 如果之前存过时间，恢复时间
+            var saved = localStorage.getItem("last_stocktake_ts");
+            if (saved) {
+                input.value = saved;
+            } else {
+                var now = new Date();
+                function pad(n){ return n.toString().padStart(2, '0'); }
+                var datetime =
+                    now.getFullYear() + '-' +
+                    pad(now.getMonth()+1) + '-' +
+                    pad(now.getDate()) + 'T' +
+                    pad(now.getHours()) + ':' +
+                    pad(now.getMinutes());
+
+                input.value = datetime;
+            }
+
+            // 保存每次修改的时间
+            input.addEventListener("change", function(){
+                localStorage.setItem("last_stocktake_ts", input.value);
+            });
+        });
+    </script>
+</head>
+
+<body>
+
+    <h1>库存盘点录入</h1>
+
+    <div class="form-container">
+        <form method="POST" action="/add_inventory">
+            <div class="form-group">
+                <label for="pack_item_id">包材名称:</label>
+                <select id="pack_item_id" name="pack_item_id" required>
+                    {% for row in items %}
+                        <option value="{{ row['pack_item_id'] }}">
+                            {{ row['name'] }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="quantity">数量:</label>
+                <input type="number"
+                       id="quantity"
+                       name="quantity"
+                       step="1"
+                       min="0"
+                       required>
+            </div>
+
+            <div class="form-group">
+                <label for="stocktake_ts">盘点时间:</label>
+                <input type="datetime-local"
+                       id="stocktake_ts"
+                       name="stocktake_ts"
+                       required>
+            </div>
+
+            <div class="form-group">
+                <button type="submit" class="submit-btn">提交</button>
+            </div>
+        </form>
+    </div>
+
+    <hr style="margin:24px 0;">
+
+    <h2 style="margin:0 0 12px 0;">最近盘点（横向表）</h2>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>盘点时间</th>
+                    {% for spec in col_specs %}
+                        <th>{{ spec }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in time_list %}
+                    <tr>
+                        <td>{{ t }}</td>
+                        {% for spec in col_specs %}
+                            <td>{{ table[t][spec] }}</td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        window.addEventListener('DOMContentLoaded', function () {
+            const currentPackItemId = {{ request.args.get('pack_item_id', 0) | tojson }};
+            const currentQuantity = {{ request.args.get('quantity', 0) | tojson }};
+            
+            if (currentPackItemId && currentQuantity) {
+                const packItemSelect = document.getElementById('pack_item_id');
+                let nextItem = null;
+
+                for (let i = 0; i < packItemSelect.options.length; i++) {
+                    let option = packItemSelect.options[i];
+
+                    if (option.value == currentPackItemId) {
+                        if (i + 1 < packItemSelect.options.length) {
+                            nextItem = packItemSelect.options[i + 1].value;
+                        } else {
+                            nextItem = packItemSelect.options[0].value; 
+                        }
+                        break;
+                    }
+                }
+
+                if (nextItem) {
+                    packItemSelect.value = nextItem;
+                }
+            }
+        });
+    </script>
+
+</body>
+</html>

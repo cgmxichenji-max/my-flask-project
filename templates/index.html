@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>包材管理系统</title>
+    <style>
+        body {
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 20px 0;
+            text-align: center;
+            font-size: 28px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        main {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 40px 20px;
+        }
+        .menu-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            justify-content: center;
+        }
+        .menu-card {
+            background-color: white;
+            width: 200px;
+            height: 120px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            text-decoration: none;
+            color: #333;
+            font-size: 18px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        .menu-card:hover {
+            background-color: #4CAF50;
+            color: white;
+            transform: translateY(-5px) scale(1.05);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+        }
+        footer {
+            text-align: center;
+            padding: 15px 0;
+            font-size: 14px;
+            color: #888;
+            background: #f0f0f0;
+        }
+        @media(max-width: 650px){
+            .menu-card {
+                width: 150px;
+                height: 100px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>包材管理系统</header>
+    <main>
+        <div class="menu-container">
+            <a href="/inventory" class="menu-card">库存盘点</a>
+            <a href="/purchase" class="menu-card">采购入库</a>
+            <a href="/stockin" class="menu-card">入库操作</a>
+        </div>
+    </main>
+    <footer>© 2026 包材管理系统</footer>
+</body>
+</html>
