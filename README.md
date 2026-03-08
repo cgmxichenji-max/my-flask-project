@@ -31,6 +31,18 @@ git pull
 
 # 每次工作后
 
+```bash
 git add .
 git commit -m "更新说明"
 git push
+```
+
+# Git 忽略说明
+
+项目已配置 `.gitignore`，会忽略以下不需要上传到 GitHub 的文件：
+
+- `_excel_cache/`
+- `*.xlsx`
+- `*.xls`
+- `*.xlsm`
+- `~$*.xlsx`
