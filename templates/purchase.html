@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>采购入库</title>
+<style>
+body { font-family: "Microsoft YaHei", Arial, sans-serif; margin:30px; line-height:1.6; }
+h1 { font-size:24px; margin-bottom:20px; text-align:center; }
+textarea { width:100%; font-family: monospace; margin-bottom:10px; }
+button { padding:10px 20px; font-size:16px; cursor:pointer; }
+.table-container { overflow:auto; max-height:400px; margin-top:20px; }
+
+label { display: block; margin-bottom: 8px; }
+
+#parsed_data {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);  /* 每行显示4个文本框 */
+    gap: 20px;
+    margin-top: 20px;
+}
+
+#parsed_data input {
+    width: 100%;
+    padding: 8px;
+    font-size: 14px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+button {
+    margin-top: 10px;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+}
+
+button:hover {
+    background-color: #45a049;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+table th, table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: center;
+}
+
+table th {
+    background-color: #f2f2f2;
+}
+</style>
+</head>
+<body>
+
+<h1>采购入库</h1>
+
+<!-- 采购数据输入区 -->
+<textarea id="input_data" rows="10" placeholder="粘贴多行采购记录，每行如：2026/01/21 13:50	5025318013309559238	10号(175x95x115mm)300个;三层空白【超硬】SS	包材	528.00"></textarea>
+<button id="parse_btn">解析</button>
+
+<!-- 显示解析后的内容 -->
+<div id="parsed_data">
+    <div>
+        <label for="purchase_date">采购日期:</label>
+        <input type="text" id="purchase_date" disabled><br>
+    </div>
+
+    <div>
+        <label for="order_id">订单号:</label>
+        <input type="text" id="order_id" disabled><br>
+    </div>
+
+    <div>
+        <label for="pack_item_name">包材品类:</label>
+        <input type="text" id="pack_item_name" disabled><br>
+    </div>
+
+    <div>
+        <label for="per_bag_quantity">每袋件数:</label>
+        <input type="text" id="per_bag_quantity" disabled><br>
+    </div>
+
+    <div>
+        <label for="total_amount">总价:</label>
+        <input type="text" id="total_amount" disabled><br>
+    </div>
+
+    <div>
+        <label for="total_quantity">总件数:</label>
+        <input type="text" id="total_quantity" disabled><br>
+    </div>
+
+    <div>
+        <label for="unit_price">每件单价:</label>
+        <input type="text" id="unit_price" disabled><br>
+    </div>
+
+    <div>
+        <label for="price_change">较上次价格变化:</label>
+        <input type="text" id="price_change" disabled><br>
+    </div>
+</div>
+
+<div class="table-container">
+<h2>最近采购记录</h2>
+<table>
+<thead>
+<tr>
+<th>采购ID</th>
+<th>订单号</th>
+<th>采购日期</th>
+<th>包材ID</th>
+<th>袋数</th>
+<th>总件数</th>
+<th>总金额</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+{% for row in rows %}
+<tr>
+<td>{{ row['purchase_id'] }}</td>
+<td>{{ row['order_id'] }}</td>
+<td>{{ row['purchase_date'] }}</td>
+<td>{{ row['pack_item_name'] }}</td>
+<td>{{ row['bag_count'] }}</td>
+<td>{{ row['total_qty'] }}</td>
+<td>{{ row['total_amount'] }}</td>
+<td>{{ row['notes'] }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+<script>
+    // 定义 parsePurchaseData 函数
+    function parsePurchaseData() {
+        var inputData = document.getElementById('input_data').value;  // 获取 textarea 的内容
+
+        // 如果 textarea 为空，直接提示用户输入内容
+        if (!inputData.trim()) {
+            alert("请输入采购记录！");
+            return;
+        }
+
+        // 使用 fetch 向后端发送 POST 请求
+        fetch('/purchase/parse_purchase_data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ data: inputData })  // 将textarea中的内容发送到后端
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('网络响应失败');
+            }
+            return response.json();  // 解析返回的 JSON 数据
+        })
+        .then(data => {
+            // 将后端返回的数据填入采购日期文本框
+            if (data && data.purchase_date) {
+                document.getElementById('purchase_date').value = data.purchase_date;
+            } else {
+                console.error("后端返回数据格式错误：", data);
+            }
+        })
+        .catch(error => {
+            console.error('请求失败:', error);  // 捕获请求错误
+            alert('请求失败，请重试');
+        });
+    }
+
+    // 确保 DOM 完全加载后再绑定事件
+    document.addEventListener('DOMContentLoaded', function() {
+        // 绑定事件
+        document.getElementById('parse_btn').addEventListener('click', parsePurchaseData);
+    });
+</script>
+
+</body>
+</html>
