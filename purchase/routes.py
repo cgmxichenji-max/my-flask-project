@@ -23,6 +23,10 @@ def normalize_pack_item_name(raw_name: str) -> str:
     name = (raw_name or '').strip()
     if not name:
         return ''
+    
+    # 如果是数字＋号，例如 10号，8号，6号，去掉最后的“号”
+    if name.endswith('号') and name[:-1].isdigit():
+        name = name[:-1]
 
     mapping = {
         '半高6号': '6.5',
@@ -31,6 +35,7 @@ def normalize_pack_item_name(raw_name: str) -> str:
         '半高9号': '9.5',
         '半高10号': '10.5',
         '半高11号': '11.5',
+        '半高12号': '12.5',
     }
     return mapping.get(name, name)
 
@@ -266,6 +271,7 @@ def add_pack_item():
 def submit_purchase():
     data = request.get_json() or {}
 
+    purchase_id = (data.get('purchase_id') or '').strip()
     purchase_date = (data.get('purchase_date') or '').strip()
     order_id = (data.get('order_id') or '').strip()
     batch_id = (data.get('batch_id') or '').strip()
@@ -310,14 +316,8 @@ def submit_purchase():
         except ValueError:
             return jsonify({'success': False, 'message': '每袋件数格式不正确'}), 400
 
-    if not order_id:
-        order_id = generate_purchase_order_id()
-
     conn = get_db_connection()
     try:
-        if not batch_id:
-            batch_id = generate_batch_id(conn)
-
         pack_item_id = get_pack_item_id_by_name(conn, pack_item_name)
         if not pack_item_id:
             return jsonify({
@@ -326,6 +326,78 @@ def submit_purchase():
                 'need_create_pack_item': True,
                 'pack_item_name': pack_item_name
             }), 400
+
+        # --- 更新：如果带有 purchase_id，按主键更新 ---
+        if purchase_id:
+            if not order_id:
+                return jsonify({'success': False, 'message': '修改记录时订单号不能为空'}), 400
+
+            occupied = conn.execute(
+                """
+                SELECT 1
+                FROM purchase_record
+                WHERE order_id = ? AND purchase_id <> ?
+                LIMIT 1
+                """,
+                (order_id, purchase_id)
+            ).fetchone()
+            if occupied:
+                return jsonify({'success': False, 'message': f'订单号已被其他记录占用：{order_id}'}), 400
+
+            conn.execute(
+                """
+                UPDATE purchase_record
+                SET order_id = ?,
+                    purchase_date = ?,
+                    pack_item_id = ?,
+                    supplier_name = ?,
+                    bag_count = ?,
+                    total_quantity = ?,
+                    total_amount = ?,
+                    batch_id = ?,
+                    notes = ?
+                WHERE purchase_id = ?
+                """,
+                (
+                    order_id,
+                    purchase_date,
+                    pack_item_id,
+                    supplier_name,
+                    bag_count,
+                    total_quantity,
+                    total_amount,
+                    batch_id,
+                    notes,
+                    purchase_id
+                )
+            )
+            conn.commit()
+            return jsonify({
+                'success': True,
+                'message': '采购记录修改成功',
+                'order_id': order_id,
+                'batch_id': batch_id,
+                'purchase_id': purchase_id
+            })
+
+        # --- 新增：purchase_id 为空时插入 ---
+        if not order_id:
+            order_id = generate_purchase_order_id()
+        else:
+            duplicated = conn.execute(
+                """
+                SELECT 1
+                FROM purchase_record
+                WHERE order_id = ?
+                LIMIT 1
+                """,
+                (order_id,)
+            ).fetchone()
+            if duplicated:
+                return jsonify({'success': False, 'message': f'订单号已存在：{order_id}'}), 400
+
+        if not batch_id:
+            batch_id = generate_batch_id(conn)
 
         conn.execute("""
             INSERT INTO purchase_record (
@@ -351,14 +423,12 @@ def submit_purchase():
             notes
         ))
         conn.commit()
-
         return jsonify({
             'success': True,
             'message': '采购记录提交成功',
             'order_id': order_id,
             'batch_id': batch_id
         })
-
     except sqlite3.IntegrityError:
         return jsonify({'success': False, 'message': f'订单号已存在：{order_id}'}), 400
     except Exception as e:

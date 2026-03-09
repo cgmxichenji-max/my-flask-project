@@ -1,383 +1,538 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>采购入库</title>
-<style>
-body { font-family: "Microsoft YaHei", Arial, sans-serif; margin:30px; line-height:1.6; }
-h1 { font-size:24px; margin-bottom:20px; text-align:center; }
-textarea { width:100%; font-family: monospace; margin-bottom:10px; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>采购入库</title>
+    <style>
+        body {
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+            margin: 30px;
+            line-height: 1.6;
+        }
 
-.table-container { overflow:auto; max-height:400px; margin-top:20px; }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
 
-label { display: block; margin-bottom: 8px; }
+        textarea {
+            width: 100%;
+            font-family: monospace;
+            margin-bottom: 10px;
+        }
 
-#parsed_data {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 20px;
-    margin-top: 20px;
-}
+        .table-container {
+            overflow: auto;
+            max-height: 400px;
+            margin-top: 20px;
+        }
 
-#parsed_data input,
-#parsed_data select,
-#parsed_data textarea {
-    width: 100%;
-    padding: 8px;
-    font-size: 14px;
-    margin-bottom: 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    box-sizing: border-box;
-}
+        label {
+            display: block;
+            margin-bottom: 8px;
+        }
 
-.full-width {
-    grid-column: 1 / -1;
-}
+        #parsed_data {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-top: 20px;
+        }
 
-.readonly-note {
-    background-color: #f7f7f7;
-}
+        #parsed_data input,
+        #parsed_data select,
+        #parsed_data textarea {
+            width: 100%;
+            padding: 8px;
+            font-size: 14px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
 
-.action-buttons {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
+        .full-width {
+            grid-column: 1 / -1;
+        }
 
-.action-buttons button {
-    margin-top: 0;
-}
-button {
-    margin-top: 10px;
-    padding: 10px 20px;
-    font-size: 16px;
-    cursor: pointer;
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    border-radius: 5px;
-}
+        .readonly-note {
+            background-color: #f7f7f7;
+        }
 
-button:hover {
-    background-color: #45a049;
-}
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
 
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 20px;
-}
+        .action-buttons button {
+            margin-top: 0;
+        }
 
-table th, table td {
-    border: 1px solid #ddd;
-    padding: 8px;
-    text-align: center;
-}
+        button {
+            margin-top: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
 
-table th {
-    background-color: #f2f2f2;
-}
-</style>
+        button:hover {
+            background-color: #45a049;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        table th,
+        table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+
+        table th {
+            background-color: #f2f2f2;
+        }
+
+        .record-row {
+            cursor: pointer;
+        }
+
+        .record-row:hover {
+            background-color: #f7fbff;
+        }
+
+        .record-row.selected {
+            background-color: #dbeafe;
+        }
+    </style>
 </head>
+
 <body>
 
-<h1>采购入库</h1>
+    <h1>采购入库</h1>
 
-<textarea id="input_data" rows="10" placeholder="粘贴多行采购记录，每行如：2026/01/21 13:50	5025318013309559238	10号(175x95x115mm)300个;三层空白【超硬】SS	包材	528.00"></textarea>
+    <textarea id="input_data" rows="10"
+        placeholder="粘贴多行采购记录，每行如：2026/01/21 13:50	5025318013309559238	10号(175x95x115mm)300个;三层空白【超硬】SS	包材	528.00"></textarea>
 
-<div class="action-buttons">
-    <button id="parse_btn">解析</button>
-    <button id="submit_btn" type="button">提交</button>
-</div>
-
-<div id="parsed_data">
-    <div>
-        <label for="purchase_date">采购日期:</label>
-        <input type="text" id="purchase_date" >
+    <div class="action-buttons">
+        <button id="parse_btn">解析</button>
+        <button id="submit_btn" type="button">提交</button>
     </div>
 
-    <div>
-        <label for="order_id">订单号:</label>
-        <input type="text" id="order_id" >
+    <div id="parsed_data">
+        <input type="hidden" id="purchase_id">
+        <div>
+            <label for="purchase_date">采购日期:</label>
+            <input type="text" id="purchase_date">
+        </div>
+
+        <div>
+            <label for="order_id">订单号:</label>
+            <input type="text" id="order_id">
+        </div>
+
+        <div>
+            <label for="batch_id">批次号 (Batch ID):</label>
+            <input type="text" id="batch_id" placeholder="自动生成或用于批次管理">
+        </div>
+
+        <div>
+            <label for="pack_item_name">包材型号:</label>
+            <input type="text" id="pack_item_name">
+        </div>
+
+        <div>
+            <label for="per_bag_quantity">每袋件数:</label>
+            <input type="text" id="per_bag_quantity">
+        </div>
+
+        <div>
+            <label for="bag_count">袋数:</label>
+            <input type="number" id="bag_count" min="0" step="1" placeholder="手工输入袋数">
+        </div>
+
+        <div>
+            <label for="total_quantity">总件数:</label>
+            <input type="text" id="total_quantity">
+        </div>
+
+        <div>
+            <label for="total_amount">总价:</label>
+            <input type="text" id="total_amount">
+        </div>
+
+        <div>
+            <label for="unit_price">每件单价:</label>
+            <input type="text" id="unit_price">
+        </div>
+
+        <div>
+            <label for="supplier_name">供应商:</label>
+            <input type="text" id="supplier_name" list="supplier_list" placeholder="可输入或选择供应商">
+            <datalist id="supplier_list">
+                <option value="福山"></option>
+                <option value="止盈"></option>
+            </datalist>
+        </div>
+
+        <div>
+            <label for="prev_price_change">较前次价格变化:</label>
+            <input type="text" id="prev_price_change" disabled>
+        </div>
+
+        <div>
+            <label for="next_price_change">较后次价格变化:</label>
+            <input type="text" id="next_price_change" disabled>
+        </div>
+
+        <div class="full-width">
+            <label for="notes">备注 / 原始描述:</label>
+            <textarea id="notes" rows="3" class="readonly-note"></textarea>
+        </div>
     </div>
 
-    <div>
-        <label for="batch_id">批次号 (Batch ID):</label>
-        <input type="text" id="batch_id" placeholder="自动生成或用于批次管理">
+    <div class="table-container">
+        <h2>最近采购记录</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>采购ID</th>
+                    <th>订单号</th>
+                    <th>采购日期</th>
+                    <th>包材名称</th>
+                    <th>袋数</th>
+                    <th>总件数</th>
+                    <th>总金额</th>
+                    <th>供应商</th>   <!-- 新增 -->
+                    <th>备注</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr class="record-row"
+                    data-purchase-id="{{ row['purchase_id'] }}"
+                    data-order-id="{{ row['order_id'] or '' }}"
+                    data-purchase-date="{{ row['purchase_date'] or '' }}"
+                    data-pack-item-name="{{ row['pack_item_name'] or '' }}"
+                    data-bag-count="{{ row['bag_count'] or '' }}"
+                    data-total-qty="{{ row['total_qty'] or '' }}"
+                    data-total-amount="{{ row['total_amount'] or '' }}"
+                    data-batch-id="{{ row['batch_id'] or '' }}"
+                    data-supplier-name="{{ row['supplier_name'] or '' }}"
+                    data-notes="{{ row['notes'] or '' }}"
+                    data-unit-price="{% if row['total_qty'] and row['total_amount'] %}{{ (row['total_amount'] / row['total_qty']) | round(4) }}{% else %}0{% endif %}">
+                    <td>{{ row['purchase_id'] }}</td>
+                    <td>{{ row['order_id'] }}</td>
+                    <td>{{ row['purchase_date'] }}</td>
+                    <td>{{ row['pack_item_name'] }}</td>
+                    <td>{{ row['bag_count'] }}</td>
+                    <td>{{ row['total_qty'] }}</td>
+                    <td>{{ row['total_amount'] }}</td>
+                    <td>{{ row['supplier_name'] }}</td>  <!-- 新增 -->
+                    <td>{{ row['notes'] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 
-    <div>
-        <label for="pack_item_name">包材型号:</label>
-        <input type="text" id="pack_item_name" >
-    </div>
-
-    <div>
-        <label for="per_bag_quantity">每袋件数:</label>
-        <input type="text" id="per_bag_quantity" >
-    </div>
-
-    <div>
-        <label for="bag_count">袋数:</label>
-        <input type="number" id="bag_count" min="0" step="1" placeholder="手工输入袋数">
-    </div>
-
-    <div>
-        <label for="total_quantity">总件数:</label>
-        <input type="text" id="total_quantity" >
-    </div>
-
-    <div>
-        <label for="total_amount">总价:</label>
-        <input type="text" id="total_amount" >
-    </div>
-
-    <div>
-        <label for="unit_price">每件单价:</label>
-        <input type="text" id="unit_price" >
-    </div>
-
-    <div>
-        <label for="supplier_name">供应商:</label>
-        <input type="text" id="supplier_name" list="supplier_list" placeholder="可输入或选择供应商">
-        <datalist id="supplier_list">
-            <option value="福山"></option>
-            <option value="止盈"></option>
-        </datalist>
-    </div>
-
-    <div>
-        <label for="prev_price_change">较前次价格变化:</label>
-        <input type="text" id="prev_price_change" disabled>
-    </div>
-
-    <div>
-        <label for="next_price_change">较后次价格变化:</label>
-        <input type="text" id="next_price_change" disabled>
-    </div>
-
-    <div class="full-width">
-        <label for="notes">备注 / 原始描述:</label>
-        <textarea id="notes" rows="3" class="readonly-note" ></textarea>
-    </div>
-</div>
-
-<div class="table-container">
-<h2>最近采购记录</h2>
-<table>
-<thead>
-<tr>
-<th>采购ID</th>
-<th>订单号</th>
-<th>采购日期</th>
-<th>包材名称</th>
-<th>袋数</th>
-<th>总件数</th>
-<th>总金额</th>
-<th>备注</th>
-</tr>
-</thead>
-<tbody>
-{% for row in rows %}
-<tr>
-<td>{{ row['purchase_id'] }}</td>
-<td>{{ row['order_id'] }}</td>
-<td>{{ row['purchase_date'] }}</td>
-<td>{{ row['pack_item_name'] }}</td>
-<td>{{ row['bag_count'] }}</td>
-<td>{{ row['total_qty'] }}</td>
-<td>{{ row['total_amount'] }}</td>
-<td>{{ row['notes'] }}</td>
-</tr>
-{% endfor %}
-</tbody>
-</table>
-</div>
-
-<script>
-    function toNumber(value) {
-        const n = Number(value);
-        return Number.isFinite(n) ? n : 0;
-    }
-
-    function recalcTotals() {
-        const perBagQuantity = toNumber(document.getElementById('per_bag_quantity').value);
-        const bagCount = toNumber(document.getElementById('bag_count').value);
-        const totalAmount = toNumber(document.getElementById('total_amount').value);
-
-        const totalQuantity = perBagQuantity * bagCount;
-        document.getElementById('total_quantity').value = totalQuantity ? String(totalQuantity) : '';
-
-        if (totalQuantity > 0 && totalAmount > 0) {
-            document.getElementById('unit_price').value = (totalAmount / totalQuantity).toFixed(4);
-        } else {
-            document.getElementById('unit_price').value = '';
-        }
-    }
-
-    function parsePurchaseData() {
-        var inputData = document.getElementById('input_data').value;
-
-        if (!inputData.trim()) {
-            alert("请输入采购记录！");
-            return;
+    <script>
+        function toNumber(value) {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : 0;
         }
 
-        fetch('/purchase/parse_purchase_data', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ data: inputData })
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('网络响应失败');
+        function recalcTotals() {
+            const perBagQuantity = toNumber(document.getElementById('per_bag_quantity').value);
+            const bagCount = toNumber(document.getElementById('bag_count').value);
+            const totalAmount = toNumber(document.getElementById('total_amount').value);
+
+            const totalQuantity = perBagQuantity * bagCount;
+            document.getElementById('total_quantity').value = totalQuantity ? String(totalQuantity) : '';
+
+            if (totalQuantity > 0 && totalAmount > 0) {
+                document.getElementById('unit_price').value = (totalAmount / totalQuantity).toFixed(4);
+            } else {
+                document.getElementById('unit_price').value = '';
             }
-            return response.json();
-        })
-        .then(data => {
-            if (!data || data.success === false) {
-                console.error("后端返回数据格式错误：", data);
-                alert(data && data.message ? data.message : '解析失败');
+        }
+        function clearForm() {
+            document.getElementById('purchase_date').value = '';
+            document.getElementById('order_id').value = '';
+            document.getElementById('batch_id').value = '';
+            document.getElementById('pack_item_name').value = '';
+            document.getElementById('per_bag_quantity').value = '';
+            document.getElementById('bag_count').value = '';
+            document.getElementById('total_quantity').value = '';
+            document.getElementById('total_amount').value = '';
+            document.getElementById('unit_price').value = '';
+            document.getElementById('supplier_name').value = '';
+            document.getElementById('notes').value = '';
+            document.getElementById('prev_price_change').value = '';
+            document.getElementById('next_price_change').value = '';
+            document.getElementById('purchase_id').value = '';   // 新增
+        }
+        function parsePurchaseData() {
+
+            var inputData = document.getElementById('input_data').value;
+            clearForm();  // 先清空表单
+            if (!inputData.trim()) {
+                alert("请输入采购记录！");
                 return;
             }
 
-            document.getElementById('input_data').value = data.remaining_text || '';
-            document.getElementById('purchase_date').value = data.purchase_date || '';
-            document.getElementById('order_id').value = data.order_no || '';
-            document.getElementById('pack_item_name').value = data.pack_item_name || '';
-            document.getElementById('per_bag_quantity').value = data.piece_qty || '';
-            document.getElementById('total_amount').value = data.total_price || '';
-            document.getElementById('notes').value = data.remark || '';
-            document.getElementById('prev_price_change').value = '';
-            document.getElementById('next_price_change').value = '';
-            recalcTotals();
-        })
-        .catch(error => {
-            console.error('请求失败:', error);
-            alert('请求失败，请重试');
-        });
-    }
-    function submitPurchase(payload) {
-        return fetch('/purchase/submit_purchase', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        })
-        .then(response => {
-            return response.json().then(data => ({ ok: response.ok, data }));
-        });
-    }
-
-document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('parse_btn').addEventListener('click', parsePurchaseData);
-    document.getElementById('submit_btn').addEventListener('click', function() {
-        const payload = {
-            purchase_date: document.getElementById('purchase_date').value.trim(),
-            order_id: document.getElementById('order_id').value.trim(),
-            batch_id: document.getElementById('batch_id').value.trim(),
-            pack_item_name: document.getElementById('pack_item_name').value.trim(),
-            per_bag_quantity: document.getElementById('per_bag_quantity').value.trim(),
-            bag_count: document.getElementById('bag_count').value.trim(),
-            total_quantity: document.getElementById('total_quantity').value.trim(),
-            total_amount: document.getElementById('total_amount').value.trim(),
-            supplier_name: document.getElementById('supplier_name').value.trim(),
-            notes: document.getElementById('notes').value.trim()
-        };
-
-        submitPurchase(payload)
-        .then(result => {
-            if (!result.ok || !result.data.success) {
-                if (result.data && result.data.need_create_pack_item && result.data.pack_item_name) {
-                    const confirmed = confirm(`发现新包材型号：${result.data.pack_item_name}，是否立即新增到 pack_item？`);
-                    if (!confirmed) {
+            fetch('/purchase/parse_purchase_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ data: inputData })
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('网络响应失败');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data || data.success === false) {
+                        console.error("后端返回数据格式错误：", data);
+                        alert(data && data.message ? data.message : '解析失败');
                         return;
                     }
 
-                    return fetch('/purchase/add_pack_item', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ pack_item_name: result.data.pack_item_name })
-                    })
-                    .then(response => {
-                        return response.json().then(data => ({ ok: response.ok, data }));
-                    })
-                    .then(addResult => {
-                        if (!addResult.ok || !addResult.data.success) {
-                            alert(addResult.data.message || '新增包材失败');
-                            return null;
-                        }
+                    document.getElementById('input_data').value = data.remaining_text || '';
+                    document.getElementById('purchase_date').value = data.purchase_date || '';
+                    document.getElementById('order_id').value = data.order_no || '';
+                    document.getElementById('pack_item_name').value = data.pack_item_name || '';
+                    document.getElementById('per_bag_quantity').value = data.piece_qty || '';
+                    document.getElementById('total_amount').value = data.total_price || '';
+                    document.getElementById('notes').value = data.remark || '';
+                    document.getElementById('prev_price_change').value = '';
+                    document.getElementById('next_price_change').value = '';
+                    recalcTotals();
+                })
+                .catch(error => {
+                    console.error('请求失败:', error);
+                    alert('请求失败，请重试');
+                });
+        }
 
-                        payload.pack_item_name = addResult.data.pack_item_name || payload.pack_item_name;
-                        document.getElementById('pack_item_name').value = payload.pack_item_name;
-                        return submitPurchase(payload);
-                    })
-                    .then(retryResult => {
-                        if (!retryResult) {
-                            return;
-                        }
+        function clearRowSelection() {
+            document.querySelectorAll('.record-row.selected').forEach(row => {
+                row.classList.remove('selected');
+            });
+        }
 
-                        if (!retryResult.ok || !retryResult.data.success) {
-                            alert(retryResult.data.message || '提交失败');
-                            return;
-                        }
+        function fillFormFromRow(row) {
+            const orderId = row.dataset.orderId || '';
+            const purchaseDate = row.dataset.purchaseDate || '';
+            const batchId = row.dataset.batchId || '';
+            const packItemName = row.dataset.packItemName || '';
+            const bagCount = row.dataset.bagCount || '';
+            const totalQty = row.dataset.totalQty || '';
+            const totalAmount = row.dataset.totalAmount || '';
+            const supplierName = row.dataset.supplierName || '';
+            const notes = row.dataset.notes || '';
 
-                        if (retryResult.data.order_id) {
-                            document.getElementById('order_id').value = retryResult.data.order_id;
-                        }
+            document.getElementById('order_id').value = orderId;
+            document.getElementById('purchase_date').value = purchaseDate;
+            document.getElementById('batch_id').value = batchId;
+            document.getElementById('pack_item_name').value = packItemName;
+            document.getElementById('bag_count').value = bagCount;
+            document.getElementById('total_quantity').value = totalQty;
+            document.getElementById('total_amount').value = totalAmount;
+            document.getElementById('supplier_name').value = supplierName;
+            document.getElementById('notes').value = notes;
+            document.getElementById('purchase_id').value = row.dataset.purchaseId || '';  // 新增
 
-                        if (retryResult.data.batch_id) {
-                            document.getElementById('batch_id').value = retryResult.data.batch_id;
-                        }
+            // 根据总件数和袋数反推每袋件数
+            const qtyNum = Number(totalQty);
+            const bagNum = Number(bagCount);
+            if (qtyNum > 0 && bagNum > 0) {
+                document.getElementById('per_bag_quantity').value = String(qtyNum / bagNum);
+            } else {
+                document.getElementById('per_bag_quantity').value = '';
+            }
 
-                        alert(retryResult.data.message || '采购记录提交成功');
-                        window.location.reload();
-                    });
+            // 重新计算单价
+            recalcTotals();
+        }
+        function updatePriceChange(currentRow) {
+    const currentPrice = parseFloat(currentRow.dataset.unitPrice) || 0;
+    const currentDate = new Date(currentRow.dataset.purchaseDate);
+
+    let prevRowDate = null;
+    let nextRowDate = null;
+    let prevPrice = null;
+    let nextPrice = null;
+
+    document.querySelectorAll('.record-row').forEach(row => {
+        if (row.dataset.packItemName === currentRow.dataset.packItemName) {
+            const price = parseFloat(row.dataset.unitPrice);
+            const date = new Date(row.dataset.purchaseDate);
+
+            // 寻找最近的前一条
+            if (date < currentDate) {
+                if (!prevRowDate || date > prevRowDate) {
+                    prevRowDate = date;
+                    prevPrice = price;
                 }
-
-                alert(result.data.message || '提交失败');
-                return;
             }
-
-            if (result.data.order_id) {
-                document.getElementById('order_id').value = result.data.order_id;
+            // 寻找最近的后一条
+            if (date > currentDate) {
+                if (!nextRowDate || date < nextRowDate) {
+                    nextRowDate = date;
+                    nextPrice = price;
+                }
             }
-
-            if (result.data.batch_id) {
-                document.getElementById('batch_id').value = result.data.batch_id;
-            }
-
-            alert(result.data.message || '提交成功');
-            window.location.reload();
-        })
-        .catch(error => {
-            console.error('提交失败:', error);
-            alert('提交失败，请检查后端接口或网络');
-        });
-    });
-    
-    document.getElementById('bag_count').addEventListener('input', recalcTotals);
-    document.getElementById('per_bag_quantity').addEventListener('input', recalcTotals);
-    document.getElementById('total_amount').addEventListener('input', recalcTotals);
-
-    document.getElementById('total_quantity').addEventListener('input', function() {
-        const totalQuantity = toNumber(document.getElementById('total_quantity').value);
-        const totalAmount = toNumber(document.getElementById('total_amount').value);
-
-        if (totalQuantity > 0 && totalAmount > 0) {
-            document.getElementById('unit_price').value = (totalAmount / totalQuantity).toFixed(4);
-        } else {
-            document.getElementById('unit_price').value = '';
         }
     });
-});
-</script>
+
+    const prevChange = prevPrice !== null ? (currentPrice - prevPrice).toFixed(4) : '';
+    const nextChange = nextPrice !== null ? (nextPrice - currentPrice).toFixed(4) : '';
+    document.getElementById('prev_price_change').value = prevChange;
+    document.getElementById('next_price_change').value = nextChange;
+}
+        function submitPurchase(payload) {
+            return fetch('/purchase/submit_purchase', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            })
+                .then(response => {
+                    return response.json().then(data => ({ ok: response.ok, data }));
+                });
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            document.getElementById('parse_btn').addEventListener('click', parsePurchaseData);
+            document.querySelectorAll('.record-row').forEach(row => {
+                row.addEventListener('click', function () {
+                    clearRowSelection();
+                    this.classList.add('selected');
+                    fillFormFromRow(this);
+                    updatePriceChange(this); // 计算前/后价格差并填入相应输入框
+                });
+            });
+            document.getElementById('submit_btn').addEventListener('click', function () {
+                const payload = {
+                    purchase_date: document.getElementById('purchase_date').value.trim(),
+                    order_id: document.getElementById('order_id').value.trim(),
+                    batch_id: document.getElementById('batch_id').value.trim(),
+                    pack_item_name: document.getElementById('pack_item_name').value.trim(),
+                    per_bag_quantity: document.getElementById('per_bag_quantity').value.trim(),
+                    bag_count: document.getElementById('bag_count').value.trim(),
+                    total_quantity: document.getElementById('total_quantity').value.trim(),
+                    total_amount: document.getElementById('total_amount').value.trim(),
+                    supplier_name: document.getElementById('supplier_name').value.trim(),
+                    notes: document.getElementById('notes').value.trim(),
+                    purchase_id: document.getElementById('purchase_id').value.trim()  // 新增这一行
+                };
+
+                submitPurchase(payload)
+                    .then(result => {
+                        if (!result.ok || !result.data.success) {
+                            if (result.data && result.data.need_create_pack_item && result.data.pack_item_name) {
+                                const confirmed = confirm(`发现新包材型号：${result.data.pack_item_name}，是否立即新增到 pack_item？`);
+                                if (!confirmed) {
+                                    return;
+                                }
+
+                                return fetch('/purchase/add_pack_item', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({ pack_item_name: result.data.pack_item_name })
+                                })
+                                    .then(response => {
+                                        return response.json().then(data => ({ ok: response.ok, data }));
+                                    })
+                                    .then(addResult => {
+                                        if (!addResult.ok || !addResult.data.success) {
+                                            alert(addResult.data.message || '新增包材失败');
+                                            return null;
+                                        }
+
+                                        payload.pack_item_name = addResult.data.pack_item_name || payload.pack_item_name;
+                                        document.getElementById('pack_item_name').value = payload.pack_item_name;
+                                        return submitPurchase(payload);
+                                    })
+                                    .then(retryResult => {
+                                        if (!retryResult) {
+                                            return;
+                                        }
+
+                                        if (!retryResult.ok || !retryResult.data.success) {
+                                            alert(retryResult.data.message || '提交失败');
+                                            return;
+                                        }
+
+                                        if (retryResult.data.order_id) {
+                                            document.getElementById('order_id').value = retryResult.data.order_id;
+                                        }
+
+                                        if (retryResult.data.batch_id) {
+                                            document.getElementById('batch_id').value = retryResult.data.batch_id;
+                                        }
+
+                                        alert(retryResult.data.message || '采购记录提交成功');
+                                        window.location.reload();
+                                    });
+                            }
+
+                            alert(result.data.message || '提交失败');
+                            return;
+                        }
+
+                        if (result.data.order_id) {
+                            document.getElementById('order_id').value = result.data.order_id;
+                        }
+
+                        if (result.data.batch_id) {
+                            document.getElementById('batch_id').value = result.data.batch_id;
+                        }
+
+                        alert(result.data.message || '提交成功');
+                        window.location.reload();
+                    })
+                    .catch(error => {
+                        console.error('提交失败:', error);
+                        alert('提交失败，请检查后端接口或网络');
+                    });
+            });
+
+            document.getElementById('bag_count').addEventListener('input', recalcTotals);
+            document.getElementById('per_bag_quantity').addEventListener('input', recalcTotals);
+            document.getElementById('total_amount').addEventListener('input', recalcTotals);
+
+            document.getElementById('total_quantity').addEventListener('input', function () {
+                const totalQuantity = toNumber(document.getElementById('total_quantity').value);
+                const totalAmount = toNumber(document.getElementById('total_amount').value);
+
+                if (totalQuantity > 0 && totalAmount > 0) {
+                    document.getElementById('unit_price').value = (totalAmount / totalQuantity).toFixed(4);
+                } else {
+                    document.getElementById('unit_price').value = '';
+                }
+            });
+        });
+    </script>
 
 </body>
+
 </html>
