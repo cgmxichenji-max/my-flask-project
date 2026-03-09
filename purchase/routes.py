@@ -3,7 +3,6 @@ import sqlite3
 import os
 import re
 from datetime import datetime
-import random
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_FILE = os.path.join(BASE_DIR, "data", "packaging.db")
@@ -18,23 +17,91 @@ def get_db_connection():
     return conn
 
 
-def generate_purchase_order_id():
-    """当订单号为空时，自动生成采购订单号"""
-    now_str = datetime.now().strftime('%Y%m%d%H%M%S')
-    rand_str = f"{random.randint(0, 999):03d}"
-    return f"PCG{now_str}{rand_str}"
+# ===== 通用辅助 =====
+def normalize_pack_item_name(raw_name: str) -> str:
+    """把原始包材描述归一为系统内部使用的型号名"""
+    name = (raw_name or '').strip()
+    if not name:
+        return ''
+
+    mapping = {
+        '半高6号': '6.5',
+        '半高7号': '7.5',
+        '半高8号': '8.5',
+        '半高9号': '9.5',
+        '半高10号': '10.5',
+        '半高11号': '11.5',
+    }
+    return mapping.get(name, name)
+
+
+def extract_pack_item_candidate(item_desc: str) -> str:
+    """从采购描述中提取候选包材名"""
+    item_desc = (item_desc or '').strip()
+    if not item_desc:
+        return ''
+
+    # 先按括号 / 分号截断
+    candidate = re.split(r'[（(;；]', item_desc, maxsplit=1)[0].strip()
+
+    # 如果还有空格，例如：缠绕膜 年货发货使用 / 气泡柱 透明
+    # 先取第一个词，避免把备注一起当成型号
+    if ' ' in candidate:
+        candidate = candidate.split()[0].strip()
+
+    return normalize_pack_item_name(candidate)
+
+
+def get_all_pack_item_names(conn):
+    rows = conn.execute(
+        "SELECT name FROM pack_item ORDER BY sort_no, pack_item_id"
+    ).fetchall()
+    return [row['name'].strip() for row in rows if (row['name'] or '').strip()]
 
 
 def get_pack_item_id_by_name(conn, pack_item_name):
-    """根据包材名称查找 pack_item_id"""
     row = conn.execute(
         "SELECT pack_item_id FROM pack_item WHERE name = ? LIMIT 1",
         (pack_item_name,)
     ).fetchone()
-    return row["pack_item_id"] if row else None
+    return row['pack_item_id'] if row else None
 
 
-# 渲染采购页面
+def generate_purchase_order_id():
+    """订单号为空时自动生成"""
+    now_str = datetime.now().strftime('%Y%m%d%H%M%S')
+    return f"PCG{now_str}"
+
+
+def generate_batch_id(conn):
+    """自动生成采购批次号：PBYYYYMMDD-001"""
+    today_str = datetime.now().strftime('%Y%m%d')
+    prefix = f"PB{today_str}-"
+
+    row = conn.execute(
+        """
+        SELECT batch_id
+        FROM purchase_record
+        WHERE batch_id LIKE ?
+        ORDER BY batch_id DESC
+        LIMIT 1
+        """,
+        (f"{prefix}%",)
+    ).fetchone()
+
+    if not row or not row['batch_id']:
+        seq = 1
+    else:
+        last_batch_id = row['batch_id']
+        try:
+            seq = int(last_batch_id.split('-')[-1]) + 1
+        except Exception:
+            seq = 1
+
+    return f"{prefix}{seq:03d}"
+
+
+# ===== 页面 =====
 @purchase_bp.route('/')
 def purchase():
     print("进入 /purchase/ 路由")
@@ -48,6 +115,8 @@ def purchase():
                    pr.bag_count,
                    pr.total_quantity AS total_qty,
                    pr.total_amount,
+                   pr.batch_id,
+                   pr.supplier_name,
                    pr.notes
             FROM purchase_record pr
             LEFT JOIN pack_item pi ON pr.pack_item_id = pi.pack_item_id
@@ -60,7 +129,7 @@ def purchase():
     return render_template('purchase.html', rows=rows)
 
 
-# 解析采购数据
+# ===== 解析采购数据 =====
 @purchase_bp.route('/parse_purchase_data', methods=['POST'])
 def parse_purchase_data():
     data = request.get_json() or {}
@@ -73,7 +142,6 @@ def parse_purchase_data():
             'message': '没有可解析的数据'
         }), 400
 
-    # 拆成多行，取第一条非空行
     lines = [line.strip() for line in input_data.splitlines() if line.strip()]
     if not lines:
         return jsonify({
@@ -83,8 +151,6 @@ def parse_purchase_data():
 
     first_line = lines[0]
     remaining_text = '\n'.join(lines[1:])
-
-    # 按制表符拆分
     parts = first_line.split('\t')
 
     purchase_date = parts[0].strip() if len(parts) > 0 else ''
@@ -92,46 +158,30 @@ def parse_purchase_data():
     item_desc = parts[2].strip() if len(parts) > 2 else ''
     total_price = parts[4].strip() if len(parts) > 4 else ''
 
-    # 默认值
-    pack_item_name = ''
     piece_qty = ''
     remark = item_desc
 
-    # 提取每袋件数，例如 400个、300个、100个
     qty_match = re.search(r'(\d+)\s*个', item_desc)
     if qty_match:
         piece_qty = qty_match.group(1)
 
-    # 提取包材型号（基础版）
-    if item_desc.startswith('半高9号'):
-        pack_item_name = '9.5'
-    elif item_desc.startswith('半高10号'):
-        pack_item_name = '10.5'
-    elif item_desc.startswith('半高11号'):
-        pack_item_name = '11.5'
-    elif item_desc.startswith('半高7号'):
-        pack_item_name = '7.5'
-    elif item_desc.startswith('半高6号'):
-        pack_item_name = '6.5'
-    elif item_desc.startswith('10号'):
-        pack_item_name = '10'
-    elif item_desc.startswith('8号'):
-        pack_item_name = '8'
-    elif item_desc.startswith('6号'):
-        pack_item_name = '6'
-    elif item_desc.startswith('5号'):
-        pack_item_name = '5'
-    elif item_desc.startswith('缠绕膜'):
-        pack_item_name = '缠绕膜'
-    elif item_desc.startswith('气泡柱'):
-        pack_item_name = '气泡柱'
-    elif item_desc.startswith('气泡袋'):
-        pack_item_name = '气泡袋'
-    else:
-        pack_item_name = item_desc.split('(')[0].split('（')[0].strip()
+    pack_item_name = extract_pack_item_candidate(item_desc)
+
+    conn = get_db_connection()
+    try:
+        known_names = get_all_pack_item_names(conn)
+        pack_item_exists = pack_item_name in known_names
+    finally:
+        conn.close()
+
+    message = '解析成功'
+    if pack_item_name and not pack_item_exists:
+        message = f'发现新包材型号：{pack_item_name}，请先新增到 pack_item。'
 
     return jsonify({
         'success': True,
+        'message': message,
+        'pack_item_exists': pack_item_exists,
         'remaining_text': remaining_text,
         'purchase_date': purchase_date,
         'order_no': order_no,
@@ -142,7 +192,76 @@ def parse_purchase_data():
     })
 
 
-# 提交采购数据并写入数据库
+# ===== 直接新增包材 =====
+@purchase_bp.route('/add_pack_item', methods=['POST'])
+def add_pack_item():
+    data = request.get_json() or {}
+    pack_item_name = normalize_pack_item_name((data.get('pack_item_name') or '').strip())
+
+    if not pack_item_name:
+        return jsonify({
+            'success': False,
+            'message': '包材名称不能为空'
+        }), 400
+
+    conn = get_db_connection()
+    try:
+        # 已存在则直接返回
+        existing = conn.execute(
+            "SELECT pack_item_id, name FROM pack_item WHERE name = ? LIMIT 1",
+            (pack_item_name,)
+        ).fetchone()
+
+        if existing:
+            return jsonify({
+                'success': True,
+                'message': f'包材已存在：{existing["name"]}',
+                'pack_item_id': existing['pack_item_id'],
+                'pack_item_name': existing['name'],
+                'already_exists': True
+            })
+
+        # 新建 sort_no
+        row = conn.execute("SELECT COALESCE(MAX(sort_no), 0) + 1 AS next_sort_no FROM pack_item").fetchone()
+        next_sort_no = row['next_sort_no'] if row else 1
+
+        conn.execute(
+            """
+            INSERT INTO pack_item (name, sort_no, is_active)
+            VALUES (?, ?, 1)
+            """,
+            (pack_item_name, next_sort_no)
+        )
+        conn.commit()
+
+        new_row = conn.execute(
+            "SELECT pack_item_id, name FROM pack_item WHERE name = ? LIMIT 1",
+            (pack_item_name,)
+        ).fetchone()
+
+        return jsonify({
+            'success': True,
+            'message': f'新包材已新增：{pack_item_name}',
+            'pack_item_id': new_row['pack_item_id'],
+            'pack_item_name': new_row['name'],
+            'already_exists': False
+        })
+
+    except sqlite3.IntegrityError:
+        return jsonify({
+            'success': False,
+            'message': f'包材已存在或名称重复：{pack_item_name}'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'新增包材失败：{str(e)}'
+        }), 500
+    finally:
+        conn.close()
+
+
+# ===== 提交采购数据 =====
 @purchase_bp.route('/submit_purchase', methods=['POST'])
 def submit_purchase():
     data = request.get_json() or {}
@@ -150,7 +269,7 @@ def submit_purchase():
     purchase_date = (data.get('purchase_date') or '').strip()
     order_id = (data.get('order_id') or '').strip()
     batch_id = (data.get('batch_id') or '').strip()
-    pack_item_name = (data.get('pack_item_name') or '').strip()
+    pack_item_name = normalize_pack_item_name((data.get('pack_item_name') or '').strip())
     supplier_name = (data.get('supplier_name') or '').strip()
     notes = (data.get('notes') or '').strip()
 
@@ -164,6 +283,9 @@ def submit_purchase():
 
     if not pack_item_name:
         return jsonify({'success': False, 'message': '包材型号不能为空'}), 400
+
+    if not supplier_name:
+        return jsonify({'success': False, 'message': '供应商不能为空'}), 400
 
     try:
         bag_count = int(float(bag_count_raw)) if bag_count_raw else 0
@@ -180,7 +302,7 @@ def submit_purchase():
     except ValueError:
         return jsonify({'success': False, 'message': '总价格式不正确'}), 400
 
-    # 如果前端没有先算出总件数，后端兜底再算一次
+    # 如果前端没算出总件数，后端兜底
     if total_quantity <= 0 and bag_count > 0 and per_bag_quantity_raw:
         try:
             per_bag_quantity = int(float(per_bag_quantity_raw))
@@ -188,15 +310,22 @@ def submit_purchase():
         except ValueError:
             return jsonify({'success': False, 'message': '每袋件数格式不正确'}), 400
 
-    # 订单号为空时自动生成
     if not order_id:
         order_id = generate_purchase_order_id()
 
     conn = get_db_connection()
     try:
+        if not batch_id:
+            batch_id = generate_batch_id(conn)
+
         pack_item_id = get_pack_item_id_by_name(conn, pack_item_name)
         if not pack_item_id:
-            return jsonify({'success': False, 'message': f'未找到对应包材：{pack_item_name}'}), 400
+            return jsonify({
+                'success': False,
+                'message': f'未找到包材型号：{pack_item_name}。请先新增到 pack_item 后再提交。',
+                'need_create_pack_item': True,
+                'pack_item_name': pack_item_name
+            }), 400
 
         conn.execute("""
             INSERT INTO purchase_record (

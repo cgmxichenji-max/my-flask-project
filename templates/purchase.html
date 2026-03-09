@@ -104,6 +104,11 @@ table th {
     </div>
 
     <div>
+        <label for="batch_id">批次号 (Batch ID):</label>
+        <input type="text" id="batch_id" placeholder="自动生成或用于批次管理">
+    </div>
+
+    <div>
         <label for="pack_item_name">包材型号:</label>
         <input type="text" id="pack_item_name" >
     </div>
@@ -255,12 +260,108 @@ table th {
             alert('请求失败，请重试');
         });
     }
+    function submitPurchase(payload) {
+        return fetch('/purchase/submit_purchase', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(response => {
+            return response.json().then(data => ({ ok: response.ok, data }));
+        });
+    }
 
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('parse_btn').addEventListener('click', parsePurchaseData);
     document.getElementById('submit_btn').addEventListener('click', function() {
-        alert('提交按钮已连接，下一步需要接后端保存逻辑。');
+        const payload = {
+            purchase_date: document.getElementById('purchase_date').value.trim(),
+            order_id: document.getElementById('order_id').value.trim(),
+            batch_id: document.getElementById('batch_id').value.trim(),
+            pack_item_name: document.getElementById('pack_item_name').value.trim(),
+            per_bag_quantity: document.getElementById('per_bag_quantity').value.trim(),
+            bag_count: document.getElementById('bag_count').value.trim(),
+            total_quantity: document.getElementById('total_quantity').value.trim(),
+            total_amount: document.getElementById('total_amount').value.trim(),
+            supplier_name: document.getElementById('supplier_name').value.trim(),
+            notes: document.getElementById('notes').value.trim()
+        };
+
+        submitPurchase(payload)
+        .then(result => {
+            if (!result.ok || !result.data.success) {
+                if (result.data && result.data.need_create_pack_item && result.data.pack_item_name) {
+                    const confirmed = confirm(`发现新包材型号：${result.data.pack_item_name}，是否立即新增到 pack_item？`);
+                    if (!confirmed) {
+                        return;
+                    }
+
+                    return fetch('/purchase/add_pack_item', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ pack_item_name: result.data.pack_item_name })
+                    })
+                    .then(response => {
+                        return response.json().then(data => ({ ok: response.ok, data }));
+                    })
+                    .then(addResult => {
+                        if (!addResult.ok || !addResult.data.success) {
+                            alert(addResult.data.message || '新增包材失败');
+                            return null;
+                        }
+
+                        payload.pack_item_name = addResult.data.pack_item_name || payload.pack_item_name;
+                        document.getElementById('pack_item_name').value = payload.pack_item_name;
+                        return submitPurchase(payload);
+                    })
+                    .then(retryResult => {
+                        if (!retryResult) {
+                            return;
+                        }
+
+                        if (!retryResult.ok || !retryResult.data.success) {
+                            alert(retryResult.data.message || '提交失败');
+                            return;
+                        }
+
+                        if (retryResult.data.order_id) {
+                            document.getElementById('order_id').value = retryResult.data.order_id;
+                        }
+
+                        if (retryResult.data.batch_id) {
+                            document.getElementById('batch_id').value = retryResult.data.batch_id;
+                        }
+
+                        alert(retryResult.data.message || '采购记录提交成功');
+                        window.location.reload();
+                    });
+                }
+
+                alert(result.data.message || '提交失败');
+                return;
+            }
+
+            if (result.data.order_id) {
+                document.getElementById('order_id').value = result.data.order_id;
+            }
+
+            if (result.data.batch_id) {
+                document.getElementById('batch_id').value = result.data.batch_id;
+            }
+
+            alert(result.data.message || '提交成功');
+            window.location.reload();
+        })
+        .catch(error => {
+            console.error('提交失败:', error);
+            alert('提交失败，请检查后端接口或网络');
+        });
     });
+    
     document.getElementById('bag_count').addEventListener('input', recalcTotals);
     document.getElementById('per_bag_quantity').addEventListener('input', recalcTotals);
     document.getElementById('total_amount').addEventListener('input', recalcTotals);
