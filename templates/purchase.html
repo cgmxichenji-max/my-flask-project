@@ -8,7 +8,7 @@
 body { font-family: "Microsoft YaHei", Arial, sans-serif; margin:30px; line-height:1.6; }
 h1 { font-size:24px; margin-bottom:20px; text-align:center; }
 textarea { width:100%; font-family: monospace; margin-bottom:10px; }
-button { padding:10px 20px; font-size:16px; cursor:pointer; }
+
 .table-container { overflow:auto; max-height:400px; margin-top:20px; }
 
 label { display: block; margin-bottom: 8px; }
@@ -40,6 +40,15 @@ label { display: block; margin-bottom: 8px; }
     background-color: #f7f7f7;
 }
 
+.action-buttons {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.action-buttons button {
+    margin-top: 0;
+}
 button {
     margin-top: 10px;
     padding: 10px 20px;
@@ -77,7 +86,11 @@ table th {
 <h1>采购入库</h1>
 
 <textarea id="input_data" rows="10" placeholder="粘贴多行采购记录，每行如：2026/01/21 13:50	5025318013309559238	10号(175x95x115mm)300个;三层空白【超硬】SS	包材	528.00"></textarea>
-<button id="parse_btn">解析</button>
+
+<div class="action-buttons">
+    <button id="parse_btn">解析</button>
+    <button id="submit_btn" type="button">提交</button>
+</div>
 
 <div id="parsed_data">
     <div>
@@ -245,6 +258,9 @@ table th {
 
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('parse_btn').addEventListener('click', parsePurchaseData);
+    document.getElementById('submit_btn').addEventListener('click', function() {
+        alert('提交按钮已连接，下一步需要接后端保存逻辑。');
+    });
     document.getElementById('bag_count').addEventListener('input', recalcTotals);
     document.getElementById('per_bag_quantity').addEventListener('input', recalcTotals);
     document.getElementById('total_amount').addEventListener('input', recalcTotals);

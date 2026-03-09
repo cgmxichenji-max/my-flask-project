@@ -1,5 +1,6 @@
 # my-flask-project
 A simple Flask web application
+这是一次测试编辑：如果你现在能看到这句话，说明本次写入成功。
 # 包材库存管理系统
 
 这是一个用于管理 **包材库存** 的 Flask 小型系统，用于记录和管理包装材料的采购、库存和相关信息。
