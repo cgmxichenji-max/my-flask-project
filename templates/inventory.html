@@ -27,8 +27,8 @@
         }
 
         .form-container form {
-          width: 100%;
-         }
+            width: 100%;
+        }
 
         .form-group {
             display: flex;
@@ -63,17 +63,18 @@
             cursor: pointer;
             flex: 1;
             height: 42px;
+            border-radius: 4px;
         }
 
         .submit-btn:hover {
             background-color: #45a049;
         }
 
-              .action-buttons {
-          display: flex;
-          gap: 10px;
-          width: 100%;
-        } 
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+        }
 
         .analyze-btn {
             background-color: #2196F3;
@@ -84,6 +85,7 @@
             cursor: pointer;
             flex: 1;
             height: 42px;
+            border-radius: 4px;
         }
 
         .analyze-btn:hover {
@@ -120,6 +122,7 @@
         }
 
         .form-group input[type="number"] {
+            appearance: textfield;
             -moz-appearance: textfield;
         }
 
@@ -141,10 +144,10 @@
                 input.value = saved;
             } else {
                 var now = new Date();
-                function pad(n){ return n.toString().padStart(2, '0'); }
+                function pad(n) { return n.toString().padStart(2, '0'); }
                 var datetime =
                     now.getFullYear() + '-' +
-                    pad(now.getMonth()+1) + '-' +
+                    pad(now.getMonth() + 1) + '-' +
                     pad(now.getDate()) + 'T' +
                     pad(now.getHours()) + ':' +
                     pad(now.getMinutes());
@@ -153,7 +156,7 @@
             }
 
             // 保存每次修改的时间
-            input.addEventListener("change", function(){
+            input.addEventListener("change", function () {
                 localStorage.setItem("last_stocktake_ts", input.value);
             });
         });
@@ -165,7 +168,10 @@
     <h1>库存盘点录入</h1>
 
     <div class="form-container">
-        <form method="POST" action="/inventory/add_inventory">
+        <form method="POST"
+              action="/inventory/add_inventory"
+              data-current-pack-item-id='{{ request.args.get("pack_item_id", 0) | tojson }}'
+              data-current-quantity='{{ request.args.get("quantity", 0) | tojson }}'>
             <div class="form-group">
                 <label for="pack_item_id">包材名称:</label>
                 <select id="pack_item_id" name="pack_item_id" required>
@@ -195,12 +201,12 @@
                        required>
             </div>
 
-          <div class="form-group">
-              <div class="action-buttons">
-                  <button type="button" class="analyze-btn">分析</button>
-                  <button type="submit" class="submit-btn">提交</button>
-              </div>
-          </div>
+            <div class="form-group">
+                <div class="action-buttons">
+                    <button type="button" class="analyze-btn">分析</button>
+                    <button type="submit" class="submit-btn">提交</button>
+                </div>
+            </div>
         </form>
     </div>
 
@@ -233,21 +239,22 @@
 
     <script>
         window.addEventListener('DOMContentLoaded', function () {
-            const currentPackItemId = {{ request.args.get('pack_item_id', 0) | tojson }};
-            const currentQuantity = {{ request.args.get('quantity', 0) | tojson }};
-            
+            const form = document.querySelector('.form-container form');
+            const currentPackItemId = Number(form.dataset.currentPackItemId || 0);
+            const currentQuantity = Number(form.dataset.currentQuantity || 0);
+
             if (currentPackItemId && currentQuantity) {
                 const packItemSelect = document.getElementById('pack_item_id');
                 let nextItem = null;
 
                 for (let i = 0; i < packItemSelect.options.length; i++) {
-                    let option = packItemSelect.options[i];
+                    const option = packItemSelect.options[i];
 
-                    if (option.value == currentPackItemId) {
+                    if (Number(option.value) === currentPackItemId) {
                         if (i + 1 < packItemSelect.options.length) {
                             nextItem = packItemSelect.options[i + 1].value;
                         } else {
-                            nextItem = packItemSelect.options[0].value; 
+                            nextItem = packItemSelect.options[0].value;
                         }
                         break;
                     }
