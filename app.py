@@ -12,6 +12,7 @@ from flask import Flask, render_template
 # ===== 导入模块蓝图 =====
 from inventory.routes import inventory_bp   # 库存盘点模块
 from purchase.routes import purchase_bp     # 采购模块
+from stocking.routes import stocking_bp     #操作入库
 
 # ===== 创建 Flask 应用 =====
 app = Flask(__name__)
@@ -21,6 +22,8 @@ app = Flask(__name__)
 app.register_blueprint(inventory_bp, url_prefix='/inventory')
 # /purchase -> 采购入库
 app.register_blueprint(purchase_bp, url_prefix='/purchase')
+# /stockin -> 操作入库
+app.register_blueprint(stocking_bp, url_prefix='/stockin')
 
 
 # ===== 总入口页面 =====

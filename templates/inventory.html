@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>库存盘点录入</title>
+    <title>库存盘点</title>
 
     <style>
         body {
@@ -26,6 +26,10 @@
             margin: 0 auto;
         }
 
+        .form-container form {
+          width: 100%;
+         }
+
         .form-group {
             display: flex;
             flex-direction: column;
@@ -37,12 +41,17 @@
             margin-bottom: 5px;
         }
 
-        .form-group input, .form-group select {
-            padding: 10px;
+        .form-group input,
+        .form-group select {
+            padding: 10px 12px;
             width: 100%;
+            height: 42px;
             font-size: 16px;
             box-sizing: border-box;
             margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #fff;
         }
 
         .submit-btn {
@@ -52,11 +61,33 @@
             border: none;
             font-size: 16px;
             cursor: pointer;
-            width: 100%;
+            flex: 1;
+            height: 42px;
         }
 
         .submit-btn:hover {
             background-color: #45a049;
+        }
+
+              .action-buttons {
+          display: flex;
+          gap: 10px;
+          width: 100%;
+        } 
+
+        .analyze-btn {
+            background-color: #2196F3;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            flex: 1;
+            height: 42px;
+        }
+
+        .analyze-btn:hover {
+            background-color: #1976D2;
         }
 
         table {
@@ -164,9 +195,12 @@
                        required>
             </div>
 
-            <div class="form-group">
-                <button type="submit" class="submit-btn">提交</button>
-            </div>
+          <div class="form-group">
+              <div class="action-buttons">
+                  <button type="button" class="analyze-btn">分析</button>
+                  <button type="submit" class="submit-btn">提交</button>
+              </div>
+          </div>
         </form>
     </div>
 

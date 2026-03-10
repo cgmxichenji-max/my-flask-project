@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>操作入库</title>
+<style>
+    * { box-sizing: border-box; }
+
+    body {
+        font-family: "Microsoft YaHei", Arial, sans-serif;
+        margin: 20px;
+        background: #f5f7fa;
+        color: #333;
+    }
+
+    h1 {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    .page-wrap {
+        max-width: 1600px;
+        margin: 0 auto;
+    }
+
+    .card {
+        background: #fff;
+        border-radius: 10px;
+        padding: 18px;
+        margin-bottom: 18px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+
+    .card h2 {
+        margin-top: 0;
+        margin-bottom: 15px;
+        font-size: 20px;
+        border-left: 5px solid #67c23a;
+        padding-left: 10px;
+    }
+
+    .grid-6 {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 14px;
+    }
+
+    .grid-4 {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+    }
+
+    .field {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .field label {
+        margin-bottom: 6px;
+        font-size: 14px;
+        color: #555;
+        font-weight: 600;
+    }
+
+    .field input,
+    .field textarea,
+    .field select {
+        width: 100%;
+        padding: 9px 10px;
+        border: 1px solid #dcdfe6;
+        border-radius: 6px;
+        font-size: 14px;
+        background: #fff;
+    }
+
+    .field input[readonly] {
+        background: #f2f4f7;
+        color: #666;
+    }
+
+    .field textarea {
+        min-height: 60px;
+        resize: vertical;
+    }
+
+    .full-span {
+        grid-column: 1 / -1;
+    }
+
+    .btn-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+    }
+
+    button {
+        padding: 10px 18px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        font-weight: 600;
+    }
+
+    .btn-main {
+        background: #67c23a;
+        color: #fff;
+    }
+
+    .btn-main:hover {
+        opacity: 0.9;
+    }
+
+    .btn-main:disabled {
+        background: #b7d9a8;
+        color: #f7fff4;
+        cursor: not-allowed;
+        opacity: 1;
+    }
+
+    .filter-row {
+        display: flex;
+        gap: 12px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+
+    .table-wrap {
+        overflow-x: auto;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 1280px;
+        background: #fff;
+    }
+
+    th, td {
+        border: 1px solid #ebeef5;
+        padding: 10px 8px;
+        text-align: center;
+        font-size: 14px;
+        white-space: nowrap;
+    }
+
+    th {
+        background: #f8f9fb;
+        font-weight: 700;
+    }
+
+    tbody tr {
+        cursor: pointer;
+    }
+
+    tbody tr:hover {
+        background: #f5faff;
+    }
+
+    tbody tr.selected-row {
+        background: #e8f3ff;
+    }
+
+    .status-unfinished {
+        color: #e6a23c;
+        font-weight: 700;
+    }
+
+    .status-partial {
+        color: #409eff;
+        font-weight: 700;
+    }
+
+    .status-finished {
+        color: #67c23a;
+        font-weight: 700;
+    }
+
+    .tips {
+        font-size: 13px;
+        color: #888;
+        margin-top: 8px;
+    }
+
+    .hidden {
+        display: none;
+    }
+
+    @media (max-width: 1200px) {
+        .grid-6,
+        .grid-4 {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+
+    @media (max-width: 768px) {
+        .grid-6,
+        .grid-4 {
+            grid-template-columns: repeat(1, 1fr);
+        }
+
+        body {
+            margin: 10px;
+        }
+    }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+    <h1>操作入库</h1>
+
+    <!-- 合并后的信息卡片 -->
+    <div class="card">
+        <h2>当前选中记录</h2>
+        <div class="grid-6">
+            <div class="field">
+                <label>ID</label>
+                <input type="text" id="main_id" value="1001" readonly>
+            </div>
+            <div class="field">
+                <label>日期</label>
+                <input type="text" id="main_date" value="2026-03-10 10:30:00" readonly>
+            </div>
+            <div class="field">
+                <label>订单号</label>
+                <input type="text" id="order_id" value="5095455805184559238" readonly>
+            </div>
+            <div class="field">
+                <label>供应商</label>
+                <input type="text" id="supplier_name" value="上海测试供应商" readonly>
+            </div>
+            <div class="field">
+                <label>包材名称</label>
+                <input type="text" id="pack_item_name" value="半高9号" readonly>
+            </div>
+            <div class="field">
+                <label>规格备注</label>
+                <input type="text" id="spec_note" value="195mmx105mmx66mm" readonly>
+            </div>
+
+            <div class="field">
+                <label>采购总袋数</label>
+                <input type="text" id="purchase_bag_count" value="2" readonly>
+            </div>
+            <div class="field">
+                <label>采购总数量</label>
+                <input type="text" id="purchase_total_quantity" value="800" readonly>
+            </div>
+            <div class="field">
+                <label>已入库袋数</label>
+                <input type="text" id="stocked_bag_sum" value="1" readonly>
+            </div>
+            <div class="field">
+                <label>已入库数量</label>
+                <input type="text" id="stocked_quantity_sum" value="400" readonly>
+            </div>
+            <div class="field">
+                <label>未入库袋数</label>
+                <input type="text" id="remaining_bag" value="1" readonly>
+            </div>
+            <div class="field">
+                <label>未入库数量</label>
+                <input type="text" id="remaining_quantity" value="400" readonly>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 id="action_title">入库操作</h2>
+        <div class="grid-4">
+            <div class="field">
+                <label id="date_label">本次入库日期</label>
+                <input type="text" id="in_date" value="2026-03-10 11:00:00">
+            </div>
+            <div class="field">
+                <label>袋数（bag）</label>
+                <input type="number" id="bag" value="1" min="0">
+            </div>
+            <div class="field">
+                <label>数量（quantity）</label>
+                <input type="number" id="quantity" value="400" min="0">
+            </div>
+            <div class="field">
+                <label>打印张数</label>
+                <input type="number" id="label_copies" value="1" min="0">
+            </div>
+
+            <div class="field full-span">
+                <label>备注</label>
+                <textarea id="notes" placeholder="可填写本次入库说明、异常情况、补打标签原因等"></textarea>
+            </div>
+        </div>
+
+        <div class="btn-row">
+            <button class="btn-main" id="submit_btn" type="button">提交</button>
+            <button class="btn-main" id="print_btn" type="button">打印</button>
+        </div>
+
+        <div class="tips" id="mode_tip">
+            当前为待入库模式：选中记录后，可提交入库，也可按当前内容打印。
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>采购 / 入库列表</h2>
+
+        <div class="filter-row">
+            <div class="field" style="width: 220px;">
+                <label>显示范围</label>
+                <select id="view_mode">
+                    <option value="pending" selected>显示待入库</option>
+                    <option value="stocked">显示已入库</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="table-wrap" id="pending_table_wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>采购ID</th>
+                        <th>采购日期</th>
+                        <th>订单号</th>
+                        <th>供应商</th>
+                        <th>包材名称</th>
+                        <th>采购总袋数</th>
+                        <th>采购总数量</th>
+                        <th>已入库袋数</th>
+                        <th>已入库数量</th>
+                        <th>未入库袋数</th>
+                        <th>未入库数量</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody id="pending_tbody"></tbody>
+            </table>
+        </div>
+
+        <div class="table-wrap hidden" id="stocked_table_wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>入库ID</th>
+                        <th>采购ID</th>
+                        <th>入库日期</th>
+                        <th>订单号</th>
+                        <th>供应商</th>
+                        <th>包材名称</th>
+                        <th>袋数</th>
+                        <th>数量</th>
+                        <th>打印张数</th>
+                        <th>最后打印时间</th>
+                    </tr>
+                </thead>
+                <tbody id="stocked_tbody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    const viewMode = document.getElementById("view_mode");
+    const pendingWrap = document.getElementById("pending_table_wrap");
+    const stockedWrap = document.getElementById("stocked_table_wrap");
+    const pendingTbody = document.getElementById("pending_tbody");
+    const stockedTbody = document.getElementById("stocked_tbody");
+    const bagInput = document.getElementById("bag");
+    const labelCopiesInput = document.getElementById("label_copies");
+    const actionTitle = document.getElementById("action_title");
+    const dateLabel = document.getElementById("date_label");
+    const modeTip = document.getElementById("mode_tip");
+    const submitBtn = document.getElementById("submit_btn");
+    const printBtn = document.getElementById("print_btn");
+    const inDateInput = document.getElementById("in_date");
+    const quantityInput = document.getElementById("quantity");
+    const purchaseTotalQuantityInput = document.getElementById("purchase_total_quantity");
+    const stockedQuantitySumInput = document.getElementById("stocked_quantity_sum");
+    const remainingBagInput = document.getElementById("remaining_bag");
+    let currentMode = "pending";
+
+    function setInputValue(id, value) {
+        document.getElementById(id).value = value ?? "";
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    function getNowString() {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
+        const hours = String(now.getHours()).padStart(2, "0");
+        const minutes = String(now.getMinutes()).padStart(2, "0");
+        const seconds = String(now.getSeconds()).padStart(2, "0");
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    }
+
+    function updateButtonState(mode) {
+        if (mode === "pending") {
+            submitBtn.disabled = false;
+            printBtn.disabled = true;
+        } else {
+            submitBtn.disabled = true;
+            printBtn.disabled = false;
+        }
+    }
+
+    function recalcQuantityFromBag() {
+        if (currentMode !== "pending") return;
+
+        const purchaseTotalQuantity = Number(purchaseTotalQuantityInput.value || 0);
+        const stockedQuantitySum = Number(stockedQuantitySumInput.value || 0);
+        const remainingBag = Number(remainingBagInput.value || 0);
+        const bag = Number(bagInput.value || 0);
+
+        const remainingQuantity = Math.max(0, purchaseTotalQuantity - stockedQuantitySum);
+        if (remainingBag <= 0) {
+            quantityInput.value = "0";
+            return;
+        }
+
+        const perBagQuantity = remainingQuantity / remainingBag;
+        const newQuantity = Math.round(perBagQuantity * bag);
+        quantityInput.value = String(newQuantity);
+    }
+
+    function buildPrintLabelsHtml() {
+        const rawPackItemName = (document.getElementById("pack_item_name").value || "").trim();
+        const matchNo = rawPackItemName.match(/(\d+号)/);
+        const specText = matchNo ? matchNo[1] : rawPackItemName.replace(/半高|全高|纸箱|箱/g, "").trim();
+        const inDateText = (document.getElementById("in_date").value || "").trim();
+        const orderIdText = (document.getElementById("order_id").value || "").trim();
+        const bag = Number(document.getElementById("bag").value || 0);
+        const quantity = Number(document.getElementById("quantity").value || 0);
+        const labelCopies = Number(document.getElementById("label_copies").value || 0);
+        const isReprint = currentMode === "stocked";
+        const printCount = labelCopies > 0 ? labelCopies : 0;
+        const totalBag = bag > 0 ? bag : 1;
+        const perBagQuantity = totalBag > 0 ? Math.round(quantity / totalBag) : quantity;
+
+        if (printCount <= 0) {
+            throw new Error("打印张数必须大于 0");
+        }
+
+        const labelsHtml = [];
+        for (let i = 1; i <= printCount; i++) {
+            const bagLine = isReprint
+                ? `补｜第${i}包 / 共${totalBag}包`
+                : `第${i}包 / 共${totalBag}包`;
+
+            labelsHtml.push(`
+                <div class="label-page">
+                    <div class="label-box">
+                        <div class="label-spec">${escapeHtml(specText)}</div>
+                        <div class="label-line label-bag">${escapeHtml(bagLine)}</div>
+                        <div class="label-line">每包：${perBagQuantity} / 总件：${quantity}</div>
+                        <div class="label-line label-left">入库日期：${escapeHtml(inDateText)}</div>
+                        <div class="label-line label-left">订单号：${escapeHtml(orderIdText)}</div>
+                    </div>
+                </div>
+            `);
+        }
+
+        return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>打印标签</title>
+<style>
+    @page {
+        size: 76mm 130mm;
+        margin: 0;
+    }
+    html, body {
+        margin: 0;
+        padding: 0;
+        background: #fff;
+        font-family: "Microsoft YaHei", Arial, sans-serif;
+    }
+    .label-page {
+        width: 76mm;
+        height: 130mm;
+        page-break-after: always;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        box-sizing: border-box;
+        padding-top: 6mm;
+    }
+    .label-page:last-child {
+        page-break-after: auto;
+    }
+    .label-box {
+        width: 70mm;
+        box-sizing: border-box;
+    }
+    .label-spec {
+        font-size: 44px;
+        font-weight: 700;
+        line-height: 1.05;
+        text-align: center;
+        margin-bottom: 8mm;
+        word-break: break-all;
+    }
+    .label-line {
+        font-size: 16px;
+        font-weight: 700;
+        text-align: center;
+        margin-bottom: 4mm;
+    }
+    .label-bag {
+        font-size: 18px;
+    }
+    .label-left {
+        text-align: left;
+        font-weight: 500;
+    }
+</style>
+</head>
+<body>
+${labelsHtml.join("")}
+<scr` + `ipt>
+window.onload = function () {
+    window.print();
+    setTimeout(function () { window.close(); }, 300);
+};
+</scr` + `ipt>
+</body>
+</html>`;
+    }
+
+    function printCurrentForm(printWindow = null) {
+        const mainId = (document.getElementById("main_id").value || "").trim();
+        if (!mainId) {
+            alert("请先在下方选择一条记录。");
+            return;
+        }
+
+        if (!printWindow) {
+            printWindow = window.open("", "_blank");
+        }
+        if (!printWindow) {
+            alert("浏览器拦截了打印窗口，请允许弹窗后重试。");
+            return;
+        }
+
+        const html = buildPrintLabelsHtml();
+        printWindow.document.open();
+        printWindow.document.write(html);
+        printWindow.document.close();
+    }
+
+    async function markReprint() {
+        if (currentMode !== "stocked") {
+            return;
+        }
+
+        const stockInId = (document.getElementById("main_id").value || "").trim();
+        if (!stockInId) {
+            throw new Error("当前没有可补打的入库记录。");
+        }
+
+        const response = await fetch("/stockin/api/reprint", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stock_in_id: Number(stockInId) })
+        });
+
+        const result = await response.json();
+        if (!response.ok || !result.ok) {
+            throw new Error(result.message || "补打记录更新失败");
+        }
+    }
+
+    function clearTopForm() {
+        setInputValue("main_id", "");
+        setInputValue("main_date", "");
+        setInputValue("order_id", "");
+        setInputValue("supplier_name", "");
+        setInputValue("pack_item_name", "");
+        setInputValue("spec_note", "");
+        setInputValue("purchase_bag_count", "");
+        setInputValue("purchase_total_quantity", "");
+        setInputValue("stocked_bag_sum", "");
+        setInputValue("stocked_quantity_sum", "");
+        setInputValue("remaining_bag", "");
+        setInputValue("remaining_quantity", "");
+        setInputValue("in_date", "");
+        setInputValue("bag", "0");
+        setInputValue("quantity", "0");
+        setInputValue("label_copies", "0");
+        setInputValue("notes", "");
+    }
+
+    function fillFormFromRow(row) {
+        setInputValue("main_id", row.dataset.id || "");
+        setInputValue("main_date", row.dataset.date || "");
+        setInputValue("order_id", row.dataset.orderId || "");
+        setInputValue("supplier_name", row.dataset.supplier || "");
+        setInputValue("pack_item_name", row.dataset.packItem || "");
+        setInputValue("spec_note", row.dataset.spec || "");
+        setInputValue("purchase_bag_count", row.dataset.purchaseBag || "");
+        setInputValue("purchase_total_quantity", row.dataset.purchaseTotal || "");
+        setInputValue("stocked_bag_sum", row.dataset.stockedBag || "");
+        setInputValue("stocked_quantity_sum", row.dataset.stockedQty || "");
+        setInputValue("remaining_bag", row.dataset.remainingBag || "");
+        setInputValue("remaining_quantity", row.dataset.remainingQty || "");
+        if (currentMode === "pending") {
+            const defaultBag = row.dataset.remainingBag || row.dataset.bag || "0";
+            const purchaseTotalQuantity = Number(row.dataset.purchaseTotal || 0);
+            const stockedQuantity = Number(row.dataset.stockedQty || 0);
+            const defaultQuantity = Math.max(0, purchaseTotalQuantity - stockedQuantity);
+
+            setInputValue("in_date", getNowString());
+            setInputValue("bag", defaultBag);
+            setInputValue("quantity", String(defaultQuantity));
+            setInputValue("label_copies", defaultBag);
+            setInputValue("notes", "");
+        } else {
+            setInputValue("in_date", row.dataset.date || "");
+            setInputValue("bag", row.dataset.bag || "0");
+            setInputValue("quantity", row.dataset.qty || "0");
+            setInputValue("label_copies", row.dataset.label || "0");
+            setInputValue("notes", row.dataset.notes || "");
+        }
+    }
+
+    function bindRowClick(tbody) {
+        tbody.querySelectorAll("tr").forEach(row => {
+            row.addEventListener("click", function () {
+                tbody.querySelectorAll("tr").forEach(r => r.classList.remove("selected-row"));
+                this.classList.add("selected-row");
+                fillFormFromRow(this);
+            });
+        });
+    }
+
+    function renderPendingTable(rows) {
+        if (!rows || rows.length === 0) {
+            pendingTbody.innerHTML = '<tr><td colspan="12">暂无待入库记录</td></tr>';
+            clearTopForm();
+            return;
+        }
+
+        pendingTbody.innerHTML = rows.map((row, index) => {
+            const purchaseId = row.purchase_id ?? "";
+            const purchaseDate = row.purchase_date ?? "";
+            const orderId = row.order_id ?? "";
+            const supplierName = row.supplier_name ?? "";
+            const packItemName = row.pack_item_name ?? "";
+            const specNote = row.spec_note ?? row.notes ?? "";
+            const purchaseBagCount = Number(row.purchase_bag_count ?? 0);
+            const purchaseTotalQuantity = Number(row.purchase_total_quantity ?? 0);
+            const stockedBagSum = Number(row.stocked_bag_sum ?? 0);
+            const stockedQuantitySum = Number(row.stocked_quantity_sum ?? 0);
+            const remainingBag = Number(row.remaining_bag ?? 0);
+            const remainingQuantity = Number(row.remaining_quantity ?? 0);
+
+            let statusText = "未入库";
+            let statusClass = "status-unfinished";
+            if (stockedBagSum > 0 || stockedQuantitySum > 0) {
+                statusText = "部分入库";
+                statusClass = "status-partial";
+            }
+
+            return `
+                <tr class="${index === 0 ? "selected-row" : ""}"
+                    data-id="${escapeHtml(purchaseId)}"
+                    data-date="${escapeHtml(purchaseDate)}"
+                    data-order-id="${escapeHtml(orderId)}"
+                    data-supplier="${escapeHtml(supplierName)}"
+                    data-pack-item="${escapeHtml(packItemName)}"
+                    data-spec="${escapeHtml(specNote)}"
+                    data-purchase-bag="${purchaseBagCount}"
+                    data-purchase-total="${purchaseTotalQuantity}"
+                    data-stocked-bag="${stockedBagSum}"
+                    data-stocked-qty="${stockedQuantitySum}"
+                    data-remaining-bag="${remainingBag}"
+                    data-remaining-qty="${remainingQuantity}"
+                    data-bag="${remainingBag}"
+                    data-qty="${remainingQuantity}"
+                    data-label="${remainingBag}"
+                    data-notes="">
+                    <td>${escapeHtml(purchaseId)}</td>
+                    <td>${escapeHtml(purchaseDate)}</td>
+                    <td>${escapeHtml(orderId)}</td>
+                    <td>${escapeHtml(supplierName)}</td>
+                    <td>${escapeHtml(packItemName)}</td>
+                    <td>${purchaseBagCount}</td>
+                    <td>${purchaseTotalQuantity}</td>
+                    <td>${stockedBagSum}</td>
+                    <td>${stockedQuantitySum}</td>
+                    <td>${remainingBag}</td>
+                    <td>${remainingQuantity}</td>
+                    <td class="${statusClass}">${statusText}</td>
+                </tr>
+            `;
+        }).join("");
+
+        bindRowClick(pendingTbody);
+        fillFormFromRow(pendingTbody.querySelector("tr.selected-row") || pendingTbody.querySelector("tr"));
+    }
+
+    function renderStockedTable(rows, selectedStockInId = null) {
+        if (!rows || rows.length === 0) {
+            stockedTbody.innerHTML = '<tr><td colspan="10">暂无已入库记录</td></tr>';
+            clearTopForm();
+            return;
+        }
+
+        stockedTbody.innerHTML = rows.map((row, index) => {
+            const stockInId = row.stock_in_id ?? "";
+            const purchaseId = row.purchase_id ?? "";
+            const inDate = row.in_date ?? "";
+            const orderId = row.order_id ?? "";
+            const supplierName = row.supplier_name ?? "";
+            const packItemName = row.pack_item_name ?? "";
+            const bag = Number(row.bag ?? 0);
+            const quantity = Number(row.quantity ?? 0);
+            const labelCopies = Number(row.label_copies ?? 0);
+            const lastPrintTime = row.last_print_time ?? "";
+            const notes = row.notes ?? "";
+            const purchaseBagCount = Number(row.purchase_bag_count ?? 0);
+            const purchaseTotalQuantity = Number(row.purchase_total_quantity ?? 0);
+            const specNote = row.spec_note ?? notes;
+
+            return `
+                <tr class="${String(stockInId) === String(selectedStockInId) || (!selectedStockInId && index === 0) ? "selected-row" : ""}"
+                    data-id="${escapeHtml(stockInId)}"
+                    data-date="${escapeHtml(inDate)}"
+                    data-order-id="${escapeHtml(orderId)}"
+                    data-supplier="${escapeHtml(supplierName)}"
+                    data-pack-item="${escapeHtml(packItemName)}"
+                    data-spec="${escapeHtml(specNote)}"
+                    data-purchase-bag="${purchaseBagCount}"
+                    data-purchase-total="${purchaseTotalQuantity}"
+                    data-stocked-bag="${bag}"
+                    data-stocked-qty="${quantity}"
+                    data-remaining-bag="0"
+                    data-remaining-qty="0"
+                    data-bag="${bag}"
+                    data-qty="${quantity}"
+                    data-label="${labelCopies}"
+                    data-notes="${notes}">
+                    <td>${escapeHtml(stockInId)}</td>
+                    <td>${escapeHtml(purchaseId)}</td>
+                    <td>${escapeHtml(inDate)}</td>
+                    <td>${escapeHtml(orderId)}</td>
+                    <td>${escapeHtml(supplierName)}</td>
+                    <td>${escapeHtml(packItemName)}</td>
+                    <td>${bag}</td>
+                    <td>${quantity}</td>
+                    <td>${labelCopies}</td>
+                    <td>${escapeHtml(lastPrintTime)}</td>
+                </tr>
+            `;
+        }).join("");
+
+        bindRowClick(stockedTbody);
+        fillFormFromRow(stockedTbody.querySelector("tr.selected-row") || stockedTbody.querySelector("tr"));
+    }
+
+    async function loadPendingList() {
+        const response = await fetch("/stockin/api/pending");
+        if (!response.ok) {
+            throw new Error("读取待入库数据失败");
+        }
+        const rows = await response.json();
+        renderPendingTable(rows);
+    }
+
+    async function loadStockedList(selectedStockInId = null) {
+        const response = await fetch("/stockin/api/stocked");
+        if (!response.ok) {
+            throw new Error("读取已入库数据失败");
+        }
+        const rows = await response.json();
+        renderStockedTable(rows, selectedStockInId);
+    }
+
+    function updateModeUI(mode) {
+        currentMode = mode;
+        if (mode === "pending") {
+            actionTitle.textContent = "入库操作";
+            dateLabel.textContent = "本次入库日期";
+            modeTip.textContent = "当前为待入库模式：选中记录后，可提交入库，也可按当前内容打印。";
+        } else {
+            actionTitle.textContent = "标签打印";
+            dateLabel.textContent = "入库日期";
+            modeTip.textContent = "当前为已入库模式：选中单条已入库记录后，可用于重复打印标签。";
+        }
+        updateButtonState(mode);
+    }
+
+    async function switchMode(mode) {
+        if (mode === "pending") {
+            pendingWrap.classList.remove("hidden");
+            stockedWrap.classList.add("hidden");
+            updateModeUI("pending");
+            await loadPendingList();
+        } else {
+            stockedWrap.classList.remove("hidden");
+            pendingWrap.classList.add("hidden");
+            updateModeUI("stocked");
+            await loadStockedList();
+        }
+    }
+
+    async function submitStockIn(printWindow = null) {
+        if (viewMode.value !== "pending") {
+            alert("当前是已入库模式，不能提交新入库记录。请切换到“显示待入库”。");
+            return;
+        }
+
+        const purchaseId = document.getElementById("main_id").value;
+        if (!purchaseId) {
+            alert("请先在下方选择一条待入库记录。");
+            return;
+        }
+
+        const payload = {
+            purchase_id: Number(purchaseId),
+            in_date: document.getElementById("in_date").value.trim(),
+            bag: Number(document.getElementById("bag").value || 0),
+            quantity: Number(document.getElementById("quantity").value || 0),
+            label_copies: Number(document.getElementById("label_copies").value || 0),
+            notes: document.getElementById("notes").value.trim()
+        };
+
+        const response = await fetch("/stockin/api/submit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        if (!response.ok || !result.ok) {
+            throw new Error(result.message || "提交失败");
+        }
+
+        alert("入库成功，开始打印");
+        printCurrentForm(printWindow);
+        await switchMode("pending");
+    }
+
+    viewMode.addEventListener("change", async function () {
+        try {
+            await switchMode(this.value);
+        } catch (error) {
+            alert(error.message);
+        }
+    });
+
+    bagInput.addEventListener("input", function () {
+        if (document.activeElement === bagInput && viewMode.value === "pending") {
+            labelCopiesInput.value = bagInput.value || 0;
+            recalcQuantityFromBag();
+        }
+    });
+
+    submitBtn.addEventListener("click", async function () {
+        let printWindow = null;
+        try {
+            if (viewMode.value === "pending") {
+                printWindow = window.open("", "_blank");
+                if (!printWindow) {
+                    alert("浏览器拦截了打印窗口，请允许弹窗后重试。");
+                    return;
+                }
+            }
+            await submitStockIn(printWindow);
+        } catch (error) {
+            if (printWindow && !printWindow.closed) {
+                printWindow.close();
+            }
+            alert(error.message);
+        }
+    });
+
+    printBtn.addEventListener("click", async function () {
+        let printWindow = null;
+        try {
+            printWindow = window.open("", "_blank");
+            if (!printWindow) {
+                alert("浏览器拦截了打印窗口，请允许弹窗后重试。");
+                return;
+            }
+
+            if (currentMode === "stocked") {
+                const selectedStockInId = (document.getElementById("main_id").value || "").trim();
+                await markReprint();
+                await loadStockedList(selectedStockInId);
+            }
+
+            printCurrentForm(printWindow);
+        } catch (error) {
+            if (printWindow && !printWindow.closed) {
+                printWindow.close();
+            }
+            alert(error.message);
+        }
+    });
+
+    window.addEventListener("DOMContentLoaded", async function () {
+        try {
+            await switchMode("pending");
+        } catch (error) {
+            alert(error.message);
+        }
+    });
+</script>
+</body>
+</html>
