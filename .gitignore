@@ -11,6 +11,45 @@
 #  you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 
+# Python bytecode files
+*.pyc
+__pycache__/
+
+# Excel generated/cache files (not needed in repository)
+_excel_cache/
+*.xlsx
+*.xls
+*.xlsm
+~$*.xlsx
+
+# Ruff stuff (code formatter cache)
+.ruff_cache/
+
+# PyPI configuration file
+.pypirc
+
+# Cursor (AI-powered editor ignore files)
+.cursorignore
+.cursorindexingignore
+
+# Marimo (some other tool cache)
+marimo/_static/
+marimo/_lsp/
+__marimo__/
+
+# macOS system files
+.DS_Store
+
+# Windows system files
+Thumbs.db
+
+# Python virtual environment folders
+venv/
+.env/
+.venv/
+env/
+env.bak/
+
 # Excel generated/cache files (not needed in repository)
 _excel_cache/
 *.xlsx
