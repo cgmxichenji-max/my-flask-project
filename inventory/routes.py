@@ -1,6 +1,7 @@
-from flask import Blueprint, render_template, request, redirect, url_for
+from flask import Blueprint, render_template, request, redirect, url_for, jsonify
 import sqlite3
 import os
+from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_FILE = os.path.join(BASE_DIR, "data", "packaging.db")
@@ -13,6 +14,29 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+def parse_ts(value):
+    if not value:
+        return None
+    value = value.strip().replace('T', ' ')
+    if len(value) == 16:
+        value += ':00'
+    return datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+
+
+def format_duration_label(start_dt, end_dt):
+    total_seconds = int((end_dt - start_dt).total_seconds())
+    if total_seconds < 0:
+        total_seconds = 0
+
+    days = total_seconds // 86400
+    hours = (total_seconds % 86400) // 3600
+    minutes = (total_seconds % 3600) // 60
+
+    if hours == 0 and minutes == 0:
+        return f"间隔 {days} 天"
+    if minutes == 0:
+        return f"间隔 {days} 天 {hours} 小时"
+    return f"间隔 {days} 天 {hours} 小时 {minutes} 分"
 
 @inventory_bp.route('/')
 def inventory():
@@ -73,6 +97,146 @@ def inventory():
     finally:
         conn.close()
 
+@inventory_bp.route('/api/analysis/options', methods=['POST'])
+def analysis_options():
+    data = request.get_json(silent=True) or {}
+    pack_item_id = str(data.get('pack_item_id', '')).strip()
+    stocktake_ts_raw = str(data.get('stocktake_ts', '')).strip()
+
+    if not pack_item_id or not stocktake_ts_raw:
+        return jsonify({"ok": False, "error": "缺少包材或盘点时间"}), 400
+
+    try:
+        end_dt = parse_ts(stocktake_ts_raw)
+        end_ts = end_dt.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return jsonify({"ok": False, "error": "盘点时间格式错误"}), 400
+
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT name FROM pack_item WHERE pack_item_id = ?",
+            (pack_item_id,)
+        ).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "包材不存在"}), 400
+
+        spec = row['name']
+        rows = conn.execute(
+            """
+            SELECT stocktake_ts, qty
+            FROM pack_stock_snapshot
+            WHERE spec = ?
+              AND stocktake_ts < ?
+            ORDER BY stocktake_ts DESC
+            """,
+            (spec, end_ts)
+        ).fetchall()
+
+        options = []
+        for r in rows:
+            start_ts = r['stocktake_ts']
+            try:
+                start_dt = parse_ts(start_ts)
+            except Exception:
+                continue
+
+            label = f"{start_ts}（{format_duration_label(start_dt, end_dt)}）"
+            options.append({
+                "stocktake_ts": start_ts,
+                "label": label
+            })
+
+        return jsonify({"ok": True, "options": options})
+    finally:
+        conn.close()
+
+
+@inventory_bp.route('/api/analysis/run', methods=['POST'])
+def analysis_run():
+    data = request.get_json(silent=True) or {}
+    pack_item_id = str(data.get('pack_item_id', '')).strip()
+    start_stocktake_ts_raw = str(data.get('start_stocktake_ts', '')).strip()
+    end_stocktake_ts_raw = str(data.get('end_stocktake_ts', '')).strip()
+
+    if not pack_item_id or not start_stocktake_ts_raw or not end_stocktake_ts_raw:
+        return jsonify({"ok": False, "error": "缺少分析参数"}), 400
+
+    try:
+        start_dt = parse_ts(start_stocktake_ts_raw)
+        end_dt = parse_ts(end_stocktake_ts_raw)
+        start_ts = start_dt.strftime('%Y-%m-%d %H:%M:%S')
+        end_ts = end_dt.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return jsonify({"ok": False, "error": "时间格式错误"}), 400
+
+    if start_dt >= end_dt:
+        return jsonify({"ok": False, "error": "起点时间必须早于终点时间"}), 400
+
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT name FROM pack_item WHERE pack_item_id = ?",
+            (pack_item_id,)
+        ).fetchone()
+        if row is None:
+            return jsonify({"ok": False, "error": "包材不存在"}), 400
+
+        spec = row['name']
+
+        start_row = conn.execute(
+            """
+            SELECT qty
+            FROM pack_stock_snapshot
+            WHERE spec = ? AND stocktake_ts = ?
+            """,
+            (spec, start_ts)
+        ).fetchone()
+
+        end_row = conn.execute(
+            """
+            SELECT qty
+            FROM pack_stock_snapshot
+            WHERE spec = ? AND stocktake_ts = ?
+            """,
+            (spec, end_ts)
+        ).fetchone()
+
+        if start_row is None:
+            return jsonify({"ok": False, "error": "起点库存记录不存在"}), 400
+        if end_row is None:
+            return jsonify({"ok": False, "error": "终点库存记录不存在"}), 400
+
+        start_qty = int(start_row['qty'] or 0)
+        end_qty = int(end_row['qty'] or 0)
+
+        stock_in_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(s.quantity), 0) AS stock_in_qty
+            FROM stock_in_record s
+            JOIN purchase_record p
+              ON s.purchase_id = p.purchase_id
+            WHERE p.pack_item_id = ?
+              AND s.in_date > ?
+              AND s.in_date <= ?
+            """,
+            (pack_item_id, start_ts, end_ts)
+        ).fetchone()
+
+        stock_in_qty = int(stock_in_row['stock_in_qty'] or 0)
+        consumed_qty = start_qty + stock_in_qty - end_qty
+
+        return jsonify({
+            "ok": True,
+            "result": {
+                "start_qty": start_qty,
+                "end_qty": end_qty,
+                "stock_in_qty": stock_in_qty,
+                "consumed_qty": consumed_qty
+            }
+        })
+    finally:
+        conn.close()
 
 @inventory_bp.route('/add', methods=['POST'])
 @inventory_bp.route('/add_inventory', methods=['POST'])

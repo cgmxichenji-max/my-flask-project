@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -92,13 +93,110 @@
             background-color: #1976D2;
         }
 
+        .analysis-result {
+            margin-top: 16px;
+            padding: 14px 16px;
+            border: 1px solid #d9e6f7;
+            border-radius: 6px;
+            background: #f7fbff;
+            display: none;
+        }
+
+        .analysis-result h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+
+        .analysis-result table {
+            margin-top: 0;
+        }
+
+        .analysis-result th,
+        .analysis-result td {
+            text-align: center;
+        }
+
+        .modal-mask {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.35);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+        }
+
+        .modal-mask.show {
+            display: flex;
+        }
+
+        .modal-box {
+            width: 420px;
+            max-width: calc(100vw - 32px);
+            background: #fff;
+            border-radius: 8px;
+            padding: 18px;
+            box-sizing: border-box;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+        }
+
+        .modal-box h3 {
+            margin: 0 0 12px 0;
+            font-size: 18px;
+        }
+
+        .modal-box p {
+            margin: 0 0 12px 0;
+            color: #555;
+            font-size: 14px;
+        }
+
+        .modal-box select {
+            width: 100%;
+            height: 42px;
+            padding: 10px 12px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+            margin-bottom: 14px;
+            background: #fff;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .modal-cancel-btn,
+        .modal-confirm-btn {
+            min-width: 88px;
+            height: 40px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 15px;
+        }
+
+        .modal-cancel-btn {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .modal-confirm-btn {
+            background: #2196F3;
+            color: #fff;
+        }
+
         table {
             border-collapse: collapse;
             width: 100%;
             margin-top: 25px;
         }
 
-        table th, table td {
+        table th,
+        table td {
             border: 1px solid #ddd;
             padding: 10px;
             text-align: center;
@@ -168,37 +266,30 @@
     <h1>库存盘点录入</h1>
 
     <div class="form-container">
-        <form method="POST"
-              action="/inventory/add_inventory"
-              data-current-pack-item-id='{{ request.args.get("pack_item_id", 0) | tojson }}'
-              data-current-quantity='{{ request.args.get("quantity", 0) | tojson }}'>
+        <form method="POST" action="/inventory/add_inventory"
+            data-current-pack-item-id='{{ request.args.get("pack_item_id", 0) | tojson }}'
+            data-current-quantity='{{ request.args.get("quantity", 0) | tojson }}'
+            data-analysis-options-url="/inventory/api/analysis/options"
+            data-analysis-run-url="/inventory/api/analysis/run">
             <div class="form-group">
                 <label for="pack_item_id">包材名称:</label>
                 <select id="pack_item_id" name="pack_item_id" required>
                     {% for row in items %}
-                        <option value="{{ row['pack_item_id'] }}">
-                            {{ row['name'] }}
-                        </option>
+                    <option value="{{ row['pack_item_id'] }}">
+                        {{ row['name'] }}
+                    </option>
                     {% endfor %}
                 </select>
             </div>
 
             <div class="form-group">
                 <label for="quantity">数量:</label>
-                <input type="number"
-                       id="quantity"
-                       name="quantity"
-                       step="1"
-                       min="0"
-                       required>
+                <input type="number" id="quantity" name="quantity" step="1" min="0" required>
             </div>
 
             <div class="form-group">
                 <label for="stocktake_ts">盘点时间:</label>
-                <input type="datetime-local"
-                       id="stocktake_ts"
-                       name="stocktake_ts"
-                       required>
+                <input type="datetime-local" id="stocktake_ts" name="stocktake_ts" required>
             </div>
 
             <div class="form-group">
@@ -207,10 +298,45 @@
                     <button type="submit" class="submit-btn">提交</button>
                 </div>
             </div>
+
+            <div id="analysisResult" class="analysis-result">
+                <h3>盘点分析结果</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>起点库存</th>
+                            <th>终点库存</th>
+                            <th>区间入库</th>
+                            <th>理论消耗</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td id="analysisStartQty">-</td>
+                            <td id="analysisEndQty">-</td>
+                            <td id="analysisStockInQty">-</td>
+                            <td id="analysisConsumedQty">-</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </form>
         </form>
     </div>
 
     <hr style="margin:24px 0;">
+
+    <div id="analysisModal" class="modal-mask">
+        <div class="modal-box">
+            <h3>选择分析起点</h3>
+            <p id="analysisModalDesc">请选择一个历史盘点时间作为比对起点。</p>
+            <select id="analysisStartSelect"></select>
+            <div class="modal-actions">
+                <button type="button" id="analysisCancelBtn" class="modal-cancel-btn">取消</button>
+                <button type="button" id="analysisConfirmBtn" class="modal-confirm-btn">确定</button>
+            </div>
+        </div>
+    </div>
 
     <h2 style="margin:0 0 12px 0;">最近盘点（横向表）</h2>
 
@@ -220,18 +346,18 @@
                 <tr>
                     <th>盘点时间</th>
                     {% for spec in col_specs %}
-                        <th>{{ spec }}</th>
+                    <th>{{ spec }}</th>
                     {% endfor %}
                 </tr>
             </thead>
             <tbody>
                 {% for t in time_list %}
-                    <tr>
-                        <td>{{ t }}</td>
-                        {% for spec in col_specs %}
-                            <td>{{ table[t][spec] }}</td>
-                        {% endfor %}
-                    </tr>
+                <tr>
+                    <td>{{ t }}</td>
+                    {% for spec in col_specs %}
+                    <td>{{ table[t][spec] }}</td>
+                    {% endfor %}
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -240,32 +366,107 @@
     <script>
         window.addEventListener('DOMContentLoaded', function () {
             const form = document.querySelector('.form-container form');
-            const currentPackItemId = Number(form.dataset.currentPackItemId || 0);
-            const currentQuantity = Number(form.dataset.currentQuantity || 0);
+            const packItemSelect = document.getElementById('pack_item_id');
+            const stocktakeInput = document.getElementById('stocktake_ts');
+            const analyzeBtn = document.querySelector('.analyze-btn');
 
-            if (currentPackItemId && currentQuantity) {
-                const packItemSelect = document.getElementById('pack_item_id');
-                let nextItem = null;
+            const analysisOptionsUrl = form.dataset.analysisOptionsUrl;
+            const analysisRunUrl = form.dataset.analysisRunUrl;
 
-                for (let i = 0; i < packItemSelect.options.length; i++) {
-                    const option = packItemSelect.options[i];
+            const modal = document.getElementById('analysisModal');
+            const startSelect = document.getElementById('analysisStartSelect');
+            const cancelBtn = document.getElementById('analysisCancelBtn');
+            const confirmBtn = document.getElementById('analysisConfirmBtn');
 
-                    if (Number(option.value) === currentPackItemId) {
-                        if (i + 1 < packItemSelect.options.length) {
-                            nextItem = packItemSelect.options[i + 1].value;
-                        } else {
-                            nextItem = packItemSelect.options[0].value;
-                        }
-                        break;
-                    }
-                }
+            const resultBox = document.getElementById('analysisResult');
+            const startQty = document.getElementById('analysisStartQty');
+            const endQty = document.getElementById('analysisEndQty');
+            const stockInQty = document.getElementById('analysisStockInQty');
+            const consumedQty = document.getElementById('analysisConsumedQty');
 
-                if (nextItem) {
-                    packItemSelect.value = nextItem;
-                }
+            function openModal() {
+                modal.classList.add('show');
             }
+
+            function closeModal() {
+                modal.classList.remove('show');
+            }
+
+            analyzeBtn.addEventListener('click', async function () {
+                const packItemId = packItemSelect.value;
+                const endTs = stocktakeInput.value;
+
+                if (!packItemId || !endTs) {
+                    alert('请先选择包材并填写盘点时间');
+                    return;
+                }
+
+                try {
+                    const res = await fetch(analysisOptionsUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            pack_item_id: Number(packItemId),
+                            stocktake_ts: endTs
+                        })
+                    });
+
+                    const data = await res.json();
+
+                    startSelect.innerHTML = '';
+
+                    if (!data.options || data.options.length === 0) {
+                        alert('当前条件下没有可供分析的历史盘点记录');
+                        return;
+                    }
+
+                    data.options.forEach(function (o) {
+                        const opt = document.createElement('option');
+                        opt.value = o.stocktake_ts;
+                        opt.textContent = o.label;
+                        startSelect.appendChild(opt);
+                    });
+
+                    openModal();
+                } catch (e) {
+                    alert('获取历史盘点失败');
+                }
+            });
+
+            confirmBtn.addEventListener('click', async function () {
+                const startTs = startSelect.value;
+                const endTs = stocktakeInput.value;
+                const packItemId = packItemSelect.value;
+
+                try {
+                    const res = await fetch(analysisRunUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            pack_item_id: Number(packItemId),
+                            start_stocktake_ts: startTs,
+                            end_stocktake_ts: endTs
+                        })
+                    });
+
+                    const data = await res.json();
+
+                    startQty.textContent = data.result.start_qty;
+                    endQty.textContent = data.result.end_qty;
+                    stockInQty.textContent = data.result.stock_in_qty;
+                    consumedQty.textContent = data.result.consumed_qty;
+
+                    resultBox.style.display = 'block';
+                    closeModal();
+                } catch (e) {
+                    alert('分析失败');
+                }
+            });
+
+            cancelBtn.addEventListener('click', closeModal);
         });
     </script>
 
 </body>
+
 </html>
