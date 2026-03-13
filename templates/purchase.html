@@ -214,23 +214,18 @@
                     <th>袋数</th>
                     <th>总件数</th>
                     <th>总金额</th>
-                    <th>供应商</th>   <!-- 新增 -->
+                    <th>供应商</th> <!-- 新增 -->
                     <th>备注</th>
                 </tr>
             </thead>
             <tbody>
                 {% for row in rows %}
-                <tr class="record-row"
-                    data-purchase-id="{{ row['purchase_id'] }}"
-                    data-order-id="{{ row['order_id'] or '' }}"
-                    data-purchase-date="{{ row['purchase_date'] or '' }}"
+                <tr class="record-row" data-purchase-id="{{ row['purchase_id'] }}"
+                    data-order-id="{{ row['order_id'] or '' }}" data-purchase-date="{{ row['purchase_date'] or '' }}"
                     data-pack-item-name="{{ row['pack_item_name'] or '' }}"
-                    data-bag-count="{{ row['bag_count'] or '' }}"
-                    data-total-qty="{{ row['total_qty'] or '' }}"
-                    data-total-amount="{{ row['total_amount'] or '' }}"
-                    data-batch-id="{{ row['batch_id'] or '' }}"
-                    data-supplier-name="{{ row['supplier_name'] or '' }}"
-                    data-notes="{{ row['notes'] or '' }}"
+                    data-bag-count="{{ row['bag_count'] or '' }}" data-total-qty="{{ row['total_qty'] or '' }}"
+                    data-total-amount="{{ row['total_amount'] or '' }}" data-batch-id="{{ row['batch_id'] or '' }}"
+                    data-supplier-name="{{ row['supplier_name'] or '' }}" data-notes="{{ row['notes'] or '' }}"
                     data-unit-price="{% if row['total_qty'] and row['total_amount'] %}{{ (row['total_amount'] / row['total_qty']) | round(4) }}{% else %}0{% endif %}">
                     <td>{{ row['purchase_id'] }}</td>
                     <td>{{ row['order_id'] }}</td>
@@ -239,7 +234,7 @@
                     <td>{{ row['bag_count'] }}</td>
                     <td>{{ row['total_qty'] }}</td>
                     <td>{{ row['total_amount'] }}</td>
-                    <td>{{ row['supplier_name'] }}</td>  <!-- 新增 -->
+                    <td>{{ row['supplier_name'] }}</td> <!-- 新增 -->
                     <td>{{ row['notes'] }}</td>
                 </tr>
                 {% endfor %}
@@ -251,6 +246,24 @@
         function toNumber(value) {
             const n = Number(value);
             return Number.isFinite(n) ? n : 0;
+        }
+
+        function savePendingInputData() {
+            const inputValue = document.getElementById('input_data').value;
+            sessionStorage.setItem('purchase_pending_input_data', inputValue);
+        }
+
+        function restorePendingInputData() {
+            const saved = sessionStorage.getItem('purchase_pending_input_data');
+            if (saved !== null) {
+                document.getElementById('input_data').value = saved;
+                sessionStorage.removeItem('purchase_pending_input_data');
+            }
+        }
+
+        function reloadPageKeepInputData() {
+            savePendingInputData();
+            window.location.reload();
         }
 
         function recalcTotals() {
@@ -370,41 +383,41 @@
             recalcTotals();
         }
         function updatePriceChange(currentRow) {
-    const currentPrice = parseFloat(currentRow.dataset.unitPrice) || 0;
-    const currentDate = new Date(currentRow.dataset.purchaseDate);
+            const currentPrice = parseFloat(currentRow.dataset.unitPrice) || 0;
+            const currentDate = new Date(currentRow.dataset.purchaseDate);
 
-    let prevRowDate = null;
-    let nextRowDate = null;
-    let prevPrice = null;
-    let nextPrice = null;
+            let prevRowDate = null;
+            let nextRowDate = null;
+            let prevPrice = null;
+            let nextPrice = null;
 
-    document.querySelectorAll('.record-row').forEach(row => {
-        if (row.dataset.packItemName === currentRow.dataset.packItemName) {
-            const price = parseFloat(row.dataset.unitPrice);
-            const date = new Date(row.dataset.purchaseDate);
+            document.querySelectorAll('.record-row').forEach(row => {
+                if (row.dataset.packItemName === currentRow.dataset.packItemName) {
+                    const price = parseFloat(row.dataset.unitPrice);
+                    const date = new Date(row.dataset.purchaseDate);
 
-            // 寻找最近的前一条
-            if (date < currentDate) {
-                if (!prevRowDate || date > prevRowDate) {
-                    prevRowDate = date;
-                    prevPrice = price;
+                    // 寻找最近的前一条
+                    if (date < currentDate) {
+                        if (!prevRowDate || date > prevRowDate) {
+                            prevRowDate = date;
+                            prevPrice = price;
+                        }
+                    }
+                    // 寻找最近的后一条
+                    if (date > currentDate) {
+                        if (!nextRowDate || date < nextRowDate) {
+                            nextRowDate = date;
+                            nextPrice = price;
+                        }
+                    }
                 }
-            }
-            // 寻找最近的后一条
-            if (date > currentDate) {
-                if (!nextRowDate || date < nextRowDate) {
-                    nextRowDate = date;
-                    nextPrice = price;
-                }
-            }
+            });
+
+            const prevChange = prevPrice !== null ? (currentPrice - prevPrice).toFixed(4) : '';
+            const nextChange = nextPrice !== null ? (nextPrice - currentPrice).toFixed(4) : '';
+            document.getElementById('prev_price_change').value = prevChange;
+            document.getElementById('next_price_change').value = nextChange;
         }
-    });
-
-    const prevChange = prevPrice !== null ? (currentPrice - prevPrice).toFixed(4) : '';
-    const nextChange = nextPrice !== null ? (nextPrice - currentPrice).toFixed(4) : '';
-    document.getElementById('prev_price_change').value = prevChange;
-    document.getElementById('next_price_change').value = nextChange;
-}
         function submitPurchase(payload) {
             return fetch('/purchase/submit_purchase', {
                 method: 'POST',
@@ -419,6 +432,7 @@
         }
 
         document.addEventListener('DOMContentLoaded', function () {
+            restorePendingInputData();
             document.getElementById('parse_btn').addEventListener('click', parsePurchaseData);
             document.querySelectorAll('.record-row').forEach(row => {
                 row.addEventListener('click', function () {
@@ -430,7 +444,7 @@
             });
             document.getElementById('submit_btn').addEventListener('click', function () {
                 const notesValue = document.getElementById('notes').value;  // 保存textarea的内容
-    
+
                 const payload = {
                     purchase_date: document.getElementById('purchase_date').value.trim(),
                     order_id: document.getElementById('order_id').value.trim(),
@@ -493,7 +507,7 @@
                                         }
 
                                         alert(retryResult.data.message || '采购记录提交成功');
-                                        window.location.reload();
+                                        reloadPageKeepInputData();
                                     });
                             }
 
@@ -510,8 +524,7 @@
                         }
 
                         alert(result.data.message || '提交成功');
-                        //window.location.reload();
-                        // 不需要刷新页面，所有数据可以通过 AJAX 动态更新，无需重载页面
+                        reloadPageKeepInputData();
                     })
                     .catch(error => {
                         console.error('提交失败:', error);

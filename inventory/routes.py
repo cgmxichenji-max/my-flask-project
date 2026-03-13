@@ -212,7 +212,9 @@ def analysis_run():
 
         stock_in_row = conn.execute(
             """
-            SELECT COALESCE(SUM(s.quantity), 0) AS stock_in_qty
+            SELECT
+                COALESCE(SUM(s.bag), 0) AS stock_in_bag,
+                COALESCE(SUM(s.quantity), 0) AS stock_in_piece
             FROM stock_in_record s
             JOIN purchase_record p
               ON s.purchase_id = p.purchase_id
@@ -223,16 +225,23 @@ def analysis_run():
             (pack_item_id, start_ts, end_ts)
         ).fetchone()
 
-        stock_in_qty = int(stock_in_row['stock_in_qty'] or 0)
-        consumed_qty = start_qty + stock_in_qty - end_qty
+        stock_in_bag = int(stock_in_row['stock_in_bag'] or 0)
+        stock_in_piece = int(stock_in_row['stock_in_piece'] or 0)
+        consumed_qty = start_qty + stock_in_bag - end_qty
+
+        if stock_in_bag > 0:
+            estimated_piece = round(consumed_qty * (stock_in_piece / stock_in_bag))
+        else:
+            estimated_piece = 0
 
         return jsonify({
             "ok": True,
             "result": {
                 "start_qty": start_qty,
                 "end_qty": end_qty,
-                "stock_in_qty": stock_in_qty,
-                "consumed_qty": consumed_qty
+                "stock_in_qty": stock_in_bag,
+                "consumed_qty": consumed_qty,
+                "estimated_piece": estimated_piece
             }
         })
     finally:

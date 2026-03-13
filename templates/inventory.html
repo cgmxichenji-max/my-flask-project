@@ -232,30 +232,70 @@
     </style>
 
     <script>
-        // 页面加载完成后设置默认当前时间
+        function pad(n) {
+            return n.toString().padStart(2, '0');
+        }
+
+        function normalizeDateTimeLocalValue(value) {
+            if (!value) return '';
+
+            value = value.trim().replace(/\//g, '-').replace(' ', 'T');
+
+            const m = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+            if (!m) return '';
+
+            const yyyy = m[1];
+            const mm = m[2];
+            const dd = m[3];
+            const hh = m[4];
+            const mi = m[5];
+            const ss = m[6] || '00';
+
+            return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
+        }
+
+        // 页面加载完成后设置默认当前时间，并兼容复制粘贴时间
         window.addEventListener('DOMContentLoaded', function () {
             var input = document.getElementById('stocktake_ts');
 
             // 如果之前存过时间，恢复时间
-            var saved = localStorage.getItem("last_stocktake_ts");
-            if (saved) {
-                input.value = saved;
+            var saved = localStorage.getItem('last_stocktake_ts');
+            var normalizedSaved = normalizeDateTimeLocalValue(saved);
+            if (normalizedSaved) {
+                input.value = normalizedSaved;
             } else {
                 var now = new Date();
-                function pad(n) { return n.toString().padStart(2, '0'); }
                 var datetime =
                     now.getFullYear() + '-' +
                     pad(now.getMonth() + 1) + '-' +
                     pad(now.getDate()) + 'T' +
                     pad(now.getHours()) + ':' +
-                    pad(now.getMinutes());
+                    pad(now.getMinutes()) + ':' +
+                    pad(now.getSeconds());
 
                 input.value = datetime;
+                localStorage.setItem('last_stocktake_ts', datetime);
             }
 
-            // 保存每次修改的时间
-            input.addEventListener("change", function () {
-                localStorage.setItem("last_stocktake_ts", input.value);
+            function saveNormalizedValue() {
+                var normalized = normalizeDateTimeLocalValue(input.value);
+                if (normalized) {
+                    input.value = normalized;
+                    localStorage.setItem('last_stocktake_ts', normalized);
+                }
+            }
+
+            input.addEventListener('change', saveNormalizedValue);
+            input.addEventListener('blur', saveNormalizedValue);
+
+            input.addEventListener('paste', function (e) {
+                var text = (e.clipboardData || window.clipboardData).getData('text');
+                var normalized = normalizeDateTimeLocalValue(text);
+                if (normalized) {
+                    e.preventDefault();
+                    input.value = normalized;
+                    localStorage.setItem('last_stocktake_ts', normalized);
+                }
             });
         });
     </script>
@@ -267,8 +307,6 @@
 
     <div class="form-container">
         <form method="POST" action="/inventory/add_inventory"
-            data-current-pack-item-id='{{ request.args.get("pack_item_id", 0) | tojson }}'
-            data-current-quantity='{{ request.args.get("quantity", 0) | tojson }}'
             data-analysis-options-url="/inventory/api/analysis/options"
             data-analysis-run-url="/inventory/api/analysis/run">
             <div class="form-group">
@@ -289,7 +327,7 @@
 
             <div class="form-group">
                 <label for="stocktake_ts">盘点时间:</label>
-                <input type="datetime-local" id="stocktake_ts" name="stocktake_ts" required>
+                <input type="datetime-local" id="stocktake_ts" name="stocktake_ts" step="1" required>
             </div>
 
             <div class="form-group">
@@ -308,6 +346,7 @@
                             <th>终点库存</th>
                             <th>区间入库</th>
                             <th>理论消耗</th>
+                            <th>估算件数</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -316,11 +355,11 @@
                             <td id="analysisEndQty">-</td>
                             <td id="analysisStockInQty">-</td>
                             <td id="analysisConsumedQty">-</td>
+                            <td id="analysisEstimatedPiece">-</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
-        </form>
         </form>
     </div>
 
@@ -369,6 +408,7 @@
             const packItemSelect = document.getElementById('pack_item_id');
             const stocktakeInput = document.getElementById('stocktake_ts');
             const analyzeBtn = document.querySelector('.analyze-btn');
+            const quantityInput = document.getElementById('quantity');
 
             const analysisOptionsUrl = form.dataset.analysisOptionsUrl;
             const analysisRunUrl = form.dataset.analysisRunUrl;
@@ -383,6 +423,44 @@
             const endQty = document.getElementById('analysisEndQty');
             const stockInQty = document.getElementById('analysisStockInQty');
             const consumedQty = document.getElementById('analysisConsumedQty');
+            const estimatedPiece = document.getElementById('analysisEstimatedPiece');
+
+            function advanceToNextPackItemAfterSubmit() {
+                const submittedPackItemId = sessionStorage.getItem('inventory_submitted_pack_item_id');
+                const submittedQuantity = sessionStorage.getItem('inventory_submitted_quantity');
+
+                if (!submittedPackItemId || submittedQuantity === null) {
+                    return;
+                }
+
+                sessionStorage.removeItem('inventory_submitted_pack_item_id');
+                sessionStorage.removeItem('inventory_submitted_quantity');
+
+                const options = Array.from(packItemSelect.options);
+                const currentIndex = options.findIndex(function (opt) {
+                    return String(opt.value) === String(submittedPackItemId);
+                });
+
+                if (currentIndex === -1) {
+                    return;
+                }
+
+                if (currentIndex < options.length - 1) {
+                    packItemSelect.selectedIndex = currentIndex + 1;
+                } else {
+                    packItemSelect.selectedIndex = currentIndex;
+                }
+
+                quantityInput.value = '';
+                quantityInput.focus();
+            }
+
+            form.addEventListener('submit', function () {
+                sessionStorage.setItem('inventory_submitted_pack_item_id', packItemSelect.value);
+                sessionStorage.setItem('inventory_submitted_quantity', quantityInput.value);
+            });
+
+            advanceToNextPackItemAfterSubmit();
 
             function openModal() {
                 modal.classList.add('show');
@@ -455,6 +533,7 @@
                     endQty.textContent = data.result.end_qty;
                     stockInQty.textContent = data.result.stock_in_qty;
                     consumedQty.textContent = data.result.consumed_qty;
+                    estimatedPiece.textContent = data.result.estimated_piece;
 
                     resultBox.style.display = 'block';
                     closeModal();
