@@ -429,6 +429,8 @@
                 });
             });
             document.getElementById('submit_btn').addEventListener('click', function () {
+                const notesValue = document.getElementById('notes').value;  // 保存textarea的内容
+    
                 const payload = {
                     purchase_date: document.getElementById('purchase_date').value.trim(),
                     order_id: document.getElementById('order_id').value.trim(),
@@ -508,12 +510,15 @@
                         }
 
                         alert(result.data.message || '提交成功');
-                        window.location.reload();
+                        //window.location.reload();
+                        // 不需要刷新页面，所有数据可以通过 AJAX 动态更新，无需重载页面
                     })
                     .catch(error => {
                         console.error('提交失败:', error);
                         alert('提交失败，请检查后端接口或网络');
                     });
+
+                document.getElementById('notes').value = notesValue;  // 恢复textarea内容       
             });
 
             document.getElementById('bag_count').addEventListener('input', recalcTotals);
