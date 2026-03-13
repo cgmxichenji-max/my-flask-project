@@ -1,82 +1,58 @@
-# Abstra
-# Abstra is an AI-powered process automation framework.
-# Ignore directories containing user credentials, local state, and settings.
-# Learn more at https://abstra.io/docs
-.abstra/
-
-# Visual Studio Code
-#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
-#  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#  and can be added to the global gitignore or merged into this file. However, if you prefer, 
-#  you could uncomment the following to ignore the entire vscode folder
-# .vscode/
-
-# Python bytecode files
-*.pyc
+# -----------------
+# Python cache
+# -----------------
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-# Excel generated/cache files (not needed in repository)
-_excel_cache/
-*.xlsx
-*.xls
-*.xlsm
-~$*.xlsx
-
-# Ruff stuff (code formatter cache)
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Cursor (AI-powered editor ignore files)
-.cursorignore
-.cursorindexingignore
-
-# Marimo (some other tool cache)
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
-# macOS system files
-.DS_Store
-
-# Windows system files
-Thumbs.db
-
-# Python virtual environment folders
+# -----------------
+# Virtual environments
+# -----------------
 venv/
 .env/
 .venv/
 env/
 env.bak/
 
-# Excel generated/cache files (not needed in repository)
-_excel_cache/
-*.xlsx
-*.xls
-*.xlsm
-~$*.xlsx
-
-# Ruff stuff:
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Cursor
-#  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
-#  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
-#  refer to https://docs.cursor.com/context/ignore-files
+# -----------------
+# Editor / tool cache
+# -----------------
+.vscode/
 .cursorignore
 .cursorindexingignore
+.ruff_cache/
 
-# Marimo
+# -----------------
+# Excel temporary/cache files
+# -----------------
+_excel_cache/
+~$*.xlsx
+
+# -----------------
+# System files
+# -----------------
+.DS_Store
+Thumbs.db
+
+# -----------------
+# Python package publishing
+# -----------------
+.pypirc
+
+# -----------------
+# Marimo cache
+# -----------------
 marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# local database
+# -----------------
+# Local database
+# -----------------
 *.db
 
-# data
+# -----------------
+# Local data folder
+# -----------------
 data/
