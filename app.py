@@ -8,7 +8,9 @@
 # =====================================================
 
 from flask import Flask, render_template, jsonify, render_template_string
-
+from pathlib import Path
+from datetime import datetime
+import json
 import subprocess
 
 # ===== 导入模块蓝图 =====
@@ -28,6 +30,18 @@ app.register_blueprint(purchase_bp, url_prefix='/purchase')
 app.register_blueprint(stocking_bp, url_prefix='/stockin')
 
 # ===== VPS 监控辅助函数 =====
+MONTHLY_TRAFFIC_FILE = Path("data/vps_monthly_traffic.json")
+
+
+def ensure_data_dir():
+    """确保 data 目录存在。"""
+    MONTHLY_TRAFFIC_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+
+def get_current_month_key():
+    """返回当前月份键，如 2026-03。"""
+    return datetime.now().strftime("%Y-%m")
+
 def get_xray_status():
     """
     获取 xray 服务状态。
@@ -93,6 +107,138 @@ def get_vps_traffic_gb():
     except Exception:
         return None
 
+def get_monthly_traffic_gb():
+    """
+    计算“本月累计流量”。
+    逻辑：
+    1. 读取当前开机累计流量（get_vps_traffic_gb）
+    2. 若本月第一次访问，则把当前值记为 baseline_gb
+    3. 同月内返回 current_gb - baseline_gb
+    4. 跨月后自动重置 baseline_gb
+    """
+    current_gb = get_vps_traffic_gb()
+    if current_gb is None:
+        return None
+
+    ensure_data_dir()
+    month_key = get_current_month_key()
+
+    if MONTHLY_TRAFFIC_FILE.exists():
+        try:
+            with open(MONTHLY_TRAFFIC_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+        except Exception:
+            saved = {}
+    else:
+        saved = {}
+    
+    # 如果文件不存在，说明是第一次上线
+    # 直接把 baseline 设为 0，这样页面会显示当前总流量而不是 0
+    if not MONTHLY_TRAFFIC_FILE.exists():
+        saved = {
+            "month": month_key,
+            "baseline_gb": 0
+        }
+        with open(MONTHLY_TRAFFIC_FILE, "w", encoding="utf-8") as f:
+            json.dump(saved, f, ensure_ascii=False, indent=2)
+        return round(current_gb, 2)
+
+    saved_month = saved.get("month")
+    baseline_gb = saved.get("baseline_gb")
+
+    # 新月份或首次使用时，重置基线
+    if saved_month != month_key or baseline_gb is None:
+        baseline_gb = current_gb
+        saved = {
+            "month": month_key,
+            "baseline_gb": baseline_gb
+        }
+        with open(MONTHLY_TRAFFIC_FILE, "w", encoding="utf-8") as f:
+            json.dump(saved, f, ensure_ascii=False, indent=2)
+        return round(current_gb, 2)
+
+    monthly_gb = current_gb - float(baseline_gb)
+    if monthly_gb < 0:
+        monthly_gb = 0.0
+
+    return round(monthly_gb, 2)
+
+
+def get_memory_usage_text():
+    """读取内存使用情况，返回类似 412MB / 1972MB。"""
+    try:
+        result = subprocess.run(
+            ["free", "-m"],
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+        lines = result.stdout.splitlines()
+        for line in lines:
+            if line.startswith("Mem:"):
+                parts = line.split()
+                used = parts[2]
+                total = parts[1]
+                return f"{used}MB / {total}MB"
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+
+def get_uptime_text():
+    """读取服务器运行时间。"""
+    try:
+        result = subprocess.run(
+            ["uptime", "-p"],
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+        return result.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+    
+def get_cpu_usage_text():
+    """读取 CPU 使用率（1秒平均）。"""
+    try:
+        result = subprocess.run(
+            ["top", "-bn1"],
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+        for line in result.stdout.splitlines():
+            if "Cpu(s)" in line or "CPU:" in line:
+                parts = line.split(",")
+                for p in parts:
+                    if "id" in p:
+                        idle = float(p.strip().split()[0])
+                        used = 100 - idle
+                        return f"{round(used,1)}%"
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+def get_disk_usage_text():
+    """读取根分区磁盘使用情况。"""
+    try:
+        result = subprocess.run(
+            ["df", "-h", "/"],
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+        lines = result.stdout.splitlines()
+        if len(lines) >= 2:
+            parts = lines[1].split()
+            used = parts[2]
+            total = parts[1]
+            percent = parts[4]
+            return f"{used} / {total} ({percent})"
+        return "unknown"
+    except Exception:
+        return "unknown"
+
 def get_xray_log():
     """
     读取最近的 xray 日志（最多 30 行）。
@@ -122,11 +268,16 @@ def index():
 def vps_status():
     """
     返回最小版 VPS 状态信息。
-    先提供 xray 状态和累计流量，便于后续再逐步扩展。
+    提供 xray 状态、开机累计流量、本月累计流量、内存和运行时间。
     """
     return jsonify({
         'xray_status': get_xray_status(),
-        'traffic_gb': get_vps_traffic_gb()
+        'traffic_gb': get_vps_traffic_gb(),
+        'monthly_traffic_gb': get_monthly_traffic_gb(),
+        'memory_usage': get_memory_usage_text(),
+        'cpu_usage': get_cpu_usage_text(),
+        'disk_usage': get_disk_usage_text(),
+        'uptime': get_uptime_text()
     })
 
 @app.route('/vps-log')
@@ -145,6 +296,11 @@ def vps_monitor():
     """
     xray_status = get_xray_status()
     traffic_gb = get_vps_traffic_gb()
+    monthly_traffic_gb = get_monthly_traffic_gb()
+    memory_usage = get_memory_usage_text()
+    cpu_usage = get_cpu_usage_text()
+    disk_usage = get_disk_usage_text()
+    uptime_text = get_uptime_text()
 
     html = """
     <!DOCTYPE html>
@@ -192,7 +348,12 @@ def vps_monitor():
         <div class="card">
             <h2>VPS 简易状态页</h2>
             <div class="row"><span class="label">xray 状态：</span>{{ xray_status }}</div>
-            <div class="row"><span class="label">累计流量：</span>{{ traffic_text }}</div>
+            <div class="row"><span class="label">开机累计流量：</span>{{ traffic_text }}</div>
+            <div class="row"><span class="label">本月累计流量：</span>{{ monthly_traffic_text }}</div>
+            <div class="row"><span class="label">CPU 使用：</span>{{ cpu_usage }}</div>
+            <div class="row"><span class="label">内存使用：</span>{{ memory_usage }}</div>
+            <div class="row"><span class="label">磁盘使用：</span>{{ disk_usage }}</div>
+            <div class="row"><span class="label">运行时间：</span>{{ uptime_text }}</div>
             <div class="row"><span class="label">JSON 接口：</span><a href="/vps-status">/vps-status</a></div>
             <div class="row"><span class="label">xray 日志：</span><a href="/vps-log">查看日志</a></div>
             <div class="hint">说明：本页第一版只做查看，不做重启和修改配置。</div>
@@ -202,11 +363,17 @@ def vps_monitor():
     """
 
     traffic_text = f"{traffic_gb} GB" if traffic_gb is not None else "本地环境不可用"
+    monthly_traffic_text = f"{monthly_traffic_gb} GB" if monthly_traffic_gb is not None else "本地环境不可用"
 
     return render_template_string(
         html,
         xray_status=xray_status,
-        traffic_text=traffic_text
+        traffic_text=traffic_text,
+        monthly_traffic_text=monthly_traffic_text,
+        memory_usage=memory_usage,
+        cpu_usage=cpu_usage,
+        disk_usage=disk_usage,
+        uptime_text=uptime_text
     )
 
 # ===== 主程序入口 =====
