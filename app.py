@@ -161,7 +161,7 @@ def get_monthly_traffic_gb():
     if monthly_gb < 0:
         monthly_gb = 0.0
 
-    return round(monthly_gb, 2)
+    return 0.0
 
 
 def get_memory_usage_text():
