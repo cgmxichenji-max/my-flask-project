@@ -49,21 +49,44 @@ def get_xray_status():
 def get_vps_traffic_gb():
     """
     从 /proc/net/dev 读取服务器累计网络流量。
+    优先识别常见公网网卡名；如果没有命中，则自动选取第一个非 lo 网卡。
     在 macOS 本地开发环境下通常没有该文件，因此返回 None。
     """
     try:
-        rx = 0
-        tx = 0
-
         with open("/proc/net/dev", "r", encoding="utf-8") as f:
             lines = f.readlines()
 
+        selected_data = None
+        preferred_names = ("eth0", "ens3", "enp1s0")
+
+        # 先按常见公网网卡名查找
         for line in lines:
-            if "eth0" in line or "ens3" in line:
-                data = line.split()
-                rx = int(data[1])
-                tx = int(data[9])
+            stripped = line.strip()
+            if not stripped or ":" not in stripped:
+                continue
+
+            iface = stripped.split(":", 1)[0].strip()
+            if iface in preferred_names:
+                selected_data = stripped.split(":", 1)[1].split()
                 break
+
+        # 如果没找到，再退而求其次：取第一个非 lo 的网卡
+        if selected_data is None:
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or ":" not in stripped:
+                    continue
+
+                iface = stripped.split(":", 1)[0].strip()
+                if iface != "lo":
+                    selected_data = stripped.split(":", 1)[1].split()
+                    break
+
+        if selected_data is None:
+            return None
+
+        rx = int(selected_data[0])
+        tx = int(selected_data[8])
 
         total_gb = (rx + tx) / 1024 / 1024 / 1024
         return round(total_gb, 2)
