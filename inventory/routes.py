@@ -210,11 +210,10 @@ def analysis_run():
         start_qty = int(start_row['qty'] or 0)
         end_qty = int(end_row['qty'] or 0)
 
+        # 一、区间内总入库袋数：仍然按起点~终点统计
         stock_in_row = conn.execute(
             """
-            SELECT
-                COALESCE(SUM(s.bag), 0) AS stock_in_bag,
-                COALESCE(SUM(s.quantity), 0) AS stock_in_piece
+            SELECT COALESCE(SUM(s.bag), 0) AS stock_in_bag
             FROM stock_in_record s
             JOIN purchase_record p
               ON s.purchase_id = p.purchase_id
@@ -226,13 +225,39 @@ def analysis_run():
         ).fetchone()
 
         stock_in_bag = int(stock_in_row['stock_in_bag'] or 0)
-        stock_in_piece = int(stock_in_row['stock_in_piece'] or 0)
         consumed_qty = start_qty + stock_in_bag - end_qty
 
-        if stock_in_bag > 0:
-            estimated_piece = round(consumed_qty * (stock_in_piece / stock_in_bag))
-        else:
-            estimated_piece = 0
+        # 二、最近一条入库记录：只要求在终点时间之前，不再受起点时间限制
+        latest_row = conn.execute(
+            """
+            SELECT
+                s.stock_in_id,
+                s.in_date,
+                s.bag,
+                s.quantity
+            FROM stock_in_record s
+            JOIN purchase_record p
+              ON s.purchase_id = p.purchase_id
+            WHERE p.pack_item_id = ?
+              AND s.in_date <= ?
+            ORDER BY s.in_date DESC, s.stock_in_id DESC
+            LIMIT 1
+            """,
+            (pack_item_id, end_ts)
+        ).fetchone()
+
+        estimated_piece = 0
+        piece_per_bag = None
+        latest_in_date = None
+
+        if latest_row is not None:
+            latest_bag = int(latest_row['bag'] or 0)
+            latest_quantity = int(latest_row['quantity'] or 0)
+            latest_in_date = latest_row['in_date']
+
+            if latest_bag > 0:
+                piece_per_bag = latest_quantity / latest_bag
+                estimated_piece = round(consumed_qty * piece_per_bag)
 
         return jsonify({
             "ok": True,
@@ -241,7 +266,9 @@ def analysis_run():
                 "end_qty": end_qty,
                 "stock_in_qty": stock_in_bag,
                 "consumed_qty": consumed_qty,
-                "estimated_piece": estimated_piece
+                "estimated_piece": estimated_piece,
+                "piece_per_bag": piece_per_bag,
+                "latest_in_date": latest_in_date
             }
         })
     finally:
