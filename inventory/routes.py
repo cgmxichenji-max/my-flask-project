@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, jsonif
 import sqlite3
 import os
 from datetime import datetime
+import json
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_FILE = os.path.join(BASE_DIR, "data", "packaging.db")
@@ -13,6 +14,54 @@ def get_db_connection():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
+
+def get_snapshot_row(conn, stocktake_ts, spec):
+    return conn.execute(
+        """
+        SELECT rowid, stocktake_ts, spec, qty, source
+        FROM pack_stock_snapshot
+        WHERE stocktake_ts = ? AND spec = ?
+        """,
+        (stocktake_ts, spec)
+    ).fetchone()
+
+
+def write_operation_log(conn, request_path, ip_address, operator, operation_group, table_name, record_id, action_type, summary, old_data, new_data):
+    created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    conn.execute(
+        """
+        INSERT INTO operation_logs (
+            created_at,
+            operator,
+            operation_group,
+            request_path,
+            ip_address,
+            table_name,
+            record_id,
+            action_type,
+            summary,
+            old_data,
+            new_data,
+            rollback_status,
+            rollback_error
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NONE', NULL)
+        """,
+        (
+            created_at,
+            operator,
+            operation_group,
+            request_path,
+            ip_address,
+            table_name,
+            record_id,
+            action_type,
+            summary,
+            json.dumps(old_data, ensure_ascii=False) if old_data is not None else None,
+            json.dumps(new_data, ensure_ascii=False) if new_data is not None else None,
+        )
+    )
 
 def parse_ts(value):
     if not value:
@@ -299,6 +348,8 @@ def add_inventory():
             return "包材不存在", 400
 
         spec = row["name"]
+        old_row = get_snapshot_row(conn, stocktake_ts, spec)
+
         conn.execute("""
             INSERT INTO pack_stock_snapshot (stocktake_ts, spec, qty, source)
             VALUES (?, ?, ?, ?)
@@ -307,6 +358,47 @@ def add_inventory():
                 qty = excluded.qty,
                 source = excluded.source
         """, (stocktake_ts, spec, quantity, "manual"))
+
+        new_row = get_snapshot_row(conn, stocktake_ts, spec)
+        if new_row is None:
+            raise RuntimeError("盘点快照写入后未找到对应记录")
+
+        new_data = {
+            "rowid": new_row["rowid"],
+            "stocktake_ts": new_row["stocktake_ts"],
+            "spec": new_row["spec"],
+            "qty": new_row["qty"],
+            "source": new_row["source"],
+        }
+
+        if old_row is None:
+            action_type = "INSERT"
+            old_data = None
+            summary = f"新增盘点记录：{spec} @ {stocktake_ts} -> {new_row['qty']}"
+        else:
+            action_type = "UPDATE"
+            old_data = {
+                "rowid": old_row["rowid"],
+                "stocktake_ts": old_row["stocktake_ts"],
+                "spec": old_row["spec"],
+                "qty": old_row["qty"],
+                "source": old_row["source"],
+            }
+            summary = f"修改盘点记录：{spec} @ {stocktake_ts}，{old_row['qty']} -> {new_row['qty']}"
+
+        write_operation_log(
+            conn=conn,
+            request_path=request.path,
+            ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
+            operator="system",
+            operation_group="inventory",
+            table_name="pack_stock_snapshot",
+            record_id=new_row["rowid"],
+            action_type=action_type,
+            summary=summary,
+            old_data=old_data,
+            new_data=new_data,
+        )
 
         conn.commit()
         return redirect(url_for('inventory.inventory', pack_item_id=pack_item_id, quantity=quantity))

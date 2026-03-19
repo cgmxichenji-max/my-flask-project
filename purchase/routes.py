@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, jsonify
 import sqlite3
 import os
 import re
+import json
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,6 +28,16 @@ def normalize_pack_item_name(raw_name: str) -> str:
     # 如果是数字＋号，例如 10号，8号，6号，去掉最后的“号”
     if name.endswith('号') and name[:-1].isdigit():
         name = name[:-1]
+
+    bubble_text = name.replace('×', '*').replace('x', '*').replace('X', '*').replace('＊', '*')
+    bubble_text = bubble_text.replace('厘米', 'cm').replace('ＣＭ', 'cm').replace('CM', 'cm')
+    if any(keyword in bubble_text for keyword in ['气泡袋', '泡泡袋', '气泡膜袋']):
+        if '18*20' in bubble_text:
+            return '小泡'
+        if '20*30' in bubble_text:
+            return '中泡'
+        if '25*35' in bubble_text:
+            return '大泡'
 
     mapping = {
         '半高6号': '6.5',
@@ -70,6 +81,64 @@ def get_pack_item_id_by_name(conn, pack_item_name):
         (pack_item_name,)
     ).fetchone()
     return row['pack_item_id'] if row else None
+
+
+def get_purchase_row_by_id(conn, purchase_id):
+    return conn.execute(
+        """
+        SELECT purchase_id,
+               order_id,
+               purchase_date,
+               pack_item_id,
+               supplier_name,
+               bag_count,
+               total_quantity,
+               total_amount,
+               batch_id,
+               notes
+        FROM purchase_record
+        WHERE purchase_id = ?
+        LIMIT 1
+        """,
+        (purchase_id,)
+    ).fetchone()
+
+
+def write_operation_log(conn, request_path, ip_address, operator, operation_group, table_name, record_id, action_type, summary, old_data, new_data):
+    created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn.execute(
+        """
+        INSERT INTO operation_logs (
+            created_at,
+            operator,
+            operation_group,
+            request_path,
+            ip_address,
+            table_name,
+            record_id,
+            action_type,
+            summary,
+            old_data,
+            new_data,
+            rollback_status,
+            rollback_error
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NONE', NULL)
+        """,
+        (
+            created_at,
+            operator,
+            operation_group,
+            request_path,
+            ip_address,
+            table_name,
+            record_id,
+            action_type,
+            summary,
+            json.dumps(old_data, ensure_ascii=False) if old_data is not None else None,
+            json.dumps(new_data, ensure_ascii=False) if new_data is not None else None,
+        )
+    )
 
 
 def generate_purchase_order_id():
@@ -230,19 +299,48 @@ def add_pack_item():
         row = conn.execute("SELECT COALESCE(MAX(sort_no), 0) + 1 AS next_sort_no FROM pack_item").fetchone()
         next_sort_no = row['next_sort_no'] if row else 1
 
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO pack_item (name, sort_no, is_active)
             VALUES (?, ?, 1)
             """,
             (pack_item_name, next_sort_no)
         )
-        conn.commit()
 
+        new_pack_item_id = cursor.lastrowid
         new_row = conn.execute(
-            "SELECT pack_item_id, name FROM pack_item WHERE name = ? LIMIT 1",
-            (pack_item_name,)
+            "SELECT pack_item_id, name FROM pack_item WHERE pack_item_id = ? LIMIT 1",
+            (new_pack_item_id,)
         ).fetchone()
+
+        if new_row is None:
+            return jsonify({
+                'success': False,
+                'message': '新建包材后未找到记录'
+            }), 500
+
+        new_data = {
+            'pack_item_id': new_row['pack_item_id'],
+            'name': new_row['name'],
+            'sort_no': next_sort_no,
+            'is_active': 1
+        }
+
+        write_operation_log(
+            conn=conn,
+            request_path=request.path,
+            ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
+            operator="system",
+            operation_group="purchase",
+            table_name="pack_item",
+            record_id=new_pack_item_id,
+            action_type="INSERT",
+            summary=f"新增包材：pack_item_id={new_pack_item_id}，name={pack_item_name}",
+            old_data=None,
+            new_data=new_data,
+        )
+
+        conn.commit()
 
         return jsonify({
             'success': True,
@@ -344,6 +442,10 @@ def submit_purchase():
             if occupied:
                 return jsonify({'success': False, 'message': f'订单号已被其他记录占用：{order_id}'}), 400
 
+            old_row = get_purchase_row_by_id(conn, purchase_id)
+            if old_row is None:
+                return jsonify({'success': False, 'message': f'未找到要修改的采购记录：{purchase_id}'}), 404
+
             conn.execute(
                 """
                 UPDATE purchase_record
@@ -371,6 +473,29 @@ def submit_purchase():
                     purchase_id
                 )
             )
+
+            new_row = get_purchase_row_by_id(conn, purchase_id)
+            if new_row is None:
+                return jsonify({'success': False, 'message': f'修改后未找到采购记录：{purchase_id}'}), 500
+
+            old_data = dict(old_row)
+            new_data = dict(new_row)
+            summary = f"修改采购记录：purchase_id={purchase_id}，order_id={old_row['order_id']} -> {new_row['order_id']}"
+
+            write_operation_log(
+                conn=conn,
+                request_path=request.path,
+                ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
+                operator="system",
+                operation_group="purchase",
+                table_name="purchase_record",
+                record_id=int(purchase_id),
+                action_type="UPDATE",
+                summary=summary,
+                old_data=old_data,
+                new_data=new_data,
+            )
+
             conn.commit()
             return jsonify({
                 'success': True,
@@ -399,7 +524,7 @@ def submit_purchase():
         if not batch_id:
             batch_id = generate_batch_id(conn)
 
-        conn.execute("""
+        cursor = conn.execute("""
             INSERT INTO purchase_record (
                 order_id,
                 purchase_date,
@@ -422,12 +547,36 @@ def submit_purchase():
             batch_id,
             notes
         ))
+
+        new_purchase_id = cursor.lastrowid
+        new_row = get_purchase_row_by_id(conn, new_purchase_id)
+        if new_row is None:
+            return jsonify({'success': False, 'message': '新增后未找到采购记录'}), 500
+
+        new_data = dict(new_row)
+        summary = f"新增采购记录：purchase_id={new_purchase_id}，order_id={order_id}"
+
+        write_operation_log(
+            conn=conn,
+            request_path=request.path,
+            ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
+            operator="system",
+            operation_group="purchase",
+            table_name="purchase_record",
+            record_id=new_purchase_id,
+            action_type="INSERT",
+            summary=summary,
+            old_data=None,
+            new_data=new_data,
+        )
+
         conn.commit()
         return jsonify({
             'success': True,
             'message': '采购记录提交成功',
             'order_id': order_id,
-            'batch_id': batch_id
+            'batch_id': batch_id,
+            'purchase_id': new_purchase_id
         })
     except sqlite3.IntegrityError:
         return jsonify({'success': False, 'message': f'订单号已存在：{order_id}'}), 400

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>操作日志</title>
+    <style>
+        body {
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+            margin: 0;
+            padding: 28px 20px 40px;
+            background: #f5f5f5;
+            color: #333;
+        }
+        .page {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            padding: 28px;
+        }
+        h1 {
+            margin: 0 0 16px;
+            font-size: 28px;
+        }
+        .hint {
+            margin: 0 0 18px;
+            font-size: 16px;
+            line-height: 1.8;
+            color: #666;
+        }
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .page-header h1 {
+            margin: 0;
+        }
+        .logout-form {
+            margin: 0;
+        }
+        .logout-btn {
+            padding: 8px 14px;
+            border: 1px solid #bbb;
+            border-radius: 6px;
+            background: #f6f6f6;
+            color: #333;
+            cursor: pointer;
+        }
+        .table-wrap {
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 1100px;
+            font-size: 14px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px 8px;
+            text-align: left;
+            vertical-align: top;
+            word-break: break-word;
+        }
+        .id-col {
+            white-space: nowrap;
+            min-width: 72px;
+            text-align: center;
+        }
+        th {
+            background: #f2f4f7;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        tbody tr:nth-child(even) {
+            background: #fafafa;
+        }
+        .empty {
+            padding: 24px 8px;
+            text-align: center;
+            color: #666;
+        }
+        .action-btn {
+            padding: 6px 12px;
+            border: 1px solid #bbb;
+            border-radius: 6px;
+            background: #f6f6f6;
+            color: #999;
+            cursor: not-allowed;
+        }
+        .action-form {
+            margin: 0;
+        }
+        .action-form button {
+            cursor: pointer;
+            color: #333;
+        }
+        .action-col {
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="page-header">
+            <h1>操作日志</h1>
+            <form class="logout-form" method="post" action="{{ url_for('logs.logs_logout') }}">
+                <button class="logout-btn" type="submit">退出操作日志</button>
+            </form>
+        </div>
+        <div class="hint">后续这里显示操作日志列表</div>
+        {% if rows %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="id-col">id</th>
+                        <th>created_at</th>
+                        <th>operator</th>
+                        <th>operation_group</th>
+                        <th>request_path</th>
+                        <th>ip_address</th>
+                        <th>table_name</th>
+                        <th>record_id</th>
+                        <th>action_type</th>
+                        <th>summary</th>
+                        <th>rollback_status</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td class="id-col">{{ row['id'] }}</td>
+                        <td>{{ row['created_at'] }}</td>
+                        <td>{{ row['operator'] }}</td>
+                        <td>{{ row['operation_group'] }}</td>
+                        <td>{{ row['request_path'] }}</td>
+                        <td>{{ row['ip_address'] }}</td>
+                        <td>{{ row['table_name'] }}</td>
+                        <td>{{ row['record_id'] }}</td>
+                        <td>{{ row['action_type'] }}</td>
+                        <td>{{ row['summary'] }}</td>
+                        <td>{{ row['rollback_status'] }}</td>
+                        <td class="action-col">
+                            {% if row['rollback_status'] == 'NONE' %}
+                            <form class="action-form" method="post" action="{{ url_for('logs.rollback_log', log_id=row['id']) }}">
+                                <button class="action-btn" type="submit">恢复</button>
+                            </form>
+                            {% else %}
+                            <button class="action-btn" type="button" disabled>恢复</button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty">暂无日志</div>
+        {% endif %}
+    </div>
+</body>
+</html>

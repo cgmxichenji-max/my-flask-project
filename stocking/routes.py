@@ -1,6 +1,8 @@
 from flask import Blueprint, render_template, jsonify, request
 import sqlite3
 import os
+import json
+from datetime import datetime
 
 stocking_bp = Blueprint('stocking', __name__)
 
@@ -11,6 +13,63 @@ def get_db_connection():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def get_stock_in_row_by_id(conn, stock_in_id):
+    return conn.execute(
+        """
+        SELECT stock_in_id,
+               purchase_id,
+               in_date,
+               bag,
+               quantity,
+               label_copies,
+               label_print_count,
+               last_print_time,
+               notes
+        FROM stock_in_record
+        WHERE stock_in_id = ?
+        LIMIT 1
+        """,
+        (stock_in_id,)
+    ).fetchone()
+
+
+def write_operation_log(conn, request_path, ip_address, operator, operation_group, table_name, record_id, action_type, summary, old_data, new_data):
+    created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn.execute(
+        """
+        INSERT INTO operation_logs (
+            created_at,
+            operator,
+            operation_group,
+            request_path,
+            ip_address,
+            table_name,
+            record_id,
+            action_type,
+            summary,
+            old_data,
+            new_data,
+            rollback_status,
+            rollback_error
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NONE', NULL)
+        """,
+        (
+            created_at,
+            operator,
+            operation_group,
+            request_path,
+            ip_address,
+            table_name,
+            record_id,
+            action_type,
+            summary,
+            json.dumps(old_data, ensure_ascii=False) if old_data is not None else None,
+            json.dumps(new_data, ensure_ascii=False) if new_data is not None else None,
+        )
+    )
 
 
 @stocking_bp.route('/')
@@ -102,7 +161,7 @@ def submit_stockin():
     conn = get_db_connection()
     initial_print_count = 1 if (label_copies or 0) > 0 else 0
 
-    conn.execute("""
+    cursor = conn.execute("""
         INSERT INTO stock_in_record (
             purchase_id,
             in_date,
@@ -123,6 +182,27 @@ def submit_stockin():
         initial_print_count,
         notes
     ))
+
+    new_stock_in_id = cursor.lastrowid
+    new_row = get_stock_in_row_by_id(conn, new_stock_in_id)
+    if new_row is None:
+        conn.close()
+        return jsonify({"ok": False, "message": "入库后未找到记录"}), 500
+
+    write_operation_log(
+        conn=conn,
+        request_path=request.path,
+        ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
+        operator="system",
+        operation_group="stockin",
+        table_name="stock_in_record",
+        record_id=new_stock_in_id,
+        action_type="INSERT",
+        summary=f"新增入库记录：stock_in_id={new_stock_in_id}，purchase_id={purchase_id}",
+        old_data=None,
+        new_data=dict(new_row),
+    )
+
     conn.commit()
     conn.close()
 
@@ -138,12 +218,37 @@ def mark_reprint():
         return jsonify({"ok": False, "message": "缺少 stock_in_id"}), 400
 
     conn = get_db_connection()
+    old_row = get_stock_in_row_by_id(conn, stock_in_id)
+    if old_row is None:
+        conn.close()
+        return jsonify({"ok": False, "message": f"未找到入库记录：{stock_in_id}"}), 404
+
     conn.execute("""
         UPDATE stock_in_record
         SET label_print_count = COALESCE(label_print_count, 0) + 1,
             last_print_time = datetime('now', 'localtime')
         WHERE stock_in_id = ?
     """, (stock_in_id,))
+
+    new_row = get_stock_in_row_by_id(conn, stock_in_id)
+    if new_row is None:
+        conn.close()
+        return jsonify({"ok": False, "message": f"补打后未找到入库记录：{stock_in_id}"}), 500
+
+    write_operation_log(
+        conn=conn,
+        request_path=request.path,
+        ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
+        operator="system",
+        operation_group="stockin",
+        table_name="stock_in_record",
+        record_id=stock_in_id,
+        action_type="UPDATE",
+        summary=f"补打标签：stock_in_id={stock_in_id}，print_count={old_row['label_print_count']} -> {new_row['label_print_count']}",
+        old_data=dict(old_row),
+        new_data=dict(new_row),
+    )
+
     conn.commit()
     conn.close()
 

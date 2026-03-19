@@ -4,10 +4,12 @@ from flask import Flask, render_template
 from inventory.routes import inventory_bp    # 库存盘点模块
 from purchase.routes import purchase_bp      # 采购模块
 from stocking.routes import stocking_bp      # 操作入库
+from logs.routes import logs_bp             # 操作日志模块
 from vps_monitor import vps_monitor_bp       # VPS 监控模块
 
 # ===== 创建 Flask 应用 =====
 app = Flask(__name__)
+app.secret_key = "chenxi98_logs_session_key"
 
 # ===== 注册蓝图模块 =====
 # /inventory -> 库存盘点
@@ -16,6 +18,8 @@ app.register_blueprint(inventory_bp, url_prefix='/inventory')
 app.register_blueprint(purchase_bp, url_prefix='/purchase')
 # /stockin -> 操作入库
 app.register_blueprint(stocking_bp, url_prefix='/stockin')
+# /logs -> 操作日志
+app.register_blueprint(logs_bp)
 # VPS 监控相关接口与页面
 app.register_blueprint(vps_monitor_bp)
 
