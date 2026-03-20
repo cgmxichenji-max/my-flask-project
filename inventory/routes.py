@@ -18,7 +18,7 @@ def get_db_connection():
 def get_snapshot_row(conn, stocktake_ts, spec):
     return conn.execute(
         """
-        SELECT rowid, stocktake_ts, spec, qty, source
+        SELECT id, stocktake_ts, spec, qty, source
         FROM pack_stock_snapshot
         WHERE stocktake_ts = ? AND spec = ?
         """,
@@ -364,7 +364,7 @@ def add_inventory():
             raise RuntimeError("盘点快照写入后未找到对应记录")
 
         new_data = {
-            "rowid": new_row["rowid"],
+            "id": new_row["id"],
             "stocktake_ts": new_row["stocktake_ts"],
             "spec": new_row["spec"],
             "qty": new_row["qty"],
@@ -378,7 +378,7 @@ def add_inventory():
         else:
             action_type = "UPDATE"
             old_data = {
-                "rowid": old_row["rowid"],
+                "id": old_row["id"],
                 "stocktake_ts": old_row["stocktake_ts"],
                 "spec": old_row["spec"],
                 "qty": old_row["qty"],
@@ -393,7 +393,7 @@ def add_inventory():
             operator="system",
             operation_group="inventory",
             table_name="pack_stock_snapshot",
-            record_id=new_row["rowid"],
+            record_id=new_row["id"],
             action_type=action_type,
             summary=summary,
             old_data=old_data,
