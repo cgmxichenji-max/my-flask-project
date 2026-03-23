@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, current_app
 import sqlite3
 import os
 import json
@@ -6,11 +6,20 @@ from datetime import datetime
 
 stocking_bp = Blueprint('stocking', __name__)
 
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_FILE = os.path.join(BASE_DIR, "data", "packaging.db")
+
+
+def get_database_path():
+    db_path = current_app.config.get('DATABASE_PATH')
+    if db_path:
+        return db_path
+    return os.path.join(BASE_DIR, "data", "main.db")
+
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_FILE)
+    db_path = get_database_path()
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
 

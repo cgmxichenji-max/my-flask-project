@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, current_app
 import sqlite3
 import os
 import re
@@ -6,14 +6,21 @@ import json
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_FILE = os.path.join(BASE_DIR, "data", "packaging.db")
+
+
+def get_database_path():
+    db_path = current_app.config.get('DATABASE_PATH')
+    if db_path:
+        return db_path
+    return os.path.join(BASE_DIR, "data", "main.db")
 
 purchase_bp = Blueprint('purchase', __name__, template_folder='../templates')
 
 
 # ===== 数据库连接函数 =====
 def get_db_connection():
-    conn = sqlite3.connect(DB_FILE)
+    db_path = get_database_path()
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
 

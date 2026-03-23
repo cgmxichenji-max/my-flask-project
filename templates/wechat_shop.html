@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>微信小店 - 包材管理系统</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: #efefef;
+            color: #333;
+        }
+
+        .topbar {
+            background: #42a941;
+            color: #fff;
+            text-align: center;
+            font-size: 22px;
+            font-weight: 700;
+            padding: 14px 20px;
+            letter-spacing: 1px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+        }
+
+        .page-wrap {
+            max-width: 1240px;
+            margin: 28px auto 40px;
+            padding: 0 18px;
+        }
+
+        .page-title {
+            text-align: center;
+            font-size: 38px;
+            font-weight: 700;
+            margin: 8px 0 26px;
+            color: #222;
+        }
+
+        .section-card {
+            background: #f7f7f7;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+            padding: 18px 16px 14px;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: #222;
+        }
+
+        .section-title::before {
+            content: "";
+            width: 4px;
+            height: 24px;
+            border-radius: 2px;
+            background: #63ba46;
+            display: inline-block;
+        }
+
+        .hint-box {
+            background: #f0f7ea;
+            border: 1px solid #d6e9ca;
+            color: #4e6b45;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-top: 12px;
+            font-size: 13px;
+            line-height: 1.7;
+        }
+
+        .filter-empty-box {
+            background: #ffffff;
+            border: 1px dashed #cfd6dd;
+            border-radius: 8px;
+            padding: 18px 16px;
+            color: #666;
+            font-size: 14px;
+            line-height: 1.6;
+            margin-top: 6px;
+        }
+
+        .status-table-wrap,
+        .field-table-wrap,
+        .filter-table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 860px;
+        }
+
+        th,
+        td {
+            border: 1px solid #d8dde3;
+            padding: 10px 12px;
+            font-size: 14px;
+            text-align: center;
+            background: #fff;
+        }
+
+        th {
+            background: #e9eef4;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .import-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+
+        .import-result-box {
+            display: none;
+            margin-top: 14px;
+            padding: 12px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.7;
+            white-space: pre-line;
+        }
+
+        .import-result-box.success {
+            display: block;
+            background: #f0f7ea;
+            border: 1px solid #d6e9ca;
+            color: #355b2d;
+        }
+
+        .import-result-box.error {
+            display: block;
+            background: #fff3f3;
+            border: 1px solid #efc7c7;
+            color: #a33a3a;
+        }
+
+        .btn {
+            border: none;
+            border-radius: 6px;
+            padding: 11px 22px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.18s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            opacity: 0.96;
+        }
+
+        .btn-primary {
+            background: #63ba46;
+            color: #fff;
+        }
+
+        .btn-secondary {
+            background: #a7cf93;
+            color: #fff;
+        }
+
+        .btn-dark {
+            background: #5f6f7a;
+            color: #fff;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(220px, 1fr));
+            gap: 14px 12px;
+            margin-bottom: 14px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #444;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            height: 40px;
+            border: 1px solid #cfd6dd;
+            border-radius: 5px;
+            padding: 0 10px;
+            font-size: 14px;
+            background: #fff;
+            color: #333;
+        }
+
+        .sub-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #333;
+            margin: 6px 0 10px;
+        }
+
+        .field-table-wrap {
+            margin-bottom: 14px;
+        }
+
+        .checkbox-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .filter-actions,
+        .export-actions,
+        .report-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .footer-note {
+            text-align: center;
+            margin-top: 28px;
+            color: #777;
+            font-size: 12px;
+        }
+
+        @media (max-width: 1024px) {
+            .form-grid {
+                grid-template-columns: repeat(2, minmax(180px, 1fr));
+            }
+
+            .page-title {
+                font-size: 30px;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .page-title {
+                font-size: 26px;
+            }
+
+            .import-actions,
+            .filter-actions,
+            .export-actions,
+            .report-actions {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">包材管理系统</div>
+
+    <div class="page-wrap">
+        <div class="page-title">微信小店工作台</div>
+
+        <section class="section-card">
+            <div class="section-title">当前数据状态</div>
+            <div class="status-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>表名</th>
+                            <th>记录数</th>
+                            <th>最早日期</th>
+                            <th>最晚日期</th>
+                            <th>最近导入时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="data-status-tbody">
+                        {% if data_status_rows %}
+                            {% for row in data_status_rows %}
+                            <tr>
+                                <td>{{ row.table_name or '' }}</td>
+                                <td>{{ row.record_count or 0 }}</td>
+                                <td>{{ row.min_date or '' }}</td>
+                                <td>{{ row.max_date or '' }}</td>
+                                <td>{{ row.last_import_time or '' }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="5">暂无数据</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="hint-box">
+                提示：订单表、资金流水表为核心数据；售后表可能存在缺失，仅供辅助参考。导入成功后，当前数据状态会按对应数据表自动刷新。
+            </div>
+        </section>
+
+        <section class="section-card">
+            <div class="section-title">数据导入</div>
+            <div class="import-actions">
+                <input type="file" id="order-files-input" webkitdirectory directory style="display:none">
+                <input type="file" id="fund-flow-files-input" webkitdirectory directory style="display:none">
+                <input type="file" id="after-sales-files-input" webkitdirectory directory style="display:none">
+                <button class="btn btn-primary" type="button" id="btn-import-orders">导入订单表</button>
+                <button class="btn btn-primary" type="button" id="btn-import-fund-flow">导入资金流水表</button>
+                <button class="btn btn-primary" type="button" id="btn-import-after-sales">导入售后表</button>
+            </div>
+            <div id="import-orders-result" class="import-result-box"></div>
+            <div id="import-fund-flow-result" class="import-result-box"></div>
+            <div id="import-after-sales-result" class="import-result-box"></div>
+        </section>
+
+        <section class="section-card">
+            <div class="section-title">原始数据处理</div>
+
+            <div class="form-grid" style="grid-template-columns: repeat(5, minmax(160px, 1fr));">
+                <div class="form-group">
+                    <label for="source_table">选择数据表</label>
+                    <select id="source_table" name="source_table">
+                        <option value="orders">订单表</option>
+                        <option value="fund_flows">资金流水表</option>
+                        <option value="aftersales">售后表</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="date_start">开始日期</label>
+                    <input id="date_start" name="date_start" type="date" value="2026-03-01">
+                </div>
+                <div class="form-group">
+                    <label for="time_start">开始时间</label>
+                    <input id="time_start" name="time_start" type="time" value="00:00">
+                </div>
+                <div class="form-group">
+                    <label for="date_end">结束日期</label>
+                    <input id="date_end" name="date_end" type="date" value="2026-03-20">
+                </div>
+                <div class="form-group">
+                    <label for="time_end">结束时间</label>
+                    <input id="time_end" name="time_end" type="time" value="23:59">
+                </div>
+            </div>
+
+            <div class="sub-title">导出字段</div>
+            <div class="export-actions" style="margin-top: 0; margin-bottom: 10px;">
+                <button class="btn btn-secondary" type="button" id="btn-fields-select-all">全选</button>
+                <button class="btn btn-secondary" type="button" id="btn-fields-clear-all">全不选</button>
+                <button class="btn btn-dark" type="button" id="btn-fields-restore-default">恢复默认</button>
+            </div>
+            <div class="field-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>选择</th>
+                            <th>英文名</th>
+                            <th>中文名称</th>
+                        </tr>
+                    </thead>
+                    <tbody id="export-fields-tbody">
+                        <tr>
+                            <td colspan="3">正在加载字段...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="sub-title">筛选条件</div>
+            <div id="filter-empty-box" class="filter-empty-box">当前未添加筛选条件，点击“新增筛选条件”后再显示条件行。</div>
+            <div id="filter-rows-container" class="filter-table-wrap" style="display:none; margin-top: 6px;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 110px;">逻辑</th>
+                            <th style="width: 260px;">字段</th>
+                            <th style="width: 160px;">条件</th>
+                            <th>值</th>
+                            <th style="width: 110px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="filter-rows-tbody"></tbody>
+                </table>
+            </div>
+
+            <div class="filter-actions">
+                <button class="btn btn-primary" type="button" id="btn-add-filter-row">新增筛选条件</button>
+                <button class="btn btn-dark" type="button" id="btn-reset-filter-rows">重置条件</button>
+            </div>
+
+            <div class="hint-box" style="margin-top: 12px;">
+                说明：筛选条件默认不显示，后续点击“新增筛选条件”时，再动态增加一行条件，并在每一行后面提供删除按钮。
+            </div>
+
+            <div class="export-actions">
+                <button class="btn btn-primary" type="button" id="btn-export-excel">导出 Excel</button>
+                <div id="export-result" class="import-result-box" style="width:100%;"></div>
+            </div>
+        </section>
+
+
+        <div class="footer-note">© 2026 包材管理系统</div>
+    </div>
+<script id="export-field-config-data" type="application/json">{{ export_field_config_json | safe }}</script>
+<script>
+    const btnImportOrders = document.getElementById('btn-import-orders');
+    const importOrdersResult = document.getElementById('import-orders-result');
+    const orderFileInput = document.getElementById('order-files-input');
+
+    const btnImportFundFlow = document.getElementById('btn-import-fund-flow');
+    const importFundFlowResult = document.getElementById('import-fund-flow-result');
+    const fundFlowFileInput = document.getElementById('fund-flow-files-input');
+
+    const btnImportAfterSales = document.getElementById('btn-import-after-sales');
+    const importAfterSalesResult = document.getElementById('import-after-sales-result');
+    const afterSalesFileInput = document.getElementById('after-sales-files-input');
+
+    const sourceTableSelect = document.getElementById('source_table');
+    const dateStartInput = document.getElementById('date_start');
+    const timeStartInput = document.getElementById('time_start');
+    const dateEndInput = document.getElementById('date_end');
+    const timeEndInput = document.getElementById('time_end');
+    const exportFieldsTbody = document.getElementById('export-fields-tbody');
+    const btnExportExcel = document.getElementById('btn-export-excel');
+    const exportResult = document.getElementById('export-result');
+
+    const filterEmptyBox = document.getElementById('filter-empty-box');
+    const filterRowsContainer = document.getElementById('filter-rows-container');
+    const filterRowsTbody = document.getElementById('filter-rows-tbody');
+    const btnAddFilterRow = document.getElementById('btn-add-filter-row');
+    const btnResetFilterRows = document.getElementById('btn-reset-filter-rows');
+
+
+    const btnFieldsSelectAll = document.getElementById('btn-fields-select-all');
+    const btnFieldsClearAll = document.getElementById('btn-fields-clear-all');
+    const btnFieldsRestoreDefault = document.getElementById('btn-fields-restore-default');
+
+    const exportFieldStorageKeyPrefix = 'wechat_shop_export_fields_';
+
+    const exportFieldConfigs = JSON.parse(document.getElementById('export-field-config-data')?.textContent || '{}');
+
+    const filterOperatorOptions = [
+        { value: 'eq', label: '等于' },
+        { value: 'ne', label: '不等于' },
+        { value: 'contains', label: '包含' },
+        { value: 'not_contains', label: '不包含' },
+        { value: 'gt', label: '大于' },
+        { value: 'gte', label: '大于等于' },
+        { value: 'lt', label: '小于' },
+        { value: 'lte', label: '小于等于' },
+        { value: 'is_empty', label: '为空' },
+        { value: 'is_not_empty', label: '不为空' }
+    ];
+
+    function showImportMessage(targetElement, message, isSuccess) {
+        targetElement.textContent = message;
+        targetElement.className = isSuccess
+            ? 'import-result-box success'
+            : 'import-result-box error';
+    }
+
+    function buildDateTimeValue(dateValue, timeValue, isEnd) {
+        const dateText = (dateValue || '').trim();
+        const timeText = (timeValue || '').trim();
+
+        if (!dateText && !timeText) {
+            return '';
+        }
+
+        if (!dateText) {
+            return '';
+        }
+
+        if (timeText) {
+            return `${dateText}T${timeText}`;
+        }
+
+        return isEnd ? `${dateText}T23:59` : `${dateText}T00:00`;
+    }
+
+    function getExportFieldStorageKey(tableKey) {
+        return `${exportFieldStorageKeyPrefix}${tableKey}`;
+    }
+
+    function getSavedFieldSelection(tableKey) {
+        try {
+            const raw = localStorage.getItem(getExportFieldStorageKey(tableKey));
+            if (!raw) {
+                return null;
+            }
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function saveCurrentFieldSelection(tableKey) {
+        if (!tableKey) {
+            return;
+        }
+        const selectedFields = Array.from(document.querySelectorAll('.export-field-checkbox:checked'))
+            .map(checkbox => checkbox.value);
+        localStorage.setItem(getExportFieldStorageKey(tableKey), JSON.stringify(selectedFields));
+    }
+
+    function applyFieldSelection(mode) {
+        const tableKey = sourceTableSelect ? sourceTableSelect.value : '';
+        const checkboxes = Array.from(document.querySelectorAll('.export-field-checkbox'));
+        if (checkboxes.length === 0) {
+            return;
+        }
+
+        if (mode === 'all') {
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            saveCurrentFieldSelection(tableKey);
+            return;
+        }
+
+        if (mode === 'none') {
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            saveCurrentFieldSelection(tableKey);
+            return;
+        }
+
+        if (mode === 'default') {
+            const tableConfig = exportFieldConfigs[tableKey] || { fields: [] };
+            const defaultSelected = tableConfig.fields
+                .filter(field => field.checked)
+                .map(field => field.value);
+
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = defaultSelected.includes(checkbox.value);
+            });
+            saveCurrentFieldSelection(tableKey);
+        }
+    }
+
+    function renderExportFields(tableKey) {
+        if (!exportFieldsTbody) {
+            return;
+        }
+
+        const tableConfig = exportFieldConfigs[tableKey] || { fields: [] };
+        const fields = tableConfig.fields || [];
+        const savedSelection = getSavedFieldSelection(tableKey);
+
+        if (fields.length === 0) {
+            exportFieldsTbody.innerHTML = `
+                <tr>
+                    <td colspan="3">暂无可导出字段</td>
+                </tr>
+            `;
+            return;
+        }
+
+        exportFieldsTbody.innerHTML = fields.map(field => {
+            const isChecked = Array.isArray(savedSelection)
+                ? savedSelection.includes(field.value)
+                : !!field.checked;
+
+            return `
+                <tr>
+                    <td><div class="checkbox-cell"><input type="checkbox" class="export-field-checkbox" value="${field.value}" ${isChecked ? 'checked' : ''}></div></td>
+                    <td>${field.value}</td>
+                    <td>${field.label}</td>
+                </tr>
+            `;
+        }).join('');
+
+        Array.from(document.querySelectorAll('.export-field-checkbox')).forEach(checkbox => {
+            checkbox.addEventListener('change', function () {
+                saveCurrentFieldSelection(tableKey);
+            });
+        });
+    }
+
+    function getCurrentTableFieldOptions() {
+        const tableKey = sourceTableSelect ? sourceTableSelect.value : '';
+        const tableConfig = exportFieldConfigs[tableKey] || { fields: [] };
+        return tableConfig.fields || [];
+    }
+
+    function updateFilterEmptyState() {
+        const hasRows = !!(filterRowsTbody && filterRowsTbody.children.length > 0);
+
+        if (filterEmptyBox) {
+            filterEmptyBox.style.display = hasRows ? 'none' : 'block';
+        }
+        if (filterRowsContainer) {
+            filterRowsContainer.style.display = hasRows ? 'block' : 'none';
+        }
+    }
+
+    function buildFilterFieldOptionsHtml(selectedValue = '') {
+        const fields = getCurrentTableFieldOptions();
+        return fields.map(field => `
+            <option value="${field.value}" ${field.value === selectedValue ? 'selected' : ''}>${field.label}</option>
+        `).join('');
+    }
+
+    function buildFilterOperatorOptionsHtml(selectedValue = 'contains') {
+        return filterOperatorOptions.map(item => `
+            <option value="${item.value}" ${item.value === selectedValue ? 'selected' : ''}>${item.label}</option>
+        `).join('');
+    }
+
+    function updateFilterValueInputState(rowElement) {
+        if (!rowElement) {
+            return;
+        }
+
+        const operatorSelect = rowElement.querySelector('.filter-operator-select');
+        const valueInput = rowElement.querySelector('.filter-value-input');
+        if (!operatorSelect || !valueInput) {
+            return;
+        }
+
+        const noValueNeeded = operatorSelect.value === 'is_empty' || operatorSelect.value === 'is_not_empty';
+        valueInput.disabled = noValueNeeded;
+        if (noValueNeeded) {
+            valueInput.value = '';
+            valueInput.placeholder = '此条件无需输入值';
+        } else {
+            valueInput.placeholder = '请输入筛选值';
+        }
+    }
+
+    function bindFilterRowEvents(rowElement) {
+        if (!rowElement) {
+            return;
+        }
+
+        const operatorSelect = rowElement.querySelector('.filter-operator-select');
+        const removeButton = rowElement.querySelector('.btn-remove-filter-row');
+
+        if (operatorSelect) {
+            operatorSelect.addEventListener('change', function () {
+                updateFilterValueInputState(rowElement);
+            });
+        }
+
+        if (removeButton) {
+            removeButton.addEventListener('click', function () {
+                rowElement.remove();
+                Array.from(filterRowsTbody.querySelectorAll('tr')).forEach((tr, index) => {
+                    const logicSelect = tr.querySelector('.filter-logic-select');
+                    if (logicSelect) {
+                        logicSelect.disabled = index === 0;
+                        logicSelect.style.visibility = index === 0 ? 'hidden' : 'visible';
+                    }
+                });
+                updateFilterEmptyState();
+            });
+        }
+
+        updateFilterValueInputState(rowElement);
+    }
+
+    function addFilterRow(defaultData = {}) {
+        if (!filterRowsTbody) {
+            return;
+        }
+
+        const rowCount = filterRowsTbody.querySelectorAll('tr').length;
+        const logicValue = defaultData.logic || 'and';
+        const fieldValue = defaultData.field || '';
+        const operatorValue = defaultData.operator || 'contains';
+        const inputValue = defaultData.value || '';
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>
+                <select class="filter-logic-select">
+                    <option value="and" ${logicValue === 'and' ? 'selected' : ''}>AND</option>
+                    <option value="or" ${logicValue === 'or' ? 'selected' : ''}>OR</option>
+                </select>
+            </td>
+            <td>
+                <select class="filter-field-select">
+                    ${buildFilterFieldOptionsHtml(fieldValue)}
+                </select>
+            </td>
+            <td>
+                <select class="filter-operator-select">
+                    ${buildFilterOperatorOptionsHtml(operatorValue)}
+                </select>
+            </td>
+            <td>
+                <input class="filter-value-input" type="text" value="${inputValue}" placeholder="请输入筛选值">
+            </td>
+            <td>
+                <button class="btn btn-dark btn-remove-filter-row" type="button">删除</button>
+            </td>
+        `;
+
+        filterRowsTbody.appendChild(row);
+        const logicSelect = row.querySelector('.filter-logic-select');
+        if (logicSelect) {
+            logicSelect.disabled = rowCount === 0;
+            logicSelect.style.visibility = rowCount === 0 ? 'hidden' : 'visible';
+        }
+
+        bindFilterRowEvents(row);
+        updateFilterEmptyState();
+    }
+
+    function refreshAllFilterFieldOptions() {
+        if (!filterRowsTbody) {
+            return;
+        }
+
+        Array.from(filterRowsTbody.querySelectorAll('tr')).forEach(row => {
+            const fieldSelect = row.querySelector('.filter-field-select');
+            if (!fieldSelect) {
+                return;
+            }
+            const currentValue = fieldSelect.value;
+            fieldSelect.innerHTML = buildFilterFieldOptionsHtml(currentValue);
+            if (!fieldSelect.value) {
+                const fields = getCurrentTableFieldOptions();
+                if (fields.length > 0) {
+                    fieldSelect.value = fields[0].value;
+                }
+            }
+        });
+    }
+
+    function resetFilterRows() {
+        if (filterRowsTbody) {
+            filterRowsTbody.innerHTML = '';
+        }
+        updateFilterEmptyState();
+    }
+
+    function collectFilterConditions() {
+        if (!filterRowsTbody) {
+            return [];
+        }
+
+        return Array.from(filterRowsTbody.querySelectorAll('tr')).map((row, index) => {
+            const logicSelect = row.querySelector('.filter-logic-select');
+            const fieldSelect = row.querySelector('.filter-field-select');
+            const operatorSelect = row.querySelector('.filter-operator-select');
+            const valueInput = row.querySelector('.filter-value-input');
+
+            return {
+                logic: index === 0 ? 'and' : (logicSelect ? logicSelect.value : 'and'),
+                field: fieldSelect ? fieldSelect.value : '',
+                operator: operatorSelect ? operatorSelect.value : 'contains',
+                value: valueInput ? valueInput.value : '',
+            };
+        });
+    }
+
+    async function handleExportExcel() {
+        if (!sourceTableSelect || !dateStartInput || !dateEndInput || !timeStartInput || !timeEndInput) {
+            return;
+        }
+
+        const selectedFields = Array.from(document.querySelectorAll('.export-field-checkbox:checked'))
+            .map(checkbox => checkbox.value);
+
+        if (selectedFields.length === 0) {
+            showImportMessage(exportResult, '请至少选择一个导出字段', false);
+            return;
+        }
+
+        const filterConditions = collectFilterConditions();
+
+        const formData = new FormData();
+        formData.append('table_key', sourceTableSelect.value);
+        formData.append('start_time', buildDateTimeValue(dateStartInput.value, timeStartInput.value, false));
+        formData.append('end_time', buildDateTimeValue(dateEndInput.value, timeEndInput.value, true));
+        formData.append('filters', JSON.stringify(filterConditions));
+        selectedFields.forEach(field => formData.append('fields', field));
+
+        btnExportExcel.disabled = true;
+        btnExportExcel.textContent = '正在导出...';
+
+        try {
+            const response = await fetch('/wechat_shop/export_data', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                showImportMessage(exportResult, errorData.message || '导出失败', false);
+                return;
+            }
+
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const disposition = response.headers.get('Content-Disposition') || '';
+            let fileName = '导出数据.xlsx';
+            const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+            const normalMatch = disposition.match(/filename="?([^";]+)"?/i);
+
+            if (utf8Match && utf8Match[1]) {
+                fileName = decodeURIComponent(utf8Match[1]);
+            } else if (normalMatch && normalMatch[1]) {
+                fileName = decodeURIComponent(normalMatch[1]);
+            }
+
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+
+            showImportMessage(exportResult, `导出成功：${fileName}`, true);
+        } catch (error) {
+            showImportMessage(exportResult, `导出失败：${error.message}`, false);
+        } finally {
+            btnExportExcel.disabled = false;
+            btnExportExcel.textContent = '导出 Excel';
+        }
+    }
+
+    async function handleFolderImport({
+        buttonElement,
+        fileInputElement,
+        resultElement,
+        importUrl,
+        loadingText,
+        defaultButtonText
+    }) {
+        if (!fileInputElement.files || fileInputElement.files.length === 0) {
+            return;
+        }
+
+        buttonElement.disabled = true;
+        buttonElement.textContent = loadingText;
+
+        try {
+            const formData = new FormData();
+
+            for (let i = 0; i < fileInputElement.files.length; i++) {
+                formData.append('files', fileInputElement.files[i]);
+            }
+
+            const response = await fetch(importUrl, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                showImportMessage(resultElement, data.message || '导入失败', false);
+                return;
+            }
+
+            let message = `${data.message}`;
+
+            if (Array.isArray(data.files) && data.files.length > 0) {
+                data.files.forEach(file => {
+                    message += `\n\n文件：${file.filename}`;
+                    message += `\n行数：${file.row_count}`;
+                    message += `\n列数：${file.column_count}`;
+                    message += `\n列名：${file.columns.join('，')}`;
+                });
+            }
+
+            if (Array.isArray(data.invalid_files) && data.invalid_files.length > 0) {
+                message += `\n\n无效文件：${data.invalid_files.join('，')}`;
+            }
+
+            if (Array.isArray(data.failed_files) && data.failed_files.length > 0) {
+                message += `\n\n读取失败：`;
+                data.failed_files.forEach(f => {
+                    message += `\n- ${f.filename}（${f.error}）`;
+                });
+            }
+
+            if (data.status_rows_html) {
+                const statusTableBody = document.getElementById('data-status-tbody');
+                if (statusTableBody) {
+                    statusTableBody.innerHTML = data.status_rows_html;
+                }
+            }
+            showImportMessage(resultElement, message, true);
+        } catch (error) {
+            showImportMessage(resultElement, `请求失败：${error.message}`, false);
+        } finally {
+            buttonElement.disabled = false;
+            buttonElement.textContent = defaultButtonText;
+            fileInputElement.value = '';
+        }
+    }
+
+    if (btnImportOrders && orderFileInput) {
+        btnImportOrders.addEventListener('click', function () {
+            orderFileInput.click();
+        });
+
+        orderFileInput.addEventListener('change', async function () {
+            await handleFolderImport({
+                buttonElement: btnImportOrders,
+                fileInputElement: orderFileInput,
+                resultElement: importOrdersResult,
+                importUrl: '/wechat_shop/import_orders',
+                loadingText: '正在读取文件夹...',
+                defaultButtonText: '导入订单表'
+            });
+        });
+    }
+
+    if (btnImportFundFlow && fundFlowFileInput) {
+        btnImportFundFlow.addEventListener('click', function () {
+            fundFlowFileInput.click();
+        });
+
+        fundFlowFileInput.addEventListener('change', async function () {
+            await handleFolderImport({
+                buttonElement: btnImportFundFlow,
+                fileInputElement: fundFlowFileInput,
+                resultElement: importFundFlowResult,
+                importUrl: '/wechat_shop/import_fund_flow',
+                loadingText: '正在读取资金流水文件夹...',
+                defaultButtonText: '导入资金流水表'
+            });
+        });
+    }
+
+    if (btnImportAfterSales && afterSalesFileInput) {
+        btnImportAfterSales.addEventListener('click', function () {
+            afterSalesFileInput.click();
+        });
+
+        afterSalesFileInput.addEventListener('change', async function () {
+            await handleFolderImport({
+                buttonElement: btnImportAfterSales,
+                fileInputElement: afterSalesFileInput,
+                resultElement: importAfterSalesResult,
+                importUrl: '/wechat_shop/import_after_sales',
+                loadingText: '正在读取售后文件夹...',
+                defaultButtonText: '导入售后表'
+            });
+        });
+    }
+
+
+    if (btnFieldsSelectAll) {
+        btnFieldsSelectAll.addEventListener('click', function () {
+            applyFieldSelection('all');
+        });
+    }
+
+    if (btnFieldsClearAll) {
+        btnFieldsClearAll.addEventListener('click', function () {
+            applyFieldSelection('none');
+        });
+    }
+
+    if (btnFieldsRestoreDefault) {
+        btnFieldsRestoreDefault.addEventListener('click', function () {
+            applyFieldSelection('default');
+        });
+    }
+
+    if (sourceTableSelect) {
+        sourceTableSelect.addEventListener('change', function () {
+            renderExportFields(sourceTableSelect.value);
+            refreshAllFilterFieldOptions();
+        });
+        renderExportFields(sourceTableSelect.value);
+    }
+
+    if (btnAddFilterRow) {
+        btnAddFilterRow.addEventListener('click', function () {
+            addFilterRow();
+        });
+    }
+
+    if (btnResetFilterRows) {
+        btnResetFilterRows.addEventListener('click', function () {
+            resetFilterRows();
+        });
+    }
+
+    updateFilterEmptyState();
+
+    if (btnExportExcel) {
+        btnExportExcel.addEventListener('click', async function () {
+            await handleExportExcel();
+        });
+    }
+</script>
+</body>
+</html>

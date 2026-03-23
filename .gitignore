@@ -51,6 +51,11 @@ __marimo__/
 # Local database
 # -----------------
 *.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
 
 # -----------------
 # Local data folder

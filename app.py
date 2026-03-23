@@ -6,9 +6,12 @@ from purchase.routes import purchase_bp      # 采购模块
 from stocking.routes import stocking_bp      # 操作入库
 from logs.routes import logs_bp             # 操作日志模块
 from vps_monitor import vps_monitor_bp       # VPS 监控模块
+from wechat_shop import wechat_shop_bp       # 微信小店模块
 
 # ===== 创建 Flask 应用 =====
 app = Flask(__name__)
+# ===== 数据库统一配置 =====
+app.config['DATABASE_PATH'] = 'data/main.db'
 app.secret_key = "chenxi98_logs_session_key"
 
 # ===== 注册蓝图模块 =====
@@ -22,6 +25,8 @@ app.register_blueprint(stocking_bp, url_prefix='/stockin')
 app.register_blueprint(logs_bp)
 # VPS 监控相关接口与页面
 app.register_blueprint(vps_monitor_bp)
+# /wechat-shop -> 微信小店
+app.register_blueprint(wechat_shop_bp, url_prefix='/wechat_shop')
 
 # ===== 总入口页面 =====
 @app.route('/')
@@ -38,5 +43,5 @@ if __name__ == '__main__':
 
 
     print(">>> 包材管理系统启动")
-    print(">>> 数据库路径: data/packaging.db")
+    print(">>> 数据库路径: data/main.db")
     app.run(host="0.0.0.0", port=5001, debug=True)
