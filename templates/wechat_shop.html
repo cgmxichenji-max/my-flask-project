@@ -215,15 +215,68 @@
             margin: 6px 0 10px;
         }
 
-        .field-table-wrap {
+        .field-grid-wrap {
             margin-bottom: 14px;
+            background: #fff;
+            border: 1px solid #d8dde3;
+            border-radius: 8px;
+            padding: 14px;
         }
 
-        .checkbox-cell {
+        .field-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px 12px;
+        }
+
+        .field-option {
             display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 8px;
+            gap: 10px;
+            min-height: 46px;
+            cursor: pointer;
+        }
+
+        .field-option input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            margin: 0;
+            flex: 0 0 auto;
+            cursor: pointer;
+        }
+
+        .field-option-text {
+            flex: 1;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            border: 1px solid #cfd6dd;
+            border-radius: 6px;
+            background: #fff;
+            font-size: 14px;
+            color: #333;
+            line-height: 1.4;
+            word-break: break-all;
+        }
+
+        .field-option:hover .field-option-text {
+            border-color: #63ba46;
+            background: #f4fbf0;
+        }
+
+        .field-option input[type="checkbox"]:checked + .field-option-text {
+            border-color: #63ba46;
+            background: #f4fbf0;
+            color: #2f5e21;
+            font-weight: 700;
+        }
+
+        .field-empty-text {
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+            padding: 12px 8px;
         }
 
         .filter-actions,
@@ -270,6 +323,10 @@
 
             .btn {
                 width: 100%;
+            }
+
+            .field-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -368,21 +425,10 @@
                 <button class="btn btn-secondary" type="button" id="btn-fields-clear-all">全不选</button>
                 <button class="btn btn-dark" type="button" id="btn-fields-restore-default">恢复默认</button>
             </div>
-            <div class="field-table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>选择</th>
-                            <th>英文名</th>
-                            <th>中文名称</th>
-                        </tr>
-                    </thead>
-                    <tbody id="export-fields-tbody">
-                        <tr>
-                            <td colspan="3">正在加载字段...</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="field-grid-wrap">
+                <div id="export-fields-tbody" class="field-grid">
+                    <div class="field-empty-text">正在加载字段...</div>
+                </div>
             </div>
 
             <div class="sub-title">筛选条件</div>
@@ -569,11 +615,7 @@
         const savedSelection = getSavedFieldSelection(tableKey);
 
         if (fields.length === 0) {
-            exportFieldsTbody.innerHTML = `
-                <tr>
-                    <td colspan="3">暂无可导出字段</td>
-                </tr>
-            `;
+            exportFieldsTbody.innerHTML = '<div class="field-empty-text">暂无可导出字段</div>';
             return;
         }
 
@@ -583,11 +625,10 @@
                 : !!field.checked;
 
             return `
-                <tr>
-                    <td><div class="checkbox-cell"><input type="checkbox" class="export-field-checkbox" value="${field.value}" ${isChecked ? 'checked' : ''}></div></td>
-                    <td>${field.value}</td>
-                    <td>${field.label}</td>
-                </tr>
+                <label class="field-option">
+                    <input type="checkbox" class="export-field-checkbox" value="${field.value}" ${isChecked ? 'checked' : ''}>
+                    <span class="field-option-text" title="${field.label}">${field.label}</span>
+                </label>
             `;
         }).join('');
 

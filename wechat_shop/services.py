@@ -5,6 +5,7 @@ from datetime import datetime
 import sqlite3
 
 import pandas as pd
+from openpyxl.utils import get_column_letter
 from flask import current_app
 import re
 from werkzeug.datastructures import FileStorage
@@ -248,6 +249,7 @@ def _normalize_export_datetime_text(value: str | None) -> str | None:
 
 
 
+
 def _build_export_download_name(table_key: str, start_time: str | None, end_time: str | None) -> str:
     """生成导出文件名。"""
     table_name_map = {
@@ -263,6 +265,38 @@ def _build_export_download_name(table_key: str, start_time: str | None, end_time
         return re.sub(r'[\\/:*?"<>|\s]+', '_', value)
 
     return f"{table_name}_{_safe_part(start_time)}_到_{_safe_part(end_time)}.xlsx"
+
+
+# ===== Excel导出列宽自适应辅助函数 =====
+def _get_excel_display_width(value: Any) -> int:
+    """按中英文混合文本估算 Excel 显示宽度。"""
+    if value is None:
+        return 0
+
+    text = str(value)
+    width = 0
+    for ch in text:
+        width += 2 if ord(ch) > 127 else 1
+    return width
+
+
+
+def _auto_adjust_excel_columns(worksheet) -> None:
+    """按表头和单元格内容自动调整列宽，并限制最大宽度避免过宽。"""
+    min_width = 10
+    max_width = 40
+
+    for column_index, column_cells in enumerate(worksheet.iter_cols(), start=1):
+        max_display_width = 0
+
+        for cell in column_cells:
+            cell_width = _get_excel_display_width(cell.value)
+            if cell_width > max_display_width:
+                max_display_width = cell_width
+
+        adjusted_width = min(max(max_display_width + 2, min_width), max_width)
+        column_letter = get_column_letter(column_index)
+        worksheet.column_dimensions[column_letter].width = adjusted_width
 
 
 
@@ -597,6 +631,8 @@ def export_data_to_excel(
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='导出结果')
+        worksheet = writer.sheets['导出结果']
+        _auto_adjust_excel_columns(worksheet)
     output.seek(0)
 
     download_name = _build_export_download_name(table_key, start_text, end_text)
