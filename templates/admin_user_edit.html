@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ '创建用户' if mode == 'create' else '编辑用户' }}</title>
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 24px; background: #f5f5f5; }
+        .card { max-width: 520px; background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+        label { display: block; margin: 12px 0 6px; }
+        input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 9px 10px; }
+        .checks label { display: block; margin: 8px 0; }
+        button, a { display: inline-block; margin-top: 18px; padding: 9px 12px; border-radius: 6px; text-decoration: none; }
+        button { border: none; background: #2e7d32; color: #fff; cursor: pointer; }
+        a { color: #2e7d32; }
+        .error { color: #c62828; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>{{ '创建用户' if mode == 'create' else '编辑用户' }}</h1>
+        {% if error %}<p class="error">{{ error }}</p>{% endif %}
+        <form method="post">
+            <label for="username">用户名</label>
+            <input id="username" name="username" type="text" value="{{ user.username or '' }}" {% if mode == 'edit' %}readonly{% endif %} required>
+
+            {% if mode == 'create' %}
+            <label for="password">密码</label>
+            <input id="password" name="password" type="password" required>
+            {% else %}
+            <label for="reset_password">重置密码</label>
+            <input id="reset_password" name="reset_password" type="password" placeholder="留空则不修改">
+            {% endif %}
+
+            <div class="checks">
+                <label><input type="checkbox" name="is_admin" value="1" {% if user.is_admin %}checked{% endif %} {% if is_self %}disabled{% endif %}> 管理员</label>
+                {% if mode == 'edit' %}
+                <label><input type="checkbox" name="is_active" value="1" {% if user.is_active %}checked{% endif %} {% if is_self %}disabled{% endif %}> 启用</label>
+                {% endif %}
+            </div>
+
+            <h3>授权模块</h3>
+            <div class="checks">
+                {% for key, label in module_labels.items() %}
+                <label><input type="checkbox" name="modules" value="{{ key }}" {% if key in selected_modules %}checked{% endif %}> {{ label }}</label>
+                {% endfor %}
+            </div>
+
+            <button type="submit">保存</button>
+            <a href="{{ url_for('auth_admin.users') }}">返回</a>
+        </form>
+    </div>
+</body>
+</html>

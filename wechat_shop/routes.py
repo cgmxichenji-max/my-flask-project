@@ -4,6 +4,8 @@ import sqlite3
 
 from flask import current_app, jsonify, render_template, render_template_string, request, send_file
 
+from auth.decorators import module_required
+
 from .table_schemas import (
     ORDER_COLUMN_MAPPING,
     ORDER_COLUMN_TYPES,
@@ -168,7 +170,8 @@ def _attach_status_rows(result: dict) -> dict:
     return result
 
 
-@wechat_shop_bp.route('/')
+@wechat_shop_bp.route('/', strict_slashes=False)
+@module_required('wechat_shop')
 def index():
     data_status_rows = _get_data_status_rows()
     export_field_config_json = json.dumps(EXPORT_FIELD_CONFIG, ensure_ascii=False)
@@ -180,6 +183,7 @@ def index():
 
 
 @wechat_shop_bp.route('/import_orders', methods=['POST'])
+@module_required('wechat_shop')
 def import_orders():
     """
     接收前端上传的多个订单文件（Excel），
@@ -203,6 +207,7 @@ def import_orders():
 
 
 @wechat_shop_bp.route('/import_fund_flow', methods=['POST'])
+@module_required('wechat_shop')
 def import_fund_flow():
     """
     接收前端上传的资金流水 Excel 文件，
@@ -226,6 +231,7 @@ def import_fund_flow():
 
 
 @wechat_shop_bp.route('/import_after_sales', methods=['POST'])
+@module_required('wechat_shop')
 def import_after_sales():
     """
     接收前端上传的售后 Excel 文件，
@@ -250,6 +256,7 @@ def import_after_sales():
 
 # 新增导出数据接口
 @wechat_shop_bp.route('/export_data', methods=['POST'])
+@module_required('wechat_shop')
 def export_data():
     """原始数据导出为 Excel"""
     try:

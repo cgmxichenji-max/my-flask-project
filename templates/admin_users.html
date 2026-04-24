@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理</title>
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 24px; background: #f5f5f5; }
+        table { width: 100%; border-collapse: collapse; background: #fff; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background: #f0f0f0; }
+        a { color: #2e7d32; text-decoration: none; margin-right: 12px; }
+        .bar { margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+    <h1>用户管理</h1>
+    <div class="bar">
+        <a href="{{ url_for('auth_admin.create') }}">创建用户</a>
+        <a href="{{ url_for('index') }}">返回首页</a>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>用户名</th>
+                <th>管理员</th>
+                <th>启用</th>
+                <th>最后登录</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.username }}</td>
+                <td>{{ '是' if user.is_admin else '否' }}</td>
+                <td>{{ '是' if user.is_active else '否' }}</td>
+                <td>{{ user.last_login_at or '' }}</td>
+                <td><a href="{{ url_for('auth_admin.edit', user_id=user.id) }}">编辑</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

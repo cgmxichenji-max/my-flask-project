@@ -1,5 +1,7 @@
 from flask import Blueprint, jsonify, render_template_string
 
+from auth.decorators import admin_required
+
 from .services import (
     get_xray_status,
     get_vps_traffic_gb,
@@ -16,6 +18,7 @@ vps_monitor_bp = Blueprint("vps_monitor", __name__)
 
 
 @vps_monitor_bp.route('/vps-status')
+@admin_required
 def vps_status():
     """
     返回最小版 VPS 状态信息。
@@ -33,6 +36,7 @@ def vps_status():
 
 
 @vps_monitor_bp.route('/vps-log')
+@admin_required
 def vps_log():
     """
     查看最近的 xray 日志
@@ -42,6 +46,7 @@ def vps_log():
 
 
 @vps_monitor_bp.route('/vps-monitor')
+@admin_required
 def vps_monitor():
     """
     简易隐藏监控页。
@@ -128,4 +133,3 @@ def vps_monitor():
         disk_usage=disk_usage,
         uptime_text=uptime_text
     )
-

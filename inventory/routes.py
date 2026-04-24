@@ -5,6 +5,8 @@ from datetime import datetime
 import json
 
 from flask import current_app
+from auth.decorators import module_required
+from auth.services import get_current_operator_name
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -96,7 +98,8 @@ def format_duration_label(start_dt, end_dt):
         return f"间隔 {days} 天 {hours} 小时"
     return f"间隔 {days} 天 {hours} 小时 {minutes} 分"
 
-@inventory_bp.route('/')
+@inventory_bp.route('/', strict_slashes=False)
+@module_required('inventory')
 def inventory():
     conn = get_db_connection()
     try:
@@ -156,6 +159,7 @@ def inventory():
         conn.close()
 
 @inventory_bp.route('/api/analysis/options', methods=['POST'])
+@module_required('inventory')
 def analysis_options():
     data = request.get_json(silent=True) or {}
     pack_item_id = str(data.get('pack_item_id', '')).strip()
@@ -211,6 +215,7 @@ def analysis_options():
 
 
 @inventory_bp.route('/api/analysis/run', methods=['POST'])
+@module_required('inventory')
 def analysis_run():
     data = request.get_json(silent=True) or {}
     pack_item_id = str(data.get('pack_item_id', '')).strip()
@@ -334,6 +339,7 @@ def analysis_run():
 
 @inventory_bp.route('/add', methods=['POST'])
 @inventory_bp.route('/add_inventory', methods=['POST'])
+@module_required('inventory')
 def add_inventory():
     pack_item_id = request.form.get('pack_item_id', '').strip()
     quantity = request.form.get('quantity', '').strip()
@@ -399,7 +405,7 @@ def add_inventory():
             conn=conn,
             request_path=request.path,
             ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
-            operator="system",
+            operator=get_current_operator_name(),
             operation_group="inventory",
             table_name="pack_stock_snapshot",
             record_id=new_row["id"],

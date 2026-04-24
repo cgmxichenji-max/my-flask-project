@@ -4,6 +4,8 @@ import os
 import re
 import json
 from datetime import datetime
+from auth.decorators import module_required
+from auth.services import get_current_operator_name
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -183,7 +185,8 @@ def generate_batch_id(conn):
 
 
 # ===== 页面 =====
-@purchase_bp.route('/')
+@purchase_bp.route('/', strict_slashes=False)
+@module_required('purchase')
 def purchase():
     print("进入 /purchase/ 路由")
     conn = get_db_connection()
@@ -212,6 +215,7 @@ def purchase():
 
 # ===== 解析采购数据 =====
 @purchase_bp.route('/parse_purchase_data', methods=['POST'])
+@module_required('purchase')
 def parse_purchase_data():
     data = request.get_json() or {}
     input_data = data.get('data', '').strip()
@@ -275,6 +279,7 @@ def parse_purchase_data():
 
 # ===== 直接新增包材 =====
 @purchase_bp.route('/add_pack_item', methods=['POST'])
+@module_required('purchase')
 def add_pack_item():
     data = request.get_json() or {}
     pack_item_name = normalize_pack_item_name((data.get('pack_item_name') or '').strip())
@@ -337,7 +342,7 @@ def add_pack_item():
             conn=conn,
             request_path=request.path,
             ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
-            operator="system",
+            operator=get_current_operator_name(),
             operation_group="purchase",
             table_name="pack_item",
             record_id=new_pack_item_id,
@@ -373,6 +378,7 @@ def add_pack_item():
 
 # ===== 提交采购数据 =====
 @purchase_bp.route('/submit_purchase', methods=['POST'])
+@module_required('purchase')
 def submit_purchase():
     data = request.get_json() or {}
 
@@ -493,7 +499,7 @@ def submit_purchase():
                 conn=conn,
                 request_path=request.path,
                 ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
-                operator="system",
+                operator=get_current_operator_name(),
                 operation_group="purchase",
                 table_name="purchase_record",
                 record_id=int(purchase_id),
@@ -567,7 +573,7 @@ def submit_purchase():
             conn=conn,
             request_path=request.path,
             ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
-            operator="system",
+            operator=get_current_operator_name(),
             operation_group="purchase",
             table_name="purchase_record",
             record_id=new_purchase_id,

@@ -3,6 +3,8 @@ import sqlite3
 import os
 import json
 from datetime import datetime
+from auth.decorators import module_required
+from auth.services import get_current_operator_name
 
 stocking_bp = Blueprint('stocking', __name__)
 
@@ -81,12 +83,14 @@ def write_operation_log(conn, request_path, ip_address, operator, operation_grou
     )
 
 
-@stocking_bp.route('/')
+@stocking_bp.route('/', strict_slashes=False)
+@module_required('stockin')
 def stockin_page():
     return render_template('stock_in.html')
 
 
 @stocking_bp.route('/api/pending')
+@module_required('stockin')
 def get_pending_list():
     conn = get_db_connection()
 
@@ -122,6 +126,7 @@ def get_pending_list():
 
 
 @stocking_bp.route('/api/stocked')
+@module_required('stockin')
 def get_stocked_list():
     conn = get_db_connection()
 
@@ -157,6 +162,7 @@ def get_stocked_list():
 
 
 @stocking_bp.route('/api/submit', methods=['POST'])
+@module_required('stockin')
 def submit_stockin():
     data = request.get_json()
 
@@ -202,7 +208,7 @@ def submit_stockin():
         conn=conn,
         request_path=request.path,
         ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
-        operator="system",
+        operator=get_current_operator_name(),
         operation_group="stockin",
         table_name="stock_in_record",
         record_id=new_stock_in_id,
@@ -219,6 +225,7 @@ def submit_stockin():
 
 
 @stocking_bp.route('/api/reprint', methods=['POST'])
+@module_required('stockin')
 def mark_reprint():
     data = request.get_json()
 
@@ -248,7 +255,7 @@ def mark_reprint():
         conn=conn,
         request_path=request.path,
         ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
-        operator="system",
+        operator=get_current_operator_name(),
         operation_group="stockin",
         table_name="stock_in_record",
         record_id=stock_in_id,

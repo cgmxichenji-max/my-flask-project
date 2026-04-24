@@ -1,7 +1,9 @@
-from flask import Blueprint, render_template, redirect, url_for, request, session, current_app
+from flask import Blueprint, render_template, redirect, url_for, current_app
 import json
 import os
 import sqlite3
+
+from auth.decorators import module_required
 
 logs_bp = Blueprint('logs', __name__, template_folder='../templates')
 
@@ -13,10 +15,6 @@ def get_database_path():
     if db_path:
         return db_path
     return os.path.join(BASE_DIR, 'data', 'main.db')
-
-
-LOGS_PASSWORD = 'chenxi98'
-LOGS_SESSION_KEY = 'logs_authenticated'
 
 
 def get_db_connection():
@@ -36,103 +34,9 @@ def get_primary_key_name(table_name):
     return primary_key_map.get(table_name, 'id')
 
 
-def is_logs_authenticated():
-    return session.get(LOGS_SESSION_KEY) is True
-
-
-def render_logs_login_page(error_message=''):
-    error_html = f'<p style="color:#c62828;margin:0 0 12px;">{error_message}</p>' if error_message else ''
-    return f"""
-    <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>操作日志验证</title>
-        <style>
-            body {{
-                font-family: "Microsoft YaHei", Arial, sans-serif;
-                margin: 0;
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                background: #f5f5f5;
-            }}
-            .card {{
-                width: 360px;
-                background: #fff;
-                border-radius: 12px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-                padding: 28px;
-            }}
-            h1 {{
-                margin: 0 0 18px;
-                font-size: 24px;
-            }}
-            label {{
-                display: block;
-                margin-bottom: 8px;
-                font-size: 14px;
-            }}
-            input[type="password"] {{
-                width: 100%;
-                box-sizing: border-box;
-                padding: 10px 12px;
-                font-size: 14px;
-                margin-bottom: 14px;
-            }}
-            button {{
-                width: 100%;
-                padding: 10px 12px;
-                font-size: 14px;
-                border: none;
-                background: #2e7d32;
-                color: #fff;
-                border-radius: 6px;
-                cursor: pointer;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <h1>操作日志验证</h1>
-            {error_html}
-            <form method="post" action="/logs/login">
-                <label for="logs_password">请输入密码</label>
-                <input id="logs_password" name="password" type="password" autocomplete="current-password">
-                <button type="submit">进入操作日志</button>
-            </form>
-        </div>
-    </body>
-    </html>
-    """
-
-
-@logs_bp.route('/logs/login', methods=['GET', 'POST'])
-def logs_login():
-    if request.method == 'POST':
-        password = (request.form.get('password') or '').strip()
-        if password == LOGS_PASSWORD:
-            session[LOGS_SESSION_KEY] = True
-            return redirect(url_for('logs.logs'))
-        return render_logs_login_page('密码错误')
-
-    if is_logs_authenticated():
-        return redirect(url_for('logs.logs'))
-    return render_logs_login_page()
-
-
-@logs_bp.route('/logs/logout', methods=['POST'])
-def logs_logout():
-    session.pop(LOGS_SESSION_KEY, None)
-    return redirect(url_for('logs.logs_login'))
-
-
 @logs_bp.route('/logs')
+@module_required('logs')
 def logs():
-    if not is_logs_authenticated():
-        return redirect(url_for('logs.logs_login'))
     conn = get_db_connection()
     try:
         rows = conn.execute(
@@ -160,9 +64,8 @@ def logs():
 
 
 @logs_bp.route('/logs/rollback/<int:log_id>', methods=['POST'])
+@module_required('logs')
 def rollback_log(log_id):
-    if not is_logs_authenticated():
-        return redirect(url_for('logs.logs_login'))
     conn = get_db_connection()
     try:
         log_row = conn.execute(
