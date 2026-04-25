@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>发票核对</title>
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+        header { background-color: #4CAF50; color: white; padding: 18px 0; text-align: center; font-size: 24px; }
+        .nav { background: #fff; padding: 10px 20px; border-bottom: 1px solid #ddd; font-size: 14px; }
+        .nav a { color: #2e7d32; text-decoration: none; margin-right: 16px; }
+        main { padding: 40px 20px; display: flex; justify-content: center; }
+        .menu-container { display: flex; flex-wrap: wrap; gap: 28px; }
+        .menu-card {
+            background-color: white;
+            width: 240px;
+            min-height: 130px;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            text-decoration: none; color: #333; font-size: 18px; font-weight: bold;
+            transition: all 0.25s ease;
+            padding: 16px;
+            text-align: center;
+        }
+        .menu-card:hover { background-color: #4CAF50; color: white; transform: translateY(-4px); box-shadow: 0 6px 18px rgba(0,0,0,0.2); }
+        .menu-card .desc { font-size: 13px; font-weight: normal; color: #888; margin-top: 8px; }
+        .menu-card:hover .desc { color: #e8f5e9; }
+    </style>
+</head>
+<body>
+<header>发票核对</header>
+<div class="nav">
+    <a href="/">← 返回首页</a>
+</div>
+<main>
+    <div class="menu-container">
+        <a href="{{ url_for('invoicing.billing_entities') }}" class="menu-card">
+            开票主体管理
+            <div class="desc">维护开票公司主体（如澳柯、香娜露儿）</div>
+        </a>
+        <a href="{{ url_for('invoicing.customers') }}" class="menu-card">
+            客户管理
+            <div class="desc">达人/团长信息与别名维护</div>
+        </a>
+    </div>
+</main>
+</body>
+</html>

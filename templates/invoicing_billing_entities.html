@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>开票主体 - 发票核对</title>
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+        header { background: #4CAF50; color: #fff; padding: 16px; text-align: center; font-size: 20px; }
+        .nav { background: #fff; padding: 10px 20px; border-bottom: 1px solid #ddd; font-size: 14px; }
+        .nav a { color: #2e7d32; text-decoration: none; margin-right: 16px; }
+        main { padding: 24px; max-width: 960px; margin: 0 auto; }
+        h2 { color: #333; }
+        .panel { background: #fff; padding: 16px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); margin-bottom: 20px; }
+        .create-form input[type=text] { padding: 6px 10px; font-size: 14px; width: 240px; }
+        .create-form button { padding: 6px 16px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f8f8; font-size: 14px; }
+        td input[type=text] { padding: 4px 8px; font-size: 14px; width: 220px; }
+        td button { padding: 4px 10px; font-size: 13px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-update { background: #1976d2; color: #fff; }
+        .btn-delete { background: #d32f2f; color: #fff; }
+        .inline-form { display: inline; margin-left: 6px; }
+    </style>
+</head>
+<body>
+<header>开票主体管理</header>
+<div class="nav">
+    <a href="/">← 首页</a>
+    <a href="{{ url_for('invoicing.index') }}">← 发票核对</a>
+    <a href="{{ url_for('invoicing.customers') }}">客户管理</a>
+</div>
+<main>
+    <div class="panel">
+        <h2 style="margin-top:0;">新增开票主体</h2>
+        <form class="create-form" method="post" action="{{ url_for('invoicing.create_billing_entity') }}">
+            <input type="text" name="name" placeholder="主体名称（必填）" required>
+            <button type="submit">新增</button>
+        </form>
+    </div>
+
+    <h2>已有开票主体（共 {{ rows|length }} 个）</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>名称（可直接编辑）</th>
+                <th>创建时间</th>
+                <th>更新时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td>{{ r['id'] }}</td>
+                <td>
+                    <form class="inline-form" method="post" action="{{ url_for('invoicing.update_billing_entity', entity_id=r['id']) }}">
+                        <input type="text" name="name" value="{{ r['name'] }}" required>
+                        <button type="submit" class="btn-update">保存</button>
+                    </form>
+                </td>
+                <td>{{ r['created_at'] }}</td>
+                <td>{{ r['updated_at'] }}</td>
+                <td>
+                    <form class="inline-form" method="post" action="{{ url_for('invoicing.delete_billing_entity', entity_id=r['id']) }}"
+                          onsubmit="return confirm('此操作将删除该开票主体，已关联的发票将变为未归属，可在发票管理页重新指派。是否继续？');">
+                        <button type="submit" class="btn-delete">删除</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</main>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>客户管理 - 发票核对</title>
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+        header { background: #4CAF50; color: #fff; padding: 16px; text-align: center; font-size: 20px; }
+        .nav { background: #fff; padding: 10px 20px; border-bottom: 1px solid #ddd; font-size: 14px; }
+        .nav a { color: #2e7d32; text-decoration: none; margin-right: 16px; }
+        main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+        h2 { color: #333; }
+        .panel { background: #fff; padding: 16px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); margin-bottom: 20px; }
+        .create-form input[type=text] { padding: 6px 10px; font-size: 14px; margin-right: 8px; width: 240px; }
+        .create-form button { padding: 6px 16px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        .filter-bar input { padding: 6px 10px; font-size: 14px; width: 320px; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
+        th { background: #f8f8f8; font-size: 14px; }
+        .btn-detail { background: #1976d2; color: #fff; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 13px; }
+        .btn-delete { background: #d32f2f; color: #fff; padding: 4px 10px; font-size: 13px; border: none; border-radius: 4px; cursor: pointer; }
+        .inline-form { display: inline; margin-left: 6px; }
+        .alias-cell { color: #666; font-size: 13px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    </style>
+</head>
+<body>
+<header>客户管理</header>
+<div class="nav">
+    <a href="/">← 首页</a>
+    <a href="{{ url_for('invoicing.index') }}">← 发票核对</a>
+    <a href="{{ url_for('invoicing.billing_entities') }}">开票主体</a>
+</div>
+<main>
+    <div class="panel">
+        <h2 style="margin-top:0;">新增客户</h2>
+        <form class="create-form" method="post" action="{{ url_for('invoicing.create_customer') }}">
+            <input type="text" name="short_name" placeholder="简称（必填，如「文怡外甥的日常」）" required>
+            <input type="text" name="full_name" placeholder="完整法人名称（可选）">
+            <button type="submit">新增</button>
+        </form>
+    </div>
+
+    <div class="panel filter-bar">
+        <input type="text" id="filter-input" placeholder="筛选：简称 / 全名 / 别名 任一含关键字（不区分大小写）">
+    </div>
+
+    <h2>客户列表（共 <span id="total-count">{{ rows|length }}</span> 个，当前显示 <span id="visible-count">{{ rows|length }}</span>）</h2>
+    <table id="customer-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>简称</th>
+                <th>全名</th>
+                <th>别名集合</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr data-search="{{ (r['short_name'] or '') ~ '|' ~ (r['full_name'] or '') ~ '|' ~ (r['alias_list'] or '') }}">
+                <td>{{ r['id'] }}</td>
+                <td>{{ r['short_name'] }}</td>
+                <td>{{ r['full_name'] or '' }}</td>
+                <td class="alias-cell" title="{{ r['alias_list'] }}">{{ r['alias_list'] }}</td>
+                <td>{{ r['created_at'] }}</td>
+                <td>
+                    <a class="btn-detail" href="{{ url_for('invoicing.customer_detail', customer_id=r['id']) }}">详情/别名</a>
+                    <form class="inline-form" method="post" action="{{ url_for('invoicing.delete_customer', customer_id=r['id']) }}"
+                          onsubmit="return confirm('此操作将删除该客户及其全部别名，已关联的发票将变为未归属，可在发票管理页重新指派。是否继续？');">
+                        <button type="submit" class="btn-delete">删除</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</main>
+<script>
+(function() {
+    const input = document.getElementById('filter-input');
+    const rows = document.querySelectorAll('#customer-table tbody tr');
+    const visibleCount = document.getElementById('visible-count');
+    if (!input) return;
+    input.addEventListener('input', function() {
+        const q = (this.value || '').trim().toLowerCase();
+        let shown = 0;
+        rows.forEach(function(r) {
+            const data = (r.getAttribute('data-search') || '').toLowerCase();
+            const match = !q || data.indexOf(q) !== -1;
+            r.style.display = match ? '' : 'none';
+            if (match) shown++;
+        });
+        visibleCount.textContent = shown;
+    });
+})();
+</script>
+</body>
+</html>

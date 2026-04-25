@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ customer['short_name'] }} - 客户详情</title>
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+        header { background: #4CAF50; color: #fff; padding: 16px; text-align: center; font-size: 20px; }
+        .nav { background: #fff; padding: 10px 20px; border-bottom: 1px solid #ddd; font-size: 14px; }
+        .nav a { color: #2e7d32; text-decoration: none; margin-right: 16px; }
+        main { padding: 24px; max-width: 920px; margin: 0 auto; }
+        .panel { background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+        h2 { color: #333; margin-top: 0; }
+        label { display: block; margin-top: 10px; font-size: 13px; color: #666; }
+        input[type=text] { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { padding: 8px 20px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 12px; font-size: 14px; }
+        button.btn-delete { background: #d32f2f; padding: 4px 10px; font-size: 13px; margin-top: 0; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; }
+        th { background: #f8f8f8; }
+        .add-alias-form { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+        .add-alias-form input { flex: 1; }
+        .add-alias-form button { margin-top: 0; }
+        .inline-form { display: inline; }
+        .meta { color: #888; font-size: 13px; margin-top: 6px; }
+    </style>
+</head>
+<body>
+<header>客户详情</header>
+<div class="nav">
+    <a href="/">← 首页</a>
+    <a href="{{ url_for('invoicing.index') }}">← 发票核对</a>
+    <a href="{{ url_for('invoicing.customers') }}">← 客户列表</a>
+</div>
+<main>
+    <div class="panel">
+        <h2>基本信息（ID: {{ customer['id'] }}）</h2>
+        <form method="post" action="{{ url_for('invoicing.update_customer', customer_id=customer['id']) }}">
+            <label>简称（必填）</label>
+            <input type="text" name="short_name" value="{{ customer['short_name'] }}" required>
+            <label>完整法人名称（可选）</label>
+            <input type="text" name="full_name" value="{{ customer['full_name'] or '' }}">
+            <div class="meta">
+                创建时间：{{ customer['created_at'] }} ｜ 更新时间：{{ customer['updated_at'] }}
+            </div>
+            <button type="submit">保存</button>
+        </form>
+    </div>
+
+    <div class="panel">
+        <h2>客户别名（共 {{ aliases|length }} 个）</h2>
+        <p class="meta">别名用于发票导入时通过销售方名 / 简称 / 误写名等回溯到本客户。所有别名统一存放，不区分类型。</p>
+        <form class="add-alias-form" method="post" action="{{ url_for('invoicing.create_alias', customer_id=customer['id']) }}">
+            <input type="text" name="alias" placeholder="新增别名（销售方名 / 简称 / 任意标识）" required>
+            <button type="submit">添加别名</button>
+        </form>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>别名</th>
+                    <th>创建时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in aliases %}
+                <tr>
+                    <td>{{ a['id'] }}</td>
+                    <td>{{ a['alias'] }}</td>
+                    <td>{{ a['created_at'] }}</td>
+                    <td>
+                        <form class="inline-form" method="post" action="{{ url_for('invoicing.delete_alias', alias_id=a['id']) }}"
+                              onsubmit="return confirm('确认删除该别名？');">
+                            <button type="submit" class="btn-delete">删除</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</main>
+</body>
+</html>

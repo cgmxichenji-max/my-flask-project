@@ -191,3 +191,21 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅数据库 schema 加列；尚无业务代码引用新列，运行时无破坏
 - 是否涉及数据库：是
 - 是否需要回滚：否（如需直接还原备份库）
+
+## [2026-04-25 19:47] 修改记录
+- 修改内容：发票模块 Step 2 — 基础数据 CRUD + 模块授权接入 + 首页入口
+  - 新建 invoicing 蓝图，加 12 条路由（首页 1 / 开票主体 4 / 客户 5 / 别名 2）
+  - 新建 4 个模板：invoicing_index、invoicing_billing_entities、invoicing_customers、invoicing_customer_detail
+  - auth/services.py 加 'invoicing' 模块键 + 中文标签「发票核对」
+  - app.py 注册 invoicing_bp（url_prefix=/invoicing）
+  - templates/index.html 在微信小店与 VPS 监控之间加「发票核对」卡片，受 can_module(user, 'invoicing') 控制
+  - 客户列表 LEFT JOIN customer_alias 显示别名集合，前端 JS 关键字筛选
+  - 删除按钮统一二次确认弹窗；customer 删除手动级联清理 customer_alias（外键未启用）
+- 修改文件：
+  - 新增：invoicing/__init__.py、invoicing/routes.py
+  - 新增：templates/invoicing_index.html、templates/invoicing_billing_entities.html、templates/invoicing_customers.html、templates/invoicing_customer_detail.html
+  - 修改：auth/services.py、app.py、templates/index.html
+- 修改原因：发票核对模块需要可视化 CRUD 入口；必须接入授权体系避免普通用户越权；客户列表需通过别名快速回溯销售方
+- 影响范围：新增独立模块；现有模块路由与逻辑不动；现有非管理员用户默认无访问权限，需管理员主动授权；GeorgeJi 自动可见
+- 是否涉及数据库：否
+- 是否需要回滚：否（如出问题 git revert）
