@@ -177,3 +177,17 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：所有业务页面现需登录后访问；旧 /logs/login、/logs/logout 路由删除；历史 operation_logs 记录不清洗
 - 是否涉及数据库：是（新增 user、user_module_permission 两张表）
 - 是否需要回滚：否（一次性改造；如需回滚可还原文件，新增空表不影响业务）
+
+## [2026-04-25 19:05] 修改记录
+- 修改内容：发票模块 Day 1.5 - 数据表补丁 + PDF 解析 PoC 扩展
+  - invoice 表加列：project_name（如缺）、pdf_remark、is_usable（默认 0）、period_start、period_end
+  - expected_amount 表加列：period_start、period_end
+  - PoC 验证：样本 PDF 可提取 项目名称 + 备注栏；is_usable 自动判定规则确定（项目含"服务"或"推广" AND 备注不含"代扣代缴"）
+  - 数据库已备份至 data/main_backup_before_invoice_day1_5_20260425_185401.db
+- 修改文件：
+  - 数据库：data/main.db（仅 ALTER TABLE，未触业务代码）
+  - 备份：新增 main_backup_before_invoice_day1_5_20260425_185401.db
+- 修改原因：业务必须捕获 PDF 上的"项目名称"和"备注栏"原文用于发票可用性自动判定；账期需支持手工录入起止日期
+- 影响范围：仅数据库 schema 加列；尚无业务代码引用新列，运行时无破坏
+- 是否涉及数据库：是
+- 是否需要回滚：否（如需直接还原备份库）
