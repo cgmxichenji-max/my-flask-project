@@ -250,3 +250,22 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅 invoice 表；无业务代码引用（路由尚未做），运行时无破坏
 - 是否涉及数据库：是
 - 是否需要回滚：否（如需还原直接用备份库覆盖）
+
+## [2026-04-26 22:29] 修改记录
+- 修改内容：发票模块 Step 4.1 — PDF 单张上传 + 自动解析 + 人工复核 + 入库 / 丢弃
+  - 新建 invoicing/pdf_parser.py：纯函数模块，提取 invoice_number / invoice_date / amount / seller_name / buyer_name / project_name / pdf_remark / qr_content；自动建议 is_usable
+  - 关键词阻断扩展为 3 条："代扣代缴"、"未按规定扣缴"、"不得作为所得税前合法有效扣除凭证"
+  - invoicing/routes.py 新增 9 条路由（list / upload GET+POST / review / confirm / discard / pdf serve / pending pdf serve / match / delete）
+  - 客户匹配三段：short_name → full_name → alias，无命中保持 NULL（不自动建客户）
+  - 主体匹配：buyer_name 包含 entity.name 即命中
+  - 重号检查：invoice_number 已存在则复核页阻止入库
+  - 丢弃 = 完全不入库不归档；入库 = INSERT + 移动 PDF 至 data/invoice_pdfs/<entity 或 _unmatched_>/<year>/<invoice_number>.pdf
+  - 新建 3 模板：invoicing_invoices_upload / invoicing_invoices_review / invoicing_invoices；invoicing_index 加第 4 张卡片「发票管理」
+  - requirements.txt 补 4 个 PDF 依赖：pdfplumber 0.11.9、PyMuPDF 1.27.2.2、opencv-python(-headless) 4.13.0、Pillow 12.2.0
+- 修改文件：
+  - 新增：invoicing/pdf_parser.py、templates/invoicing_invoices_upload.html、templates/invoicing_invoices_review.html、templates/invoicing_invoices.html
+  - 修改：invoicing/routes.py、templates/invoicing_index.html、requirements.txt
+- 修改原因：完成"应开 vs 已开"核对的"已开"侧基础数据采集
+- 影响范围：仅发票模块；新增 data/invoice_pdfs/ 与 data/invoice_pdfs_pending/ 两个 PDF 文件目录
+- 是否涉及数据库：否（schema 不变，仅 INSERT/UPDATE/DELETE invoice 表）
+- 是否需要回滚：否（如出问题 git revert + 删 data/invoice_pdfs* 目录）

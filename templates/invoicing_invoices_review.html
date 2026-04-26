@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><title>复核发票 - 发票核对</title>
+<style>
+body{font-family:"Microsoft YaHei",Arial,sans-serif;margin:0;background:#f5f5f5;}
+header{background:#4CAF50;color:#fff;padding:16px;text-align:center;font-size:20px;}
+.nav{background:#fff;padding:10px 20px;border-bottom:1px solid #ddd;font-size:14px;}
+.nav a{color:#2e7d32;text-decoration:none;margin-right:16px;}
+.layout{display:flex;gap:16px;padding:16px;height:calc(100vh - 110px);box-sizing:border-box;}
+.preview{flex:1;background:#fff;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.06);overflow:hidden;}
+.preview iframe{width:100%;height:100%;border:0;}
+.form-panel{width:480px;background:#fff;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.06);padding:20px;overflow-y:auto;}
+h2{margin-top:0;color:#333;}
+label{display:block;margin-top:10px;font-size:13px;color:#666;}
+input[type=text],input[type=date],input[type=number],select,textarea{width:100%;padding:6px 10px;font-size:14px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;}
+textarea{min-height:60px;resize:vertical;}
+.actions{margin-top:20px;display:flex;gap:10px;}
+.btn-confirm{flex:1;padding:10px;background:#4CAF50;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:15px;}
+.btn-discard{flex:1;padding:10px;background:#d32f2f;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:15px;}
+.warn{background:#fff3cd;color:#856404;padding:10px;border-radius:4px;margin-bottom:12px;font-size:13px;}
+.danger{background:#ffebee;color:#c62828;padding:10px;border-radius:4px;margin-bottom:12px;font-size:13px;}
+.toggle-row{display:flex;align-items:center;gap:8px;margin-top:12px;}
+.qr{font-family:monospace;font-size:12px;color:#666;background:#f8f8f8;padding:6px;border-radius:4px;word-break:break-all;}
+</style></head>
+<body>
+<header>复核发票</header>
+<div class="nav">
+<a href="/">← 首页</a>
+<a href="{{ url_for('invoicing.index') }}">← 发票核对</a>
+<a href="{{ url_for('invoicing.invoices_upload_form') }}">← 重新上传</a>
+<a href="{{ url_for('invoicing.invoices_list') }}">发票列表</a>
+</div>
+<div class="layout">
+<div class="preview"><iframe src="{{ url_for('invoicing.invoice_pdf_pending', pending_id=pending_id) }}"></iframe></div>
+<div class="form-panel">
+{% if duplicate_warning %}
+<div class="danger">⚠ 该发票号已在数据库中存在，请取消本次入库或修改发票号。</div>
+{% elif parsed.duplicate_existing_invoice_id %}
+<div class="danger">⚠ 检测到该发票号已在数据库中存在（id={{ parsed.duplicate_existing_invoice_id }}）。如确认是不同发票请改号；如确实是重复请丢弃。</div>
+{% endif %}
+
+{% if parsed.suggested_is_usable == 0 %}
+<div class="warn">⚠ 系统建议此发票"不可用"。请人工核查决定是否入库（不可用建议丢弃，入库后用 is_usable=0 也行）。</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('invoicing.invoices_review_confirm', pending_id=pending_id) }}">
+<h2>解析字段（可编辑）</h2>
+
+<label>发票号码</label>
+<input type="text" name="invoice_number" value="{{ parsed.invoice_number or '' }}" required>
+
+<label>开票日期 (YYYY-MM-DD)</label>
+<input type="text" name="invoice_date" value="{{ parsed.invoice_date or '' }}" placeholder="YYYY-MM-DD">
+
+<label>金额 (价税合计，元)</label>
+<input type="text" name="amount" value="{{ parsed.amount if parsed.amount is not none else '' }}">
+
+<label>销售方名称（PDF 解析）</label>
+<input type="text" name="seller_name" value="{{ parsed.seller_name or '' }}">
+
+<label>购买方名称（PDF 解析）</label>
+<input type="text" name="buyer_name" value="{{ parsed.buyer_name or '' }}">
+
+<label>项目名称</label>
+<input type="text" name="project_name" value="{{ parsed.project_name or '' }}">
+
+<label>备注</label>
+<textarea name="pdf_remark">{{ parsed.pdf_remark or '' }}</textarea>
+
+<input type="hidden" name="qr_content" value="{{ parsed.qr_content or '' }}">
+
+<h2>归属（可暂不匹配）</h2>
+
+<label>客户（达人/团长）</label>
+<select name="customer_id">
+<option value="">— 暂不匹配 —</option>
+{% for c in customers %}
+<option value="{{ c.id }}" {% if parsed.suggested_customer_id == c.id %}selected{% endif %}>
+{{ c.short_name }}{% if c.full_name %} | {{ c.full_name }}{% endif %}
+</option>
+{% endfor %}
+</select>
+
+<label>开票主体</label>
+<select name="entity_id">
+<option value="">— 暂不匹配 —</option>
+{% for e in entities %}
+<option value="{{ e.id }}" {% if parsed.suggested_entity_id == e.id %}selected{% endif %}>{{ e.name }}</option>
+{% endfor %}
+</select>
+
+<div class="toggle-row">
+<input type="checkbox" id="is_usable" name="is_usable" value="1" {% if parsed.suggested_is_usable == 1 %}checked{% endif %}>
+<label for="is_usable" style="margin:0;">该发票可计入"已开金额"汇总（is_usable=1）</label>
+</div>
+
+{% if parsed.qr_content %}
+<label>二维码原文</label>
+<div class="qr">{{ parsed.qr_content }}</div>
+{% endif %}
+
+<div class="actions">
+<button type="submit" class="btn-confirm">确认入库</button>
+</div>
+</form>
+
+<form method="post" action="{{ url_for('invoicing.invoices_review_discard', pending_id=pending_id) }}" onsubmit="return confirm('丢弃后该 PDF 将不入库不归档，等同从未扫描。继续？');">
+<button type="submit" class="btn-discard" style="margin-top:10px;width:100%;">丢弃（不入库）</button>
+</form>
+</div>
+</div></body></html>
