@@ -237,3 +237,16 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅发票模块导入逻辑；不影响 Step 2 已落地的 CRUD
 - 是否涉及数据库：否
 - 是否需要回滚：否
+
+## [2026-04-26 22:10] 修改记录
+- 修改内容：发票模块 Day 4.0 — invoice.customer_id 由 NOT NULL 改为 nullable
+  - 通过 SQLite "建新表 → INSERT SELECT → DROP → RENAME" 四步迁移（事务包裹）
+  - 字段顺序、默认值、外键、UNIQUE 约束保持不变
+  - 仅 customer_id 的 NOT NULL 约束被去除
+  - 迁移前 invoice 行数为 0，迁移零风险
+  - 已验证 customer_id 可写入 NULL 后回滚测试行
+- 修改文件：data/main.db（仅表结构）；备份：data/main_backup_before_day4_0_20260426_221023.db
+- 修改原因：Step 4 发票上传需支持"暂不匹配客户"状态，customer_id 必须可 NULL，后续在待匹配列表页补匹配
+- 影响范围：仅 invoice 表；无业务代码引用（路由尚未做），运行时无破坏
+- 是否涉及数据库：是
+- 是否需要回滚：否（如需还原直接用备份库覆盖）
