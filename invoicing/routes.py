@@ -808,3 +808,119 @@ def invoice_delete(invoice_id):
         conn.execute("DELETE FROM invoice WHERE id = ?", (invoice_id,))
         conn.commit()
     return redirect(url_for('invoicing.invoices_list'))
+
+
+# ===== 应开 vs 已开核对 =====
+
+@invoicing_bp.route('/reconciliation')
+@module_required('invoicing')
+def reconciliation():
+    start_date = (request.args.get('start_date') or '').strip() or None
+    end_date = (request.args.get('end_date') or '').strip() or None
+
+    expected_where = "1=1"
+    expected_params = []
+    if end_date:
+        expected_where += " AND (period_start IS NULL OR period_start <= ?)"
+        expected_params.append(end_date)
+    if start_date:
+        expected_where += " AND (period_end IS NULL OR period_end >= ?)"
+        expected_params.append(start_date)
+
+    invoiced_where = "is_usable = 1"
+    invoiced_params = []
+    if start_date:
+        invoiced_where += " AND invoice_date >= ?"
+        invoiced_params.append(start_date)
+    if end_date:
+        invoiced_where += " AND invoice_date <= ?"
+        invoiced_params.append(end_date)
+
+    sql = f"""
+        WITH expected AS (
+            SELECT customer_id, entity_id,
+                   SUM(amount) AS expected_total,
+                   COUNT(*) AS expected_count
+            FROM expected_amount
+            WHERE {expected_where}
+            GROUP BY customer_id, entity_id
+        ),
+        invoiced AS (
+            SELECT customer_id, entity_id,
+                   SUM(amount) AS invoiced_total,
+                   COUNT(*) AS invoiced_count
+            FROM invoice
+            WHERE {invoiced_where}
+            GROUP BY customer_id, entity_id
+        ),
+        combined AS (
+            SELECT e.customer_id, e.entity_id,
+                   e.expected_total, e.expected_count,
+                   i.invoiced_total, i.invoiced_count
+            FROM expected e
+            LEFT JOIN invoiced i
+              ON i.customer_id IS e.customer_id
+             AND i.entity_id IS e.entity_id
+            UNION
+            SELECT i.customer_id, i.entity_id,
+                   e.expected_total, e.expected_count,
+                   i.invoiced_total, i.invoiced_count
+            FROM invoiced i
+            LEFT JOIN expected e
+              ON e.customer_id IS i.customer_id
+             AND e.entity_id IS i.entity_id
+        )
+        SELECT
+            cb.customer_id,
+            cb.entity_id,
+            c.short_name AS customer_short_name,
+            c.full_name  AS customer_full_name,
+            be.name      AS entity_name,
+            COALESCE(cb.expected_total, 0)  AS expected_total,
+            COALESCE(cb.expected_count, 0)  AS expected_count,
+            COALESCE(cb.invoiced_total, 0)  AS invoiced_total,
+            COALESCE(cb.invoiced_count, 0)  AS invoiced_count,
+            COALESCE(cb.expected_total, 0) - COALESCE(cb.invoiced_total, 0) AS diff
+        FROM combined cb
+        LEFT JOIN customer c ON c.id = cb.customer_id
+        LEFT JOIN billing_entity be ON be.id = cb.entity_id
+        ORDER BY
+            CASE WHEN cb.customer_id IS NULL OR cb.entity_id IS NULL THEN 1 ELSE 0 END,
+            COALESCE(c.short_name, ''),
+            COALESCE(be.name, '')
+    """
+    params = expected_params + invoiced_params
+
+    unmatched_sql = """
+        SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
+        FROM invoice
+        WHERE is_usable = 1
+          AND (customer_id IS NULL OR entity_id IS NULL)
+    """
+    unmatched_params = []
+    if start_date:
+        unmatched_sql += " AND invoice_date >= ?"
+        unmatched_params.append(start_date)
+    if end_date:
+        unmatched_sql += " AND invoice_date <= ?"
+        unmatched_params.append(end_date)
+
+    with get_db_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
+        unmatched = conn.execute(unmatched_sql, unmatched_params).fetchone()
+
+    total_expected = sum((r['expected_total'] or 0) for r in rows)
+    total_invoiced = sum((r['invoiced_total'] or 0) for r in rows)
+    total_diff = total_expected - total_invoiced
+
+    return render_template(
+        'invoicing_reconciliation.html',
+        rows=rows,
+        start_date=start_date or '',
+        end_date=end_date or '',
+        unmatched_total=unmatched['total'] or 0,
+        unmatched_count=unmatched['cnt'] or 0,
+        total_expected=total_expected,
+        total_invoiced=total_invoiced,
+        total_diff=total_diff,
+    )

@@ -269,3 +269,21 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅发票模块；新增 data/invoice_pdfs/ 与 data/invoice_pdfs_pending/ 两个 PDF 文件目录
 - 是否涉及数据库：否（schema 不变，仅 INSERT/UPDATE/DELETE invoice 表）
 - 是否需要回滚：否（如出问题 git revert + 删 data/invoice_pdfs* 目录）
+## [2026-04-26 22:42] 修改记录
+- 修改内容：发票模块 Step 5 — 应开 vs 已开核对视图
+  - invoicing/routes.py 新增路由 /invoicing/reconciliation
+  - 核心 SQL：expected CTE + invoiced CTE + UNION 模拟 FULL OUTER JOIN，按 (customer_id, entity_id) 聚合
+  - 应开按 period_start/end 与筛选范围重叠匹配；已开按 invoice_date 在筛选范围内
+  - 已开仅统计 is_usable = 1
+  - 顶部 banner 显示未匹配（customer_id 或 entity_id 为 NULL）发票合计与跳转链接
+  - 主表保留"未知客户/未知主体"行，diff 计算不变
+  - 新建 templates/invoicing_reconciliation.html：筛选条 + 总计卡 + 主表 + 进度条 + 前端关键字筛选
+  - invoicing_index.html 加第 5 张卡片「应开 vs 已开核对」
+  - 自动化测试通过：临时库构造 3 客户 × 主体 + 1 NULL + 1 is_usable=0；金额、差额、banner、is_usable 排除均符合预期
+- 修改文件：
+  - 新增：templates/invoicing_reconciliation.html
+  - 修改：invoicing/routes.py、templates/invoicing_index.html
+- 修改原因：完成核对模块"第一性问题"答卷
+- 影响范围：仅发票模块；不改 schema、不改其他业务
+- 是否涉及数据库：否
+- 是否需要回滚：否（如出问题 git revert）

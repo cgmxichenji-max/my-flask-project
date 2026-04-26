@@ -50,6 +50,10 @@
             发票管理
             <div class="desc">PDF 上传 / 解析 / 复核 / 入库</div>
         </a>
+        <a href="{{ url_for('invoicing.reconciliation') }}" class="menu-card">
+            应开 vs 已开核对
+            <div class="desc">汇总差额，找出未开发票</div>
+        </a>
     </div>
 </main>
 </body>
