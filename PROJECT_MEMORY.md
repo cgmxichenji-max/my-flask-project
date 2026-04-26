@@ -209,3 +209,31 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：新增独立模块；现有模块路由与逻辑不动；现有非管理员用户默认无访问权限，需管理员主动授权；GeorgeJi 自动可见
 - 是否涉及数据库：否
 - 是否需要回滚：否（如出问题 git revert）
+
+## [2026-04-25 20:24] 修改记录
+- 修改内容：发票模块 Step 3 — 应开金额 Excel 导入与列表查看
+  - invoicing/routes.py 新增 expected_amounts 列表页与 import_expected_amounts 导入路由
+  - 使用 openpyxl 读取 .xlsx/.xlsm，不新增依赖
+  - 导入支持 Excel 列：达人/客户/带货账号昵称、应开金额/带货费用、平台、期间、开票主体、店铺、备注、账期起止日期
+  - 页面表单提供默认开票主体、平台、期间、账期起止日期；Excel 缺少对应列时用默认值补齐
+  - 未识别客户自动创建 customer(short_name=达人)
+  - invoicing_index.html 增加“应开金额”入口卡片
+  - 新增模板 templates/invoicing_expected_amounts.html，展示导入表单、导入结果和已导入记录列表
+- 修改文件：
+  - 修改：invoicing/routes.py、templates/invoicing_index.html
+  - 新增：templates/invoicing_expected_amounts.html
+- 修改原因：发票核对模块需要先录入应开金额，作为后续发票核对视图的基准数据
+- 影响范围：仅发票核对模块；未修改数据库结构；现有业务模块不受影响
+- 是否涉及数据库：是（运行导入功能时会写入 customer、expected_amount；本次自动验收使用临时库，真实 data/main.db 未写入测试数据）
+- 是否需要回滚：否（如出问题 git revert）
+
+## [2026-04-26 21:48] 修改记录
+- 修改内容：发票模块 Step 3 补齐 — 客户匹配三段法 + 导入防重
+  - invoicing/routes.py 导入处理函数：客户查找扩展为 short_name → full_name → alias 三段匹配，全空才自动新建
+  - invoicing/routes.py 导入处理函数：写入 expected_amount 前检查 (customer_id, entity_id, platform, period, amount) 完全相同，是则跳过
+  - 结果页/返回信息新增"跳过 X 行"统计
+- 修改文件：invoicing/routes.py
+- 修改原因：与 Step 3 PLAN 一致，避免重复导入和孤立客户
+- 影响范围：仅发票模块导入逻辑；不影响 Step 2 已落地的 CRUD
+- 是否涉及数据库：否
+- 是否需要回滚：否

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>应开金额 - 发票核对</title>
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+        header { background: #4CAF50; color: #fff; padding: 16px; text-align: center; font-size: 20px; }
+        .nav { background: #fff; padding: 10px 20px; border-bottom: 1px solid #ddd; font-size: 14px; }
+        .nav a { color: #2e7d32; text-decoration: none; margin-right: 16px; }
+        main { padding: 24px; max-width: 1280px; margin: 0 auto; }
+        h2 { color: #333; }
+        .panel { background: #fff; padding: 16px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); margin-bottom: 20px; }
+        label { display: block; margin: 10px 0 4px; font-size: 13px; color: #555; }
+        input, select { padding: 6px 10px; font-size: 14px; box-sizing: border-box; }
+        input[type=text], input[type=date] { width: 240px; }
+        input[type=file] { width: 360px; }
+        button { padding: 7px 18px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 14px; }
+        .form-grid { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: flex-end; }
+        .result { padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; white-space: pre-wrap; }
+        .result-ok { background: #e8f5e9; color: #1b5e20; }
+        .result-error { background: #ffebee; color: #b71c1c; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+        th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; font-size: 14px; }
+        th { background: #f8f8f8; }
+        .num { text-align: right; }
+        .muted { color: #777; font-size: 13px; }
+    </style>
+</head>
+<body>
+<header>应开金额</header>
+<div class="nav">
+    <a href="/">← 首页</a>
+    <a href="{{ url_for('invoicing.index') }}">← 发票核对</a>
+    <a href="{{ url_for('invoicing.billing_entities') }}">开票主体</a>
+    <a href="{{ url_for('invoicing.customers') }}">客户管理</a>
+</div>
+<main>
+    {% if result %}
+    <div class="result {{ 'result-ok' if result.success else 'result-error' }}">
+        {{ result.message }}
+        {% if result.success %}
+导入记录：{{ result.imported_count }}；自动创建客户：{{ result.created_customer_count }}；跳过行：{{ result.skipped_rows|length }}
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="panel">
+        <h2 style="margin-top:0;">Excel 导入</h2>
+        <p class="muted">支持 .xlsx / .xlsm。Excel 至少需要“达人/客户”和“应开金额/带货费用”列；平台、期间、开票主体可由下方默认值补齐。</p>
+        <form method="post" action="{{ url_for('invoicing.import_expected_amounts') }}" enctype="multipart/form-data">
+            <div class="form-grid">
+                <div>
+                    <label>Excel 文件</label>
+                    <input type="file" name="file" accept=".xlsx,.xlsm" required>
+                </div>
+                <div>
+                    <label>默认开票主体</label>
+                    <select name="entity_id" required>
+                        <option value="">请选择</option>
+                        {% for entity in entities %}
+                        <option value="{{ entity['id'] }}">{{ entity['name'] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>默认平台</label>
+                    <input type="text" name="platform" placeholder="如 澳柯 / 香娜露儿" required>
+                </div>
+                <div>
+                    <label>默认期间</label>
+                    <input type="text" name="period" placeholder="如 26年第一季度" required>
+                </div>
+                <div>
+                    <label>账期起点</label>
+                    <input type="date" name="period_start">
+                </div>
+                <div>
+                    <label>账期终点</label>
+                    <input type="date" name="period_end">
+                </div>
+                <div>
+                    <label>Sheet 名（可选）</label>
+                    <input type="text" name="sheet_name" placeholder="留空默认第一个 sheet">
+                </div>
+            </div>
+            <button type="submit">导入</button>
+        </form>
+    </div>
+
+    <h2>应开金额记录（共 {{ rows|length }} 条）</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>客户</th>
+                <th>主体</th>
+                <th>平台</th>
+                <th>期间</th>
+                <th>起止日期</th>
+                <th class="num">金额</th>
+                <th>店铺</th>
+                <th>备注</th>
+                <th>创建时间</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td>{{ r['id'] }}</td>
+                <td>{{ r['customer_name'] or '' }}</td>
+                <td>{{ r['entity_name'] or '' }}</td>
+                <td>{{ r['platform'] }}</td>
+                <td>{{ r['period'] }}</td>
+                <td>{{ r['period_start'] or '' }}{% if r['period_start'] or r['period_end'] %} ~ {% endif %}{{ r['period_end'] or '' }}</td>
+                <td class="num">{{ '%.2f'|format(r['amount'] or 0) }}</td>
+                <td>{{ r['shop_name'] or '' }}</td>
+                <td>{{ r['remark'] or '' }}</td>
+                <td>{{ r['created_at'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</main>
+</body>
+</html>
