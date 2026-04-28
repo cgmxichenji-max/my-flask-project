@@ -36,6 +36,15 @@ def _extract_invoice_date(text):
     return ''
 
 
+def _extract_invoice_type(text):
+    compact = re.sub(r'\s+', '', text or '')
+    if '增值税专用发票' in compact or '电子发票(增值税专用发票)' in compact or '电子发票（增值税专用发票）' in compact:
+        return '增值税专用发票'
+    if '普通发票' in compact:
+        return '普通发票'
+    return ''
+
+
 def _extract_amount(text):
     m = re.search(r'价税合计.*?[¥￥]\s*([\d,]+\.\d{2})', text, re.S)
     if m:
@@ -44,6 +53,27 @@ def _extract_amount(text):
     if m:
         return float(m.group(1).replace(',', ''))
     return None
+
+
+def _extract_tax_rate(text):
+    lines = [_clean(line) for line in text.splitlines()]
+    for idx, line in enumerate(lines):
+        if '税率' not in line and '征收率' not in line:
+            continue
+        candidates = [line] + lines[idx + 1:idx + 5]
+        for candidate in candidates:
+            m = re.search(r'(\d+(?:\.\d+)?)\s*%', candidate)
+            if m:
+                return f'{m.group(1)}%'
+            for word in ('免税', '不征税'):
+                if word in candidate:
+                    return word
+
+    for pattern in (r'税率/征收率\s*(\d+(?:\.\d+)?%)', r'税率\s*(\d+(?:\.\d+)?%)', r'征收率\s*(\d+(?:\.\d+)?%)'):
+        m = re.search(pattern, text)
+        if m:
+            return m.group(1)
+    return ''
 
 
 def _extract_seller_name(text):
@@ -89,24 +119,31 @@ def _extract_project_name(text):
 
 
 def _extract_pdf_remark(text):
+    """以「价税合计」行为上界、「开票人」行为下界，收集中间所有备注内容。
+
+    pdfplumber 提取增值税发票表格时，备注栏的左侧"备 注"二字会被拆成单字单行，
+    且备注栏右侧内容可能出现在"备"字之前或之后。所以单纯以"备"为起点会漏行，
+    用价税合计 + 开票人 包夹整个备注 cell 区间最稳定。
+    """
     lines = [_clean(line) for line in text.splitlines()]
-    collecting = False
-    remark_lines = []
-    for line in lines:
-        if not collecting:
-            if line == '备':
-                collecting = True
-            elif line.startswith('备注'):
-                collecting = True
-                rest = _clean(line[2:])
-                if rest:
-                    remark_lines.append(rest)
+    upper_idx = None
+    lower_idx = None
+    for i, line in enumerate(lines):
+        if upper_idx is None and '价税合计' in line:
+            upper_idx = i
             continue
-        if line.startswith('开票人'):
+        if upper_idx is not None and line.startswith('开票人'):
+            lower_idx = i
             break
-        if line == '注':
+    if upper_idx is None or lower_idx is None:
+        return ''
+    remark_lines = []
+    for line in lines[upper_idx + 1:lower_idx]:
+        if line in ('', '备', '注'):
             continue
         if line.startswith('注 '):
+            line = _clean(line[1:])
+        elif line.startswith('备 '):
             line = _clean(line[1:])
         if line:
             remark_lines.append(line)
@@ -174,7 +211,9 @@ def parse_pdf(pdf_path):
     return {
         'invoice_number': invoice_number,
         'invoice_date': invoice_date,
+        'invoice_type': _extract_invoice_type(text),
         'amount': amount,
+        'tax_rate': _extract_tax_rate(text),
         'seller_name': _extract_seller_name(text),
         'buyer_name': _extract_buyer_name(text),
         'project_name': _extract_project_name(text),

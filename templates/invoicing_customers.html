@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>客户管理 - 发票核对</title>
+    <title>达人/团长昵称管理 - 发票核对</title>
     <style>
         body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
         header { background: #4CAF50; color: #fff; padding: 16px; text-align: center; font-size: 20px; }
@@ -14,60 +14,158 @@
         .create-form input[type=text] { padding: 6px 10px; font-size: 14px; margin-right: 8px; width: 240px; }
         .create-form button { padding: 6px 16px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
         .filter-bar input { padding: 6px 10px; font-size: 14px; width: 320px; }
+        .bulk-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .bulk-form input[type=text] { padding: 6px 10px; font-size: 14px; width: 280px; }
+        .bulk-form button { padding: 6px 16px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        .notice { background: #e8f5e9; color: #1b5e20; padding: 10px 12px; border-radius: 6px; margin-bottom: 14px; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+        .tabs a { padding: 8px 14px; border-radius: 4px; text-decoration: none; background: #fff; color: #2e7d32; border: 1px solid #c8e6c9; }
+        .tabs a.active { background: #4CAF50; color: #fff; border-color: #4CAF50; }
+        .summary { background: #fff; padding: 12px 16px; border-radius: 8px; margin-bottom: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); display: flex; gap: 24px; flex-wrap: wrap; }
+        .summary div { font-size: 14px; }
+        .summary strong { color: #1976d2; font-size: 16px; }
+        .alias-chip { display: inline-flex; align-items: center; gap: 4px; margin: 2px 4px 2px 0; padding: 2px 6px; background: #eef7ff; border-radius: 4px; font-size: 12px; }
+        .alias-chip button { border: none; background: #d32f2f; color: #fff; border-radius: 3px; cursor: pointer; font-size: 11px; padding: 1px 5px; }
+        .alias-edit-form { display: flex; gap: 6px; align-items: center; }
+        .alias-edit-form input[type=text] { padding: 4px 8px; font-size: 13px; width: 180px; }
+        .alias-edit-form button { padding: 4px 10px; border: none; border-radius: 4px; cursor: pointer; background: #1976d2; color: #fff; }
         table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
         th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
         th { background: #f8f8f8; font-size: 14px; }
+        th.sortable { cursor: pointer; user-select: none; }
+        th.sortable:hover { background: #eeeeee; }
+        th.sortable .sort-mark { color: #888; font-size: 11px; margin-left: 3px; }
         .btn-detail { background: #1976d2; color: #fff; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 13px; }
         .btn-delete { background: #d32f2f; color: #fff; padding: 4px 10px; font-size: 13px; border: none; border-radius: 4px; cursor: pointer; }
         .inline-form { display: inline; margin-left: 6px; }
-        .alias-cell { color: #666; font-size: 13px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .num { text-align: right; }
     </style>
 </head>
 <body>
-<header>客户管理</header>
+<header>达人/团长昵称管理</header>
 <div class="nav">
     <a href="/">← 首页</a>
     <a href="{{ url_for('invoicing.index') }}">← 发票核对</a>
-    <a href="{{ url_for('invoicing.billing_entities') }}">开票主体</a>
+    <a href="{{ url_for('invoicing.billing_entities') }}">归属设置</a>
 </div>
 <main>
-    <div class="panel">
-        <h2 style="margin-top:0;">新增客户</h2>
-        <form class="create-form" method="post" action="{{ url_for('invoicing.create_customer') }}">
-            <input type="text" name="short_name" placeholder="简称（必填，如「文怡外甥的日常」）" required>
-            <input type="text" name="full_name" placeholder="完整法人名称（可选）">
-            <button type="submit">新增</button>
-        </form>
+    {% if request.args.get('bulk_alias') %}
+    <div class="notice">
+        已为选中的达人/团长昵称批量设置别名「{{ request.args.get('bulk_alias') }}」：
+        新增 {{ request.args.get('bulk_added', '0') }} 条，已存在/无效跳过 {{ request.args.get('bulk_skipped', '0') }} 条。
+    </div>
+    {% endif %}
+
+    <div class="tabs">
+        <a href="{{ url_for('invoicing.customers') }}" class="{% if view == 'nickname' %}active{% endif %}">昵称列表</a>
+        <a href="{{ url_for('invoicing.customers') }}?view=alias" class="{% if view == 'alias' %}active{% endif %}">别名列表</a>
     </div>
 
     <div class="panel filter-bar">
-        <input type="text" id="filter-input" placeholder="筛选：简称 / 全名 / 别名 任一含关键字（不区分大小写）">
+        <input type="text" id="filter-input" placeholder="{% if view == 'alias' %}筛选：别名 / 昵称{% else %}筛选：昵称 / 别名{% endif %} 任一含关键字（不区分大小写）">
     </div>
 
-    <h2>客户列表（共 <span id="total-count">{{ rows|length }}</span> 个，当前显示 <span id="visible-count">{{ rows|length }}</span>）</h2>
+    {% if view == 'nickname' %}
+    <div class="summary">
+        <div>所有昵称澳柯佣金：<strong>{{ '%.2f'|format(nickname_totals.amount_aoke) }}</strong></div>
+        <div>所有昵称香娜露儿佣金：<strong>{{ '%.2f'|format(nickname_totals.amount_xiangnalu) }}</strong></div>
+        <div>所有昵称快手佣金：<strong>{{ '%.2f'|format(nickname_totals.amount_kuaishou) }}</strong></div>
+        <div>所有昵称幕莲蔓佣金：<strong>{{ '%.2f'|format(nickname_totals.amount_mulianman) }}</strong></div>
+    </div>
+
+    <form method="post" action="{{ url_for('invoicing.bulk_create_alias') }}" id="bulk-alias-form">
+        <div class="panel bulk-form">
+            <strong>批量设置别名</strong>
+            <input type="text" name="alias" placeholder="输入别名/归属名（如某个人、公司、销售方名）" required>
+            <button type="submit">给勾选昵称添加别名</button>
+        </div>
+    </form>
+
+    <h2>达人/团长昵称列表（共 <span id="total-count">{{ rows|length }}</span> 个，当前显示 <span id="visible-count">{{ rows|length }}</span>）</h2>
     <table id="customer-table">
         <thead>
             <tr>
-                <th>ID</th>
-                <th>简称</th>
-                <th>全名</th>
-                <th>别名集合</th>
-                <th>创建时间</th>
-                <th>操作</th>
+                <th><input type="checkbox" id="select-all"></th>
+                <th class="sortable" data-sort="short_name" data-type="text">达人/团长昵称 <span class="sort-mark"></span></th>
+                <th class="sortable num" data-sort="amount_aoke" data-type="number">澳柯佣金 <span class="sort-mark"></span></th>
+                <th class="sortable num" data-sort="amount_xiangnalu" data-type="number">香娜露儿佣金 <span class="sort-mark"></span></th>
+                <th class="sortable num" data-sort="amount_kuaishou" data-type="number">快手佣金 <span class="sort-mark"></span></th>
+                <th class="sortable num" data-sort="amount_mulianman" data-type="number">幕莲蔓佣金 <span class="sort-mark"></span></th>
+                <th>别名操作</th>
             </tr>
         </thead>
         <tbody>
             {% for r in rows %}
-            <tr data-search="{{ (r['short_name'] or '') ~ '|' ~ (r['full_name'] or '') ~ '|' ~ (r['alias_list'] or '') }}">
-                <td>{{ r['id'] }}</td>
+            <tr data-search="{{ (r['short_name'] or '') ~ '|' ~ (r['alias_list'] or '') }}"
+                data-short_name="{{ r['short_name'] or '' }}"
+                data-amount_aoke="{{ r['amount_aoke'] or 0 }}"
+                data-amount_xiangnalu="{{ r['amount_xiangnalu'] or 0 }}"
+                data-amount_kuaishou="{{ r['amount_kuaishou'] or 0 }}"
+                data-amount_mulianman="{{ r['amount_mulianman'] or 0 }}">
+                <td><input type="checkbox" form="bulk-alias-form" name="nicknames" value="{{ r['short_name'] }}" class="row-check"></td>
                 <td>{{ r['short_name'] }}</td>
-                <td>{{ r['full_name'] or '' }}</td>
-                <td class="alias-cell" title="{{ r['alias_list'] }}">{{ r['alias_list'] }}</td>
-                <td>{{ r['created_at'] }}</td>
+                <td class="num">{{ '%.2f'|format(r['amount_aoke'] or 0) }}</td>
+                <td class="num">{{ '%.2f'|format(r['amount_xiangnalu'] or 0) }}</td>
+                <td class="num">{{ '%.2f'|format(r['amount_kuaishou'] or 0) }}</td>
+                <td class="num">{{ '%.2f'|format(r['amount_mulianman'] or 0) }}</td>
                 <td>
-                    <a class="btn-detail" href="{{ url_for('invoicing.customer_detail', customer_id=r['id']) }}">详情/别名</a>
-                    <form class="inline-form" method="post" action="{{ url_for('invoicing.delete_customer', customer_id=r['id']) }}"
-                          onsubmit="return confirm('此操作将删除该客户及其全部别名，已关联的发票将变为未归属，可在发票管理页重新指派。是否继续？');">
+                    {% for alias in (r['alias_items'] or '').split('|||') %}
+                    {% if alias %}
+                    <span class="alias-chip">
+                        {{ alias }}
+                        <form class="inline-form" method="post" action="{{ url_for('invoicing.delete_alias_for_nickname') }}"
+                              onsubmit="return confirm('确认删除该昵称下的别名「{{ alias }}」？');">
+                            <input type="hidden" name="nickname" value="{{ r['short_name'] }}">
+                            <input type="hidden" name="alias" value="{{ alias }}">
+                            <button type="submit">删除</button>
+                        </form>
+                    </span>
+                    {% endif %}
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="summary">
+        <div>所有别名澳柯佣金：<strong>{{ '%.2f'|format(alias_totals.amount_aoke) }}</strong></div>
+        <div>所有别名香娜露儿佣金：<strong>{{ '%.2f'|format(alias_totals.amount_xiangnalu) }}</strong></div>
+        <div>所有别名快手佣金：<strong>{{ '%.2f'|format(alias_totals.amount_kuaishou) }}</strong></div>
+        <div>所有别名幕莲蔓佣金：<strong>{{ '%.2f'|format(alias_totals.amount_mulianman) }}</strong></div>
+    </div>
+
+    <h2>别名列表（共 {{ alias_rows|length }} 个）</h2>
+    <table id="customer-table">
+        <thead>
+            <tr>
+                <th>别名/归属</th>
+                <th>下属昵称</th>
+                <th class="num">澳柯佣金</th>
+                <th class="num">香娜露儿佣金</th>
+                <th class="num">快手佣金</th>
+                <th class="num">幕莲蔓佣金</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in alias_rows %}
+            <tr data-search="{{ (r['alias'] or '') ~ '|' ~ (r['nickname_list'] or '') }}">
+                <td>{{ r['alias'] }}</td>
+                <td>{{ r['nickname_list'] or '' }}</td>
+                <td class="num">{{ '%.2f'|format(r['amount_aoke'] or 0) }}</td>
+                <td class="num">{{ '%.2f'|format(r['amount_xiangnalu'] or 0) }}</td>
+                <td class="num">{{ '%.2f'|format(r['amount_kuaishou'] or 0) }}</td>
+                <td class="num">{{ '%.2f'|format(r['amount_mulianman'] or 0) }}</td>
+                <td>
+                    <form class="alias-edit-form" method="post" action="{{ url_for('invoicing.rename_alias') }}">
+                        <input type="hidden" name="old_alias" value="{{ r['alias'] }}">
+                        <input type="text" name="new_alias" value="{{ r['alias'] }}" required>
+                        <button type="submit">改名</button>
+                    </form>
+                    <form class="inline-form" method="post" action="{{ url_for('invoicing.delete_alias_group') }}"
+                          onsubmit="return confirm('确认删除别名「{{ r['alias'] }}」？这会从所有昵称下移除该别名。');">
+                        <input type="hidden" name="alias" value="{{ r['alias'] }}">
                         <button type="submit" class="btn-delete">删除</button>
                     </form>
                 </td>
@@ -75,25 +173,83 @@
             {% endfor %}
         </tbody>
     </table>
+    {% endif %}
 </main>
-<script>
-(function() {
-    const input = document.getElementById('filter-input');
-    const rows = document.querySelectorAll('#customer-table tbody tr');
-    const visibleCount = document.getElementById('visible-count');
-    if (!input) return;
-    input.addEventListener('input', function() {
-        const q = (this.value || '').trim().toLowerCase();
-        let shown = 0;
-        rows.forEach(function(r) {
-            const data = (r.getAttribute('data-search') || '').toLowerCase();
-            const match = !q || data.indexOf(q) !== -1;
-            r.style.display = match ? '' : 'none';
-            if (match) shown++;
-        });
-        visibleCount.textContent = shown;
-    });
-})();
-</script>
+	<script>
+	(function() {
+	    const input = document.getElementById('filter-input');
+	    const table = document.getElementById('customer-table');
+	    const tbody = table ? table.querySelector('tbody') : null;
+	    const rows = tbody ? Array.from(tbody.querySelectorAll('tr')) : [];
+	    const visibleCount = document.getElementById('visible-count');
+	    const selectAll = document.getElementById('select-all');
+	    const sortState = { key: null, dir: 'asc' };
+	    if (!input) return;
+	    function applyFilter() {
+	        const q = (input.value || '').trim().toLowerCase();
+	        let shown = 0;
+	        rows.forEach(function(r) {
+	            const data = (r.getAttribute('data-search') || '').toLowerCase();
+	            const match = !q || data.indexOf(q) !== -1;
+	            r.style.display = match ? '' : 'none';
+	            if (match) shown++;
+	        });
+	        if (visibleCount) visibleCount.textContent = shown;
+	    }
+	    function valueFor(row, key, type) {
+	        const raw = row.getAttribute('data-' + key) || '';
+	        if (type === 'number') {
+	            const n = parseFloat(raw);
+	            return isNaN(n) ? 0 : n;
+	        }
+	        return raw.toLowerCase();
+	    }
+	    function updateSortMarks(activeTh, dir) {
+	        if (!table) return;
+	        table.querySelectorAll('th.sortable').forEach(function(th) {
+	            const mark = th.querySelector('.sort-mark');
+	            if (mark) mark.textContent = '';
+	        });
+	        const activeMark = activeTh.querySelector('.sort-mark');
+	        if (activeMark) activeMark.textContent = dir === 'asc' ? '▲' : '▼';
+	    }
+	    if (table && tbody) {
+	        table.querySelectorAll('th.sortable').forEach(function(th) {
+	            th.addEventListener('click', function() {
+	                const key = th.getAttribute('data-sort');
+	                const type = th.getAttribute('data-type') || 'text';
+	                const dir = (sortState.key === key && sortState.dir === 'asc') ? 'desc' : 'asc';
+	                sortState.key = key;
+	                sortState.dir = dir;
+	                rows.sort(function(a, b) {
+	                    const av = valueFor(a, key, type);
+	                    const bv = valueFor(b, key, type);
+	                    let result = 0;
+	                    if (type === 'number') {
+	                        result = av - bv;
+	                    } else {
+	                        result = String(av).localeCompare(String(bv), 'zh-Hans-CN');
+	                    }
+	                    return dir === 'asc' ? result : -result;
+	                });
+	                rows.forEach(function(r) { tbody.appendChild(r); });
+	                updateSortMarks(th, dir);
+	                applyFilter();
+	            });
+	        });
+	    }
+	    input.addEventListener('input', applyFilter);
+	    if (selectAll) {
+	        selectAll.addEventListener('change', function() {
+	            rows.forEach(function(r) {
+	                if (r.style.display === 'none') return;
+	                const cb = r.querySelector('.row-check');
+	                if (cb) cb.checked = selectAll.checked;
+	            });
+	        });
+	    }
+	    applyFilter();
+	})();
+	</script>
 </body>
 </html>

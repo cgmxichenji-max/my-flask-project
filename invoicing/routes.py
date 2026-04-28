@@ -71,9 +71,12 @@ def _match_customer_id(conn, raw_name):
     row = conn.execute("SELECT id FROM customer WHERE full_name = ?", (name,)).fetchone()
     if row:
         return row['id']
-    row = conn.execute("SELECT customer_id FROM customer_alias WHERE alias = ?", (name,)).fetchone()
-    if row:
-        return row['customer_id']
+    alias_rows = conn.execute(
+        "SELECT customer_id FROM customer_alias WHERE alias = ? ORDER BY id",
+        (name,),
+    ).fetchall()
+    if len(alias_rows) == 1:
+        return alias_rows[0]['customer_id']
     return None
 
 
@@ -88,16 +91,29 @@ def _match_entity_id(conn, buyer_name):
     return None
 
 
+def _parse_alias_match_value(raw_value):
+    value = (raw_value or '').strip()
+    if not value:
+        return None, None
+    if '::' not in value:
+        return None, value
+    customer_id_text, alias_name = value.split('::', 1)
+    alias_name = alias_name.strip() or None
+    try:
+        customer_id = int(customer_id_text)
+    except ValueError:
+        customer_id = None
+    return customer_id, alias_name
+
+
 invoicing_bp = Blueprint('invoicing', __name__, template_folder='../templates')
 
 
 CUSTOMER_HEADERS = ('达人', '客户', '客户简称', '带货账号昵称', '团长', '账号昵称')
 AMOUNT_HEADERS = ('应开金额', '带货费用', '佣金', '求和项:带货费用', '金额')
-PLATFORM_HEADERS = ('平台', '平台名称')
+PLATFORM_HEADERS = ('平台', '平台名称', '店铺', '店铺名称')
 PERIOD_HEADERS = ('期间', '账期', '周期')
 ENTITY_HEADERS = ('开票主体', '主体')
-SHOP_HEADERS = ('店铺', '店铺名称')
-REMARK_HEADERS = ('备注', '说明')
 PERIOD_START_HEADERS = ('period_start', '账期起点', '期间起点', '开始日期')
 PERIOD_END_HEADERS = ('period_end', '账期终点', '期间终点', '结束日期')
 
@@ -131,14 +147,15 @@ def parse_amount(value):
         return None
 
 
-def find_or_create_customer(conn, raw_name):
+def find_or_create_customer(conn, raw_name, platform):
     name = (raw_name or '').strip()
+    platform_name = (platform or '').strip()
     if not name:
         return None, False
 
     row = conn.execute(
-        "SELECT id FROM customer WHERE short_name = ?",
-        (name,),
+        "SELECT id FROM customer WHERE short_name = ? AND platform = ?",
+        (name, platform_name),
     ).fetchone()
     if row:
         return row['id'], False
@@ -150,16 +167,18 @@ def find_or_create_customer(conn, raw_name):
     if row:
         return row['id'], False
 
-    row = conn.execute(
-        "SELECT customer_id FROM customer_alias WHERE alias = ?",
+    alias_rows = conn.execute(
+        "SELECT customer_id FROM customer_alias WHERE alias = ? ORDER BY id",
         (name,),
-    ).fetchone()
-    if row:
-        return row['customer_id'], False
+    ).fetchall()
+    if len(alias_rows) == 1:
+        return alias_rows[0]['customer_id'], False
+    if len(alias_rows) > 1:
+        return None, False
 
     cursor = conn.execute(
-        "INSERT INTO customer (short_name) VALUES (?)",
-        (name,),
+        "INSERT INTO customer (short_name, platform) VALUES (?, ?)",
+        (name, platform_name),
     )
     return cursor.lastrowid, True
 
@@ -199,8 +218,6 @@ def expected_amounts():
                 e.period_start,
                 e.period_end,
                 e.amount,
-                e.shop_name,
-                e.remark,
                 e.created_at
             FROM expected_amount e
             LEFT JOIN customer c ON c.id = e.customer_id
@@ -237,6 +254,7 @@ def import_expected_amounts():
         'created_customer_count': 0,
         'duplicate_skipped_count': 0,
         'skipped_rows': [],
+        'duplicate_rows': [],
     }
 
     if not upload_file or not upload_file.filename:
@@ -244,9 +262,9 @@ def import_expected_amounts():
     elif not upload_file.filename.lower().endswith(('.xlsx', '.xlsm')):
         result['message'] = '仅支持 .xlsx / .xlsm 文件'
     elif not default_entity_id:
-        result['message'] = '请选择默认开票主体'
+        result['message'] = '请选择默认归属'
     elif not default_platform:
-        result['message'] = '请输入默认平台'
+        result['message'] = '请输入默认店铺/平台'
     elif not default_period:
         result['message'] = '请输入默认期间'
     else:
@@ -264,8 +282,6 @@ def import_expected_amounts():
             platform_header = find_header(headers, PLATFORM_HEADERS)
             period_header = find_header(headers, PERIOD_HEADERS)
             entity_header = find_header(headers, ENTITY_HEADERS)
-            shop_header = find_header(headers, SHOP_HEADERS)
-            remark_header = find_header(headers, REMARK_HEADERS)
             period_start_header = find_header(headers, PERIOD_START_HEADERS)
             period_end_header = find_header(headers, PERIOD_END_HEADERS)
 
@@ -285,8 +301,6 @@ def import_expected_amounts():
                     period = cell_text(row.get(period_header)) if period_header else default_period
                     entity_name = cell_text(row.get(entity_header)) if entity_header else ''
                     entity_id = get_entity_id_by_name(conn, entity_name) if entity_name else int(default_entity_id)
-                    shop_name = cell_text(row.get(shop_header)) if shop_header else None
-                    remark = cell_text(row.get(remark_header)) if remark_header else None
                     period_start = cell_text(row.get(period_start_header)) if period_start_header else default_period_start
                     period_end = cell_text(row.get(period_end_header)) if period_end_header else default_period_end
 
@@ -295,11 +309,27 @@ def import_expected_amounts():
                     if not customer_name or amount is None or not platform or not period or not entity_id:
                         result['skipped_rows'].append({
                             'row_number': row_number,
-                            'reason': '缺少达人、金额、平台、期间或开票主体',
+                            'reason': '缺少达人、金额、店铺/平台、期间或归属',
+                            'customer_name': customer_name,
+                            'amount': cell_text(row.get(amount_header)),
+                            'platform': platform,
+                            'period': period,
+                            'entity_name': entity_name,
                         })
                         continue
 
-                    customer_id, created_customer = find_or_create_customer(conn, customer_name)
+                    customer_id, created_customer = find_or_create_customer(conn, customer_name, platform)
+                    if not customer_id:
+                        result['skipped_rows'].append({
+                            'row_number': row_number,
+                            'reason': '客户别名对应多个客户，无法自动判断',
+                            'customer_name': customer_name,
+                            'amount': cell_text(row.get(amount_header)),
+                            'platform': platform,
+                            'period': period,
+                            'entity_name': entity_name,
+                        })
+                        continue
                     if created_customer:
                         result['created_customer_count'] += 1
 
@@ -316,15 +346,23 @@ def import_expected_amounts():
                     ).fetchone()
                     if existing:
                         result['duplicate_skipped_count'] += 1
+                        result['duplicate_rows'].append({
+                            'row_number': row_number,
+                            'customer_name': customer_name,
+                            'amount': amount,
+                            'platform': platform,
+                            'period': period,
+                            'entity_name': entity_name,
+                        })
                         continue
 
                     conn.execute(
                         """
                         INSERT INTO expected_amount (
                             customer_id, entity_id, platform, period, amount,
-                            shop_name, remark, period_start, period_end
+                            period_start, period_end
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             customer_id,
@@ -332,8 +370,6 @@ def import_expected_amounts():
                             platform,
                             period,
                             amount,
-                            shop_name or None,
-                            remark or None,
                             period_start or None,
                             period_end or None,
                         ),
@@ -362,8 +398,6 @@ def import_expected_amounts():
                 e.period_start,
                 e.period_end,
                 e.amount,
-                e.shop_name,
-                e.remark,
                 e.created_at
             FROM expected_amount e
             LEFT JOIN customer c ON c.id = e.customer_id
@@ -429,7 +463,7 @@ def delete_billing_entity(entity_id):
     return redirect(url_for('invoicing.billing_entities'))
 
 
-# ===== 客户 CRUD =====
+# ===== 达人/团长昵称 CRUD =====
 
 @invoicing_bp.route('/customers')
 @module_required('invoicing')
@@ -438,26 +472,70 @@ def customers():
         rows = conn.execute(
             """
             SELECT
-                c.id,
                 c.short_name,
-                c.full_name,
-                c.created_at,
-                c.updated_at,
-                COALESCE(a.alias_list, '') AS alias_list
+                COALESCE(a.alias_list, '') AS alias_list,
+                COALESCE(a.alias_items, '') AS alias_items,
+                COALESCE(SUM(CASE WHEN e.platform = '澳柯' THEN e.amount ELSE 0 END), 0) AS amount_aoke,
+                COALESCE(SUM(CASE WHEN e.platform = '香娜露儿' THEN e.amount ELSE 0 END), 0) AS amount_xiangnalu,
+                COALESCE(SUM(CASE WHEN e.platform = '快手' THEN e.amount ELSE 0 END), 0) AS amount_kuaishou,
+                COALESCE(SUM(CASE WHEN e.platform = '幕莲蔓' THEN e.amount ELSE 0 END), 0) AS amount_mulianman
             FROM customer c
+            JOIN expected_amount e ON e.customer_id = c.id AND e.amount <> 0
             LEFT JOIN (
-                SELECT customer_id, GROUP_CONCAT(alias, ' / ') AS alias_list
+                SELECT
+                    short_name,
+                    GROUP_CONCAT(alias, ' / ') AS alias_list,
+                    GROUP_CONCAT(alias, '|||') AS alias_items
                 FROM (
-                    SELECT customer_id, alias
-                    FROM customer_alias
-                    ORDER BY id
+                    SELECT DISTINCT c2.short_name, ca.alias
+                    FROM customer_alias ca
+                    JOIN customer c2 ON c2.id = ca.customer_id
+                    ORDER BY ca.id
                 )
-                GROUP BY customer_id
-            ) a ON a.customer_id = c.id
-            ORDER BY c.id
+                GROUP BY short_name
+            ) a ON a.short_name = c.short_name
+            GROUP BY c.short_name
+            ORDER BY c.short_name
             """
         ).fetchall()
-    return render_template('invoicing_customers.html', rows=rows)
+        alias_rows = conn.execute(
+            """
+            SELECT
+                ca.alias,
+                GROUP_CONCAT(DISTINCT c.short_name) AS nickname_list,
+                COUNT(DISTINCT c.short_name) AS nickname_count,
+                COALESCE(SUM(CASE WHEN e.platform = '澳柯' THEN e.amount ELSE 0 END), 0) AS amount_aoke,
+                COALESCE(SUM(CASE WHEN e.platform = '香娜露儿' THEN e.amount ELSE 0 END), 0) AS amount_xiangnalu,
+                COALESCE(SUM(CASE WHEN e.platform = '快手' THEN e.amount ELSE 0 END), 0) AS amount_kuaishou,
+                COALESCE(SUM(CASE WHEN e.platform = '幕莲蔓' THEN e.amount ELSE 0 END), 0) AS amount_mulianman
+            FROM customer_alias ca
+            JOIN customer c ON c.id = ca.customer_id
+            LEFT JOIN expected_amount e ON e.customer_id = c.id
+            GROUP BY ca.alias
+            ORDER BY ca.alias
+            """
+        ).fetchall()
+    view = request.args.get('view') if request.args.get('view') in ('nickname', 'alias') else 'nickname'
+    nickname_totals = {
+        'amount_aoke': sum((r['amount_aoke'] or 0) for r in rows),
+        'amount_xiangnalu': sum((r['amount_xiangnalu'] or 0) for r in rows),
+        'amount_kuaishou': sum((r['amount_kuaishou'] or 0) for r in rows),
+        'amount_mulianman': sum((r['amount_mulianman'] or 0) for r in rows),
+    }
+    alias_totals = {
+        'amount_aoke': sum((r['amount_aoke'] or 0) for r in alias_rows),
+        'amount_xiangnalu': sum((r['amount_xiangnalu'] or 0) for r in alias_rows),
+        'amount_kuaishou': sum((r['amount_kuaishou'] or 0) for r in alias_rows),
+        'amount_mulianman': sum((r['amount_mulianman'] or 0) for r in alias_rows),
+    }
+    return render_template(
+        'invoicing_customers.html',
+        rows=rows,
+        alias_rows=alias_rows,
+        view=view,
+        nickname_totals=nickname_totals,
+        alias_totals=alias_totals,
+    )
 
 
 @invoicing_bp.route('/customers/create', methods=['POST'])
@@ -465,14 +543,123 @@ def customers():
 def create_customer():
     short_name = (request.form.get('short_name') or '').strip()
     full_name = (request.form.get('full_name') or '').strip() or None
+    platform = (request.form.get('platform') or '').strip()
     if short_name:
         with get_db_connection() as conn:
             conn.execute(
-                "INSERT INTO customer (short_name, full_name) VALUES (?, ?)",
-                (short_name, full_name),
+                "INSERT INTO customer (short_name, full_name, platform) VALUES (?, ?, ?)",
+                (short_name, full_name, platform),
             )
             conn.commit()
     return redirect(url_for('invoicing.customers'))
+
+
+@invoicing_bp.route('/customers/bulk-alias', methods=['POST'])
+@module_required('invoicing')
+def bulk_create_alias():
+    alias = (request.form.get('alias') or '').strip()
+    nicknames = request.form.getlist('nicknames')
+    customer_ids = request.form.getlist('customer_ids')
+    added_count = 0
+    skipped_count = 0
+
+    if alias and (nicknames or customer_ids):
+        with get_db_connection() as conn:
+            target_ids = []
+            if nicknames:
+                for nickname in nicknames:
+                    rows = conn.execute(
+                        "SELECT id FROM customer WHERE short_name = ? ORDER BY platform, id",
+                        (nickname,),
+                    ).fetchall()
+                    target_ids.extend([r['id'] for r in rows])
+            else:
+                target_ids = customer_ids
+
+            for raw_id in target_ids:
+                try:
+                    customer_id = int(raw_id)
+                except (TypeError, ValueError):
+                    skipped_count += 1
+                    continue
+
+                exists = conn.execute(
+                    "SELECT id FROM customer_alias WHERE customer_id = ? AND alias = ?",
+                    (customer_id, alias),
+                ).fetchone()
+                if exists:
+                    skipped_count += 1
+                    continue
+
+                conn.execute(
+                    "INSERT INTO customer_alias (customer_id, alias) VALUES (?, ?)",
+                    (customer_id, alias),
+                )
+                added_count += 1
+            conn.commit()
+
+    return redirect(url_for(
+        'invoicing.customers',
+        bulk_added=added_count,
+        bulk_skipped=skipped_count,
+        bulk_alias=alias,
+    ))
+
+
+@invoicing_bp.route('/customers/alias/delete-for-nickname', methods=['POST'])
+@module_required('invoicing')
+def delete_alias_for_nickname():
+    nickname = (request.form.get('nickname') or '').strip()
+    alias = (request.form.get('alias') or '').strip()
+    if nickname and alias:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                DELETE FROM customer_alias
+                WHERE alias = ?
+                  AND customer_id IN (
+                      SELECT id FROM customer WHERE short_name = ?
+                  )
+                """,
+                (alias, nickname),
+            )
+            conn.commit()
+    return redirect(url_for('invoicing.customers'))
+
+
+@invoicing_bp.route('/customers/alias/rename', methods=['POST'])
+@module_required('invoicing')
+def rename_alias():
+    old_alias = (request.form.get('old_alias') or '').strip()
+    new_alias = (request.form.get('new_alias') or '').strip()
+    if old_alias and new_alias and old_alias != new_alias:
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, customer_id FROM customer_alias WHERE alias = ? ORDER BY id",
+                (old_alias,),
+            ).fetchall()
+            for row in rows:
+                exists = conn.execute(
+                    "SELECT id FROM customer_alias WHERE customer_id = ? AND alias = ?",
+                    (row['customer_id'], new_alias),
+                ).fetchone()
+                if exists:
+                    conn.execute("DELETE FROM customer_alias WHERE id = ?", (row['id'],))
+                else:
+                    conn.execute("UPDATE customer_alias SET alias = ? WHERE id = ?", (new_alias, row['id']))
+            conn.commit()
+    return redirect(url_for('invoicing.customers', view='alias'))
+
+
+@invoicing_bp.route('/customers/alias/delete', methods=['POST'])
+@module_required('invoicing')
+def delete_alias_group():
+    alias = (request.form.get('alias') or '').strip()
+    if alias:
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM customer_alias WHERE alias = ?", (alias,))
+            conn.commit()
+    return redirect(url_for('invoicing.customers', view='alias'))
 
 
 @invoicing_bp.route('/customers/<int:customer_id>')
@@ -530,11 +717,16 @@ def create_alias(customer_id):
     alias = (request.form.get('alias') or '').strip()
     if alias:
         with get_db_connection() as conn:
-            conn.execute(
-                "INSERT INTO customer_alias (customer_id, alias) VALUES (?, ?)",
+            exists = conn.execute(
+                "SELECT id FROM customer_alias WHERE customer_id = ? AND alias = ?",
                 (customer_id, alias),
-            )
-            conn.commit()
+            ).fetchone()
+            if not exists:
+                conn.execute(
+                    "INSERT INTO customer_alias (customer_id, alias) VALUES (?, ?)",
+                    (customer_id, alias),
+                )
+                conn.commit()
     return redirect(url_for('invoicing.customer_detail', customer_id=customer_id))
 
 
@@ -560,34 +752,35 @@ def delete_alias(alias_id):
 @module_required('invoicing')
 def invoices_list():
     only_unmatched = request.args.get('filter') == 'unmatched'
+    usable_filter = (request.args.get('usable') or '').strip()
     with get_db_connection() as conn:
         sql = """
             SELECT i.id, i.invoice_number, i.invoice_date, i.amount,
+                   i.invoice_type, i.tax_rate,
                    i.seller_name, i.buyer_name, i.project_name,
+                   i.alias_name,
                    i.pdf_remark, i.is_usable, i.customer_id, i.entity_id,
                    i.pdf_file_path, i.qr_content, i.created_at,
-                   c.short_name AS customer_short_name,
-                   e.name AS entity_name
+                   c.short_name AS customer_short_name
               FROM invoice i
               LEFT JOIN customer c ON c.id = i.customer_id
-              LEFT JOIN billing_entity e ON e.id = i.entity_id
         """
+        where_parts = []
+        params = []
         if only_unmatched:
-            sql += " WHERE i.customer_id IS NULL OR i.entity_id IS NULL"
+            where_parts.append("i.customer_id IS NULL AND (i.alias_name IS NULL OR i.alias_name = '')")
+        if usable_filter in ('0', '1'):
+            where_parts.append("i.is_usable = ?")
+            params.append(int(usable_filter))
+        if where_parts:
+            sql += " WHERE " + " AND ".join(where_parts)
         sql += " ORDER BY i.id DESC"
-        rows = conn.execute(sql).fetchall()
-        customers = conn.execute(
-            "SELECT id, short_name, full_name FROM customer ORDER BY short_name"
-        ).fetchall()
-        entities = conn.execute(
-            "SELECT id, name FROM billing_entity ORDER BY name"
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return render_template(
         'invoicing_invoices.html',
         rows=rows,
-        customers=customers,
-        entities=entities,
         only_unmatched=only_unmatched,
+        usable_filter=usable_filter,
     )
 
 
@@ -647,12 +840,91 @@ def invoices_review(pending_id):
         return redirect(url_for('invoicing.invoices_list'))
     with open(json_path, encoding='utf-8') as f:
         parsed = json.load(f)
+    current_amount = parsed.get('amount') or 0
     with get_db_connection() as conn:
         customers = conn.execute(
-            "SELECT id, short_name, full_name FROM customer ORDER BY short_name"
+            """
+            SELECT
+                c.id,
+                c.short_name,
+                COALESCE(e.platform, c.platform) AS platform,
+                COALESCE(e.period, '') AS period,
+                COALESCE(SUM(e.amount), 0) AS expected_total,
+                COALESCE((
+                    SELECT SUM(i.amount)
+                    FROM invoice i
+                    WHERE i.is_usable = 1
+                      AND i.customer_id = c.id
+                      AND (i.alias_name IS NULL OR i.alias_name = '')
+                ), 0) AS invoiced_total,
+                COALESCE(SUM(e.amount), 0) - COALESCE((
+                    SELECT SUM(i.amount)
+                    FROM invoice i
+                    WHERE i.is_usable = 1
+                      AND i.customer_id = c.id
+                      AND (i.alias_name IS NULL OR i.alias_name = '')
+                ), 0) AS remaining_total,
+                COALESCE(a.alias_list, '') AS alias_list
+            FROM customer c
+            JOIN expected_amount e ON e.customer_id = c.id AND e.amount <> 0
+            LEFT JOIN (
+                SELECT customer_id, GROUP_CONCAT(alias, ' / ') AS alias_list
+                FROM (
+                    SELECT customer_id, alias
+                    FROM customer_alias
+                    ORDER BY id
+                )
+                GROUP BY customer_id
+            ) a ON a.customer_id = c.id
+            GROUP BY c.id, COALESCE(e.platform, c.platform), COALESCE(e.period, '')
+            ORDER BY
+                COALESCE(e.platform, c.platform),
+                CASE WHEN COALESCE(a.alias_list, '') <> '' THEN 0 ELSE 1 END,
+                (COALESCE(SUM(e.amount), 0) - ?) ASC,
+                COALESCE(e.period, '') DESC,
+                c.short_name
+            """,
+            (current_amount,),
         ).fetchall()
         entities = conn.execute(
             "SELECT id, name FROM billing_entity ORDER BY name"
+        ).fetchall()
+        aliases = conn.execute(
+            """
+            SELECT
+                ca.alias,
+                c.id AS customer_id,
+                c.short_name,
+                COALESCE(e.platform, c.platform) AS platform,
+                COALESCE(e.period, '') AS period,
+                COALESCE(SUM(e.amount), 0) AS expected_total,
+                COALESCE((
+                    SELECT SUM(i.amount)
+                    FROM invoice i
+                    WHERE i.is_usable = 1
+                      AND i.alias_name = ca.alias
+                      AND i.customer_id = c.id
+                ), 0) AS invoiced_total,
+                COALESCE(SUM(e.amount), 0) - COALESCE((
+                    SELECT SUM(i.amount)
+                    FROM invoice i
+                    WHERE i.is_usable = 1
+                      AND i.alias_name = ca.alias
+                      AND i.customer_id = c.id
+                ), 0) AS remaining_total,
+                COUNT(*) AS expected_count
+            FROM customer_alias ca
+            JOIN customer c ON c.id = ca.customer_id
+            JOIN expected_amount e ON e.customer_id = c.id AND e.amount <> 0
+            GROUP BY ca.alias, c.id, c.short_name, COALESCE(e.platform, c.platform), COALESCE(e.period, '')
+            ORDER BY
+                COALESCE(e.platform, c.platform),
+                (COALESCE(SUM(e.amount), 0) - ?) ASC,
+                COALESCE(e.period, '') DESC,
+                c.short_name,
+                ca.alias
+            """,
+            (current_amount,),
         ).fetchall()
     return render_template(
         'invoicing_invoices_review.html',
@@ -660,6 +932,7 @@ def invoices_review(pending_id):
         parsed=parsed,
         customers=customers,
         entities=entities,
+        aliases=aliases,
         duplicate_warning=request.args.get('duplicate') == '1',
     )
 
@@ -674,6 +947,8 @@ def invoices_review_confirm(pending_id):
 
     invoice_number = (request.form.get('invoice_number') or '').strip()
     invoice_date = (request.form.get('invoice_date') or '').strip() or None
+    invoice_type = (request.form.get('invoice_type') or '').strip() or None
+    tax_rate = (request.form.get('tax_rate') or '').strip() or None
     amount_str = (request.form.get('amount') or '').strip()
     seller_name = (request.form.get('seller_name') or '').strip() or None
     buyer_name = (request.form.get('buyer_name') or '').strip() or None
@@ -681,6 +956,7 @@ def invoices_review_confirm(pending_id):
     pdf_remark = (request.form.get('pdf_remark') or '').strip() or None
     qr_content = (request.form.get('qr_content') or '').strip() or None
     customer_id_raw = (request.form.get('customer_id') or '').strip()
+    alias_customer_id, alias_name = _parse_alias_match_value(request.form.get('alias_name'))
     entity_id_raw = (request.form.get('entity_id') or '').strip()
     is_usable = 1 if (request.form.get('is_usable') == '1') else 0
 
@@ -690,6 +966,8 @@ def invoices_review_confirm(pending_id):
         amount = None
 
     customer_id = int(customer_id_raw) if customer_id_raw else None
+    if alias_name:
+        customer_id = alias_customer_id
     entity_id = int(entity_id_raw) if entity_id_raw else None
 
     if not invoice_number:
@@ -724,13 +1002,15 @@ def invoices_review_confirm(pending_id):
         conn.execute("""
             INSERT INTO invoice (
                 invoice_number, invoice_date, customer_id, entity_id,
-                amount, seller_name, buyer_name,
+                alias_name,
+                amount, invoice_type, tax_rate, seller_name, buyer_name,
                 pdf_file_path, qr_content, manual_confirmed,
                 project_name, pdf_remark, is_usable
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
         """, (
             invoice_number, invoice_date, customer_id, entity_id,
-            amount, seller_name, buyer_name,
+            alias_name,
+            amount, invoice_type, tax_rate, seller_name, buyer_name,
             relative_path, qr_content,
             project_name, pdf_remark, is_usable,
         ))
@@ -771,28 +1051,138 @@ def invoice_pdf_pending(pending_id):
     return send_file(str(pdf_path), mimetype='application/pdf')
 
 
-@invoicing_bp.route('/invoices/<int:invoice_id>/match', methods=['POST'])
+@invoicing_bp.route('/invoices/<int:invoice_id>/match', methods=['GET', 'POST'])
 @module_required('invoicing')
 def invoice_match(invoice_id):
+    if request.method == 'GET':
+        with get_db_connection() as conn:
+            invoice = conn.execute(
+                """
+                SELECT i.id, i.invoice_number, i.invoice_date, i.amount,
+                       i.invoice_type, i.tax_rate, i.seller_name, i.buyer_name,
+                       i.project_name, i.customer_id, i.alias_name, i.is_usable,
+                       c.short_name AS customer_short_name
+                FROM invoice i
+                LEFT JOIN customer c ON c.id = i.customer_id
+                WHERE i.id = ?
+                """,
+                (invoice_id,),
+            ).fetchone()
+            if not invoice:
+                return redirect(url_for('invoicing.invoices_list'))
+            current_amount = invoice['amount'] or 0
+            customers = conn.execute(
+                """
+                SELECT
+                    c.id,
+                    c.short_name,
+                    COALESCE(e.platform, c.platform) AS platform,
+                    COALESCE(e.period, '') AS period,
+                    COALESCE(SUM(e.amount), 0) AS expected_total,
+                    COALESCE((
+                        SELECT SUM(i.amount)
+                        FROM invoice i
+                        WHERE i.is_usable = 1
+                          AND i.customer_id = c.id
+                          AND (i.alias_name IS NULL OR i.alias_name = '')
+                    ), 0) AS invoiced_total,
+                    COALESCE(SUM(e.amount), 0) - COALESCE((
+                        SELECT SUM(i.amount)
+                        FROM invoice i
+                        WHERE i.is_usable = 1
+                          AND i.customer_id = c.id
+                          AND (i.alias_name IS NULL OR i.alias_name = '')
+                    ), 0) AS remaining_total,
+                    COALESCE(a.alias_list, '') AS alias_list
+                FROM customer c
+                JOIN expected_amount e ON e.customer_id = c.id AND e.amount <> 0
+                LEFT JOIN (
+                    SELECT customer_id, GROUP_CONCAT(alias, ' / ') AS alias_list
+                    FROM (
+                        SELECT customer_id, alias
+                        FROM customer_alias
+                        ORDER BY id
+                    )
+                    GROUP BY customer_id
+                ) a ON a.customer_id = c.id
+                GROUP BY c.id, COALESCE(e.platform, c.platform), COALESCE(e.period, '')
+                ORDER BY
+                    COALESCE(e.platform, c.platform),
+                    CASE WHEN COALESCE(a.alias_list, '') <> '' THEN 0 ELSE 1 END,
+                    (COALESCE(SUM(e.amount), 0) - ?) ASC,
+                    COALESCE(e.period, '') DESC,
+                    c.short_name
+                """,
+                (current_amount,),
+            ).fetchall()
+            aliases = conn.execute(
+                """
+                SELECT
+                    ca.alias,
+                    c.id AS customer_id,
+                    c.short_name,
+                    COALESCE(e.platform, c.platform) AS platform,
+                    COALESCE(e.period, '') AS period,
+                    COALESCE(SUM(e.amount), 0) AS expected_total,
+                    COALESCE((
+                        SELECT SUM(i.amount)
+                        FROM invoice i
+                        WHERE i.is_usable = 1
+                          AND i.alias_name = ca.alias
+                          AND i.customer_id = c.id
+                    ), 0) AS invoiced_total,
+                    COALESCE(SUM(e.amount), 0) - COALESCE((
+                        SELECT SUM(i.amount)
+                        FROM invoice i
+                        WHERE i.is_usable = 1
+                          AND i.alias_name = ca.alias
+                          AND i.customer_id = c.id
+                    ), 0) AS remaining_total
+                FROM customer_alias ca
+                JOIN customer c ON c.id = ca.customer_id
+                JOIN expected_amount e ON e.customer_id = c.id AND e.amount <> 0
+                GROUP BY ca.alias, c.id, c.short_name, COALESCE(e.platform, c.platform), COALESCE(e.period, '')
+                ORDER BY
+                    COALESCE(e.platform, c.platform),
+                    (COALESCE(SUM(e.amount), 0) - ?) ASC,
+                    COALESCE(e.period, '') DESC,
+                    c.short_name,
+                    ca.alias
+                """,
+                (current_amount,),
+            ).fetchall()
+            entities = conn.execute(
+                "SELECT id, name FROM billing_entity ORDER BY name"
+            ).fetchall()
+        return render_template(
+            'invoicing_invoice_match.html',
+            invoice=invoice,
+            customers=customers,
+            aliases=aliases,
+            entities=entities,
+        )
+
     customer_id_raw = (request.form.get('customer_id') or '').strip()
-    entity_id_raw = (request.form.get('entity_id') or '').strip()
     customer_id = int(customer_id_raw) if customer_id_raw else None
-    entity_id = int(entity_id_raw) if entity_id_raw else None
+    alias_customer_id, alias_name = _parse_alias_match_value(request.form.get('alias_name'))
+    if alias_name:
+        customer_id = alias_customer_id
     is_usable_raw = request.form.get('is_usable')
+    next_url = (request.form.get('next') or '').strip()
     with get_db_connection() as conn:
         if is_usable_raw is not None:
             is_usable = 1 if is_usable_raw == '1' else 0
             conn.execute(
-                "UPDATE invoice SET customer_id = ?, entity_id = ?, is_usable = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
-                (customer_id, entity_id, is_usable, invoice_id),
+                "UPDATE invoice SET customer_id = ?, alias_name = ?, is_usable = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
+                (customer_id, alias_name, is_usable, invoice_id),
             )
         else:
             conn.execute(
-                "UPDATE invoice SET customer_id = ?, entity_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
-                (customer_id, entity_id, invoice_id),
+                "UPDATE invoice SET customer_id = ?, alias_name = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
+                (customer_id, alias_name, invoice_id),
             )
         conn.commit()
-    return redirect(url_for('invoicing.invoices_list'))
+    return redirect(next_url or url_for('invoicing.invoices_list'))
 
 
 @invoicing_bp.route('/invoices/<int:invoice_id>/delete', methods=['POST'])
@@ -812,11 +1202,11 @@ def invoice_delete(invoice_id):
 
 # ===== 应开 vs 已开核对 =====
 
-@invoicing_bp.route('/reconciliation')
 @module_required('invoicing')
-def reconciliation():
+def old_reconciliation():
     start_date = (request.args.get('start_date') or '').strip() or None
     end_date = (request.args.get('end_date') or '').strip() or None
+    platform_keys = ('澳柯', '香娜露儿', '快手', '幕莲蔓')
 
     expected_where = "1=1"
     expected_params = []
@@ -836,66 +1226,520 @@ def reconciliation():
         invoiced_where += " AND invoice_date <= ?"
         invoiced_params.append(end_date)
 
-    sql = f"""
-        WITH expected AS (
-            SELECT customer_id, entity_id,
-                   SUM(amount) AS expected_total,
-                   COUNT(*) AS expected_count
-            FROM expected_amount
-            WHERE {expected_where}
-            GROUP BY customer_id, entity_id
+    expected_sql = f"""
+        SELECT platform,
+               COALESCE(SUM(amount), 0) AS expected_total,
+               COUNT(*) AS expected_count
+        FROM expected_amount
+        WHERE {expected_where}
+        GROUP BY platform
+    """
+
+    invoiced_sql = f"""
+        WITH alias_platform AS (
+            SELECT alias,
+                   CASE WHEN COUNT(DISTINCT platform) = 1 THEN MIN(platform) ELSE NULL END AS platform
+            FROM (
+                SELECT ca.alias, COALESCE(e.platform, c.platform) AS platform
+                FROM customer_alias ca
+                JOIN customer c ON c.id = ca.customer_id
+                LEFT JOIN expected_amount e ON e.customer_id = c.id
+                WHERE COALESCE(e.platform, c.platform, '') <> ''
+            )
+            GROUP BY alias
         ),
-        invoiced AS (
-            SELECT customer_id, entity_id,
-                   SUM(amount) AS invoiced_total,
-                   COUNT(*) AS invoiced_count
-            FROM invoice
+        invoice_with_platform AS (
+	            SELECT i.id, i.amount,
+	                   COALESCE(
+	                       NULLIF(i.platform, ''),
+	                       c.platform,
+	                       ap.platform,
+	                       CASE
+	                           WHEN i.buyer_name LIKE '%澳柯%' THEN '澳柯'
+	                           WHEN i.buyer_name LIKE '%香娜露儿%' THEN '香娜露儿'
+	                           WHEN i.buyer_name LIKE '%快手%' THEN '快手'
+	                           WHEN i.buyer_name LIKE '%幕莲蔓%' THEN '幕莲蔓'
+	                       END
+	                   ) AS platform
+            FROM invoice i
+            LEFT JOIN customer c ON c.id = i.customer_id
+            LEFT JOIN alias_platform ap ON ap.alias = i.alias_name
             WHERE {invoiced_where}
-            GROUP BY customer_id, entity_id
-        ),
-        combined AS (
-            SELECT e.customer_id, e.entity_id,
-                   e.expected_total, e.expected_count,
-                   i.invoiced_total, i.invoiced_count
-            FROM expected e
-            LEFT JOIN invoiced i
-              ON i.customer_id IS e.customer_id
-             AND i.entity_id IS e.entity_id
-            UNION
-            SELECT i.customer_id, i.entity_id,
-                   e.expected_total, e.expected_count,
-                   i.invoiced_total, i.invoiced_count
-            FROM invoiced i
-            LEFT JOIN expected e
-              ON e.customer_id IS i.customer_id
-             AND e.entity_id IS i.entity_id
+        )
+        SELECT platform,
+               COALESCE(SUM(amount), 0) AS invoiced_total,
+               COUNT(*) AS invoiced_count
+        FROM invoice_with_platform
+        WHERE platform IS NOT NULL AND platform <> ''
+        GROUP BY platform
+    """
+
+    expected_detail_sql = f"""
+        WITH customer_alias_one AS (
+            SELECT customer_id, MIN(alias) AS alias
+            FROM customer_alias
+            GROUP BY customer_id
         )
         SELECT
-            cb.customer_id,
-            cb.entity_id,
-            c.short_name AS customer_short_name,
-            c.full_name  AS customer_full_name,
-            be.name      AS entity_name,
-            COALESCE(cb.expected_total, 0)  AS expected_total,
-            COALESCE(cb.expected_count, 0)  AS expected_count,
-            COALESCE(cb.invoiced_total, 0)  AS invoiced_total,
-            COALESCE(cb.invoiced_count, 0)  AS invoiced_count,
-            COALESCE(cb.expected_total, 0) - COALESCE(cb.invoiced_total, 0) AS diff
-        FROM combined cb
-        LEFT JOIN customer c ON c.id = cb.customer_id
-        LEFT JOIN billing_entity be ON be.id = cb.entity_id
-        ORDER BY
-            CASE WHEN cb.customer_id IS NULL OR cb.entity_id IS NULL THEN 1 ELSE 0 END,
-            COALESCE(c.short_name, ''),
-            COALESCE(be.name, '')
+            e.platform,
+            CASE WHEN ca.alias IS NOT NULL AND ca.alias <> '' THEN 'alias:' || ca.alias ELSE 'customer:' || c.id END AS group_key,
+            COALESCE(ca.alias, '') AS alias_name,
+            CASE
+                WHEN ca.alias IS NOT NULL AND ca.alias <> '' THEN GROUP_CONCAT(DISTINCT c.short_name)
+                ELSE c.short_name
+            END AS nickname_list,
+            COALESCE(SUM(e.amount), 0) AS expected_total,
+            COUNT(*) AS expected_count,
+            GROUP_CONCAT(COALESCE(e.period, '未设期间') || '::' || printf('%.2f', e.amount), '|||') AS expected_items
+        FROM expected_amount e
+        JOIN customer c ON c.id = e.customer_id
+        LEFT JOIN customer_alias_one ca ON ca.customer_id = c.id
+        WHERE {expected_where}
+        GROUP BY e.platform, group_key, alias_name
     """
-    params = expected_params + invoiced_params
+
+    invoiced_detail_sql = f"""
+        WITH customer_alias_one AS (
+            SELECT customer_id, MIN(alias) AS alias
+            FROM customer_alias
+            GROUP BY customer_id
+        ),
+        alias_platform AS (
+            SELECT alias,
+                   CASE WHEN COUNT(DISTINCT platform) = 1 THEN MIN(platform) ELSE NULL END AS platform
+            FROM (
+                SELECT ca.alias, COALESCE(e.platform, c.platform) AS platform
+                FROM customer_alias ca
+                JOIN customer c ON c.id = ca.customer_id
+                LEFT JOIN expected_amount e ON e.customer_id = c.id
+                WHERE COALESCE(e.platform, c.platform, '') <> ''
+            )
+            GROUP BY alias
+        ),
+        invoice_base AS (
+            SELECT
+                i.id,
+                i.invoice_number,
+                i.amount,
+	                COALESCE(
+	                    NULLIF(i.platform, ''),
+	                    c.platform,
+	                    ap.platform,
+	                    CASE
+	                        WHEN i.buyer_name LIKE '%澳柯%' THEN '澳柯'
+	                        WHEN i.buyer_name LIKE '%香娜露儿%' THEN '香娜露儿'
+	                        WHEN i.buyer_name LIKE '%快手%' THEN '快手'
+	                        WHEN i.buyer_name LIKE '%幕莲蔓%' THEN '幕莲蔓'
+	                    END
+	                ) AS platform,
+                COALESCE(NULLIF(i.alias_name, ''), ca.alias, '') AS alias_name,
+                c.id AS customer_id,
+                c.short_name AS short_name
+            FROM invoice i
+            LEFT JOIN customer c ON c.id = i.customer_id
+            LEFT JOIN customer_alias_one ca ON ca.customer_id = c.id
+            LEFT JOIN alias_platform ap ON ap.alias = i.alias_name
+            WHERE {invoiced_where}
+        )
+        SELECT
+            b.platform,
+            CASE
+                WHEN b.alias_name <> '' THEN 'alias:' || b.alias_name
+                WHEN b.customer_id IS NULL THEN 'unmatched'
+                ELSE 'customer:' || b.customer_id
+            END AS group_key,
+            b.alias_name,
+            CASE
+                WHEN b.alias_name <> '' THEN (
+                    SELECT GROUP_CONCAT(DISTINCT c2.short_name)
+                    FROM customer_alias ca2
+                    JOIN customer c2 ON c2.id = ca2.customer_id
+                    WHERE ca2.alias = b.alias_name
+	                      AND (b.platform IS NULL OR c2.platform = b.platform)
+	                )
+                WHEN b.customer_id IS NULL THEN '未匹配 ' || printf('%.2f', COALESCE(SUM(b.amount), 0))
+                ELSE COALESCE(MAX(b.short_name), '')
+            END AS nickname_list,
+            COALESCE(SUM(b.amount), 0) AS invoiced_total,
+            COUNT(*) AS invoiced_count,
+            GROUP_CONCAT(b.id || '::' || b.invoice_number || '::' || printf('%.2f', b.amount), '|||') AS invoice_items
+        FROM invoice_base b
+        WHERE b.platform IS NOT NULL AND b.platform <> ''
+        GROUP BY b.platform, group_key, b.alias_name
+    """
 
     unmatched_sql = """
         SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
         FROM invoice
         WHERE is_usable = 1
-          AND (customer_id IS NULL OR entity_id IS NULL)
+          AND customer_id IS NULL
+          AND (alias_name IS NULL OR alias_name = '')
+    """
+    unmatched_params = []
+    if start_date:
+        unmatched_sql += " AND invoice_date >= ?"
+        unmatched_params.append(start_date)
+    if end_date:
+        unmatched_sql += " AND invoice_date <= ?"
+        unmatched_params.append(end_date)
+
+    unassigned_sql = f"""
+        WITH alias_platform AS (
+            SELECT alias,
+                   CASE WHEN COUNT(DISTINCT platform) = 1 THEN MIN(platform) ELSE NULL END AS platform
+            FROM (
+                SELECT ca.alias, COALESCE(e.platform, c.platform) AS platform
+                FROM customer_alias ca
+                JOIN customer c ON c.id = ca.customer_id
+                LEFT JOIN expected_amount e ON e.customer_id = c.id
+                WHERE COALESCE(e.platform, c.platform, '') <> ''
+            )
+            GROUP BY alias
+        ),
+        invoice_with_platform AS (
+	            SELECT i.id, i.amount,
+	                   COALESCE(
+	                       NULLIF(i.platform, ''),
+	                       c.platform,
+	                       ap.platform,
+	                       CASE
+	                           WHEN i.buyer_name LIKE '%澳柯%' THEN '澳柯'
+	                           WHEN i.buyer_name LIKE '%香娜露儿%' THEN '香娜露儿'
+	                           WHEN i.buyer_name LIKE '%快手%' THEN '快手'
+	                           WHEN i.buyer_name LIKE '%幕莲蔓%' THEN '幕莲蔓'
+	                       END
+	                   ) AS platform
+            FROM invoice i
+            LEFT JOIN customer c ON c.id = i.customer_id
+            LEFT JOIN alias_platform ap ON ap.alias = i.alias_name
+            WHERE {invoiced_where}
+              AND NOT (i.customer_id IS NULL AND (i.alias_name IS NULL OR i.alias_name = ''))
+        )
+        SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
+        FROM invoice_with_platform
+        WHERE platform IS NULL OR platform = ''
+    """
+
+    transfer_sql = f"""
+        WITH alias_platform AS (
+            SELECT alias,
+                   CASE WHEN COUNT(DISTINCT platform) = 1 THEN MIN(platform) ELSE NULL END AS platform
+            FROM (
+                SELECT ca.alias, COALESCE(e.platform, c.platform) AS platform
+                FROM customer_alias ca
+                JOIN customer c ON c.id = ca.customer_id
+                LEFT JOIN expected_amount e ON e.customer_id = c.id
+                WHERE COALESCE(e.platform, c.platform, '') <> ''
+            )
+            GROUP BY alias
+        ),
+        invoice_base AS (
+            SELECT
+                i.id,
+                i.invoice_number,
+                i.amount,
+                COALESCE(NULLIF(i.platform, ''), c.platform, ap.platform) AS source_platform,
+                CASE
+                    WHEN i.buyer_name LIKE '%澳柯%' THEN '澳柯'
+                    WHEN i.buyer_name LIKE '%香娜露儿%' THEN '香娜露儿'
+                    WHEN i.buyer_name LIKE '%快手%' THEN '快手'
+                    WHEN i.buyer_name LIKE '%幕莲蔓%' THEN '幕莲蔓'
+                END AS billing_platform,
+                COALESCE(NULLIF(i.alias_name, ''), ca.alias, '') AS alias_name,
+                c.short_name AS short_name
+            FROM invoice i
+            LEFT JOIN customer c ON c.id = i.customer_id
+            LEFT JOIN (
+                SELECT customer_id, MIN(alias) AS alias
+                FROM customer_alias
+                GROUP BY customer_id
+            ) ca ON ca.customer_id = c.id
+            LEFT JOIN alias_platform ap ON ap.alias = i.alias_name
+            WHERE {invoiced_where}
+        )
+        SELECT
+            billing_platform AS platform,
+            source_platform,
+            alias_name,
+            short_name,
+            COALESCE(SUM(amount), 0) AS invoiced_total,
+            COUNT(*) AS invoiced_count,
+            GROUP_CONCAT(id || '::' || invoice_number || '::' || printf('%.2f', amount), '|||') AS invoice_items
+        FROM invoice_base
+        WHERE billing_platform IS NOT NULL
+          AND source_platform IS NOT NULL
+          AND billing_platform <> source_platform
+        GROUP BY billing_platform, source_platform, alias_name, short_name
+    """
+
+    with get_db_connection() as conn:
+        expected_rows = conn.execute(expected_sql, expected_params).fetchall()
+        invoiced_rows = conn.execute(invoiced_sql, invoiced_params).fetchall()
+        expected_detail_rows = conn.execute(expected_detail_sql, expected_params).fetchall()
+        invoiced_detail_rows = conn.execute(invoiced_detail_sql, invoiced_params).fetchall()
+        transfer_rows = conn.execute(transfer_sql, invoiced_params).fetchall()
+        unmatched = conn.execute(unmatched_sql, unmatched_params).fetchone()
+        unassigned = conn.execute(unassigned_sql, invoiced_params).fetchone()
+
+    expected_map = {r['platform']: r for r in expected_rows}
+    invoiced_map = {r['platform']: r for r in invoiced_rows}
+    detail_map = {}
+    for r in expected_detail_rows:
+        key = (r['platform'], r['group_key'])
+        detail_map.setdefault(key, {
+            'platform': r['platform'],
+            'alias_name': r['alias_name'] or '',
+            'nickname_list': r['nickname_list'] or '',
+            'expected_total': 0,
+            'expected_count': 0,
+            'expected_items': '',
+            'invoiced_total': 0,
+            'invoiced_count': 0,
+            'invoice_items': '',
+        })
+        detail_map[key]['expected_total'] += r['expected_total'] or 0
+        detail_map[key]['expected_count'] += r['expected_count'] or 0
+        if r['expected_items']:
+            existing_items = detail_map[key].get('expected_items') or ''
+            detail_map[key]['expected_items'] = (
+                existing_items + '|||' + r['expected_items']
+                if existing_items else r['expected_items']
+            )
+    for r in invoiced_detail_rows:
+        key = (r['platform'], r['group_key'])
+        detail_map.setdefault(key, {
+            'platform': r['platform'],
+            'alias_name': r['alias_name'] or '',
+            'nickname_list': r['nickname_list'] or '',
+            'expected_total': 0,
+            'expected_count': 0,
+            'expected_items': '',
+            'invoiced_total': 0,
+            'invoiced_count': 0,
+            'invoice_items': '',
+        })
+        if r['alias_name'] and not detail_map[key]['alias_name']:
+            detail_map[key]['alias_name'] = r['alias_name']
+        if r['nickname_list'] and not detail_map[key]['nickname_list']:
+            detail_map[key]['nickname_list'] = r['nickname_list']
+        detail_map[key]['invoiced_total'] += r['invoiced_total'] or 0
+        detail_map[key]['invoiced_count'] += r['invoiced_count'] or 0
+        if r['invoice_items']:
+            existing_items = detail_map[key].get('invoice_items') or ''
+            detail_map[key]['invoice_items'] = (
+                existing_items + '|||' + r['invoice_items']
+                if existing_items else r['invoice_items']
+            )
+
+    transfer_totals = {}
+    for r in transfer_rows:
+        platform = r['platform']
+        source_platform = r['source_platform'] or '未知来源'
+        label_name = r['alias_name'] or r['short_name'] or '未命名'
+        key = (platform, f"transfer:{source_platform}:{label_name}")
+        detail_map.setdefault(key, {
+            'platform': platform,
+            'alias_name': '转移开票',
+            'nickname_list': f"来源：{source_platform} / {label_name}",
+            'expected_total': 0,
+            'expected_count': 0,
+            'expected_items': '',
+            'invoiced_total': 0,
+            'invoiced_count': 0,
+            'invoice_items': '',
+        })
+        detail_map[key]['invoiced_total'] += r['invoiced_total'] or 0
+        detail_map[key]['invoiced_count'] += r['invoiced_count'] or 0
+        if r['invoice_items']:
+            existing_items = detail_map[key].get('invoice_items') or ''
+            detail_map[key]['invoice_items'] = (
+                existing_items + '|||' + r['invoice_items']
+                if existing_items else r['invoice_items']
+            )
+        transfer_totals.setdefault(platform, {'total': 0, 'count': 0})
+        transfer_totals[platform]['total'] += r['invoiced_total'] or 0
+        transfer_totals[platform]['count'] += r['invoiced_count'] or 0
+
+    details_by_platform = {platform: [] for platform in platform_keys}
+    for item in detail_map.values():
+        platform = item['platform']
+        if platform not in details_by_platform:
+            continue
+        item['diff'] = (item['expected_total'] or 0) - (item['invoiced_total'] or 0)
+        details_by_platform[platform].append(item)
+    for platform in platform_keys:
+        details_by_platform[platform].sort(
+            key=lambda item: (
+                0 if item['alias_name'] else 1,
+                -(item['expected_total'] or 0),
+                item['alias_name'] or item['nickname_list'] or '',
+            )
+        )
+
+    rows = []
+    for platform in platform_keys:
+        expected_row = expected_map.get(platform)
+        invoiced_row = invoiced_map.get(platform)
+        expected_total = (expected_row['expected_total'] if expected_row else 0) or 0
+        expected_count = (expected_row['expected_count'] if expected_row else 0) or 0
+        invoiced_total = (invoiced_row['invoiced_total'] if invoiced_row else 0) or 0
+        invoiced_count = (invoiced_row['invoiced_count'] if invoiced_row else 0) or 0
+        if platform in transfer_totals:
+            invoiced_total += transfer_totals[platform]['total']
+            invoiced_count += transfer_totals[platform]['count']
+        rows.append({
+            'platform': platform,
+            'expected_total': expected_total,
+            'expected_count': expected_count,
+            'invoiced_total': invoiced_total,
+            'invoiced_count': invoiced_count,
+            'diff': expected_total - invoiced_total,
+            'details': details_by_platform.get(platform, []),
+        })
+
+    total_expected = sum((r['expected_total'] or 0) for r in rows)
+    total_invoiced = sum((r['invoiced_total'] or 0) for r in rows)
+    total_diff = total_expected - total_invoiced
+
+    return render_template(
+        'invoicing_reconciliation.html',
+        rows=rows,
+        start_date=start_date or '',
+        end_date=end_date or '',
+        unmatched_total=unmatched['total'] or 0,
+        unmatched_count=unmatched['cnt'] or 0,
+        unassigned_total=unassigned['total'] or 0,
+        unassigned_count=unassigned['cnt'] or 0,
+        total_expected=total_expected,
+        total_invoiced=total_invoiced,
+        total_diff=total_diff,
+    )
+
+
+@invoicing_bp.route('/reconciliation')
+@module_required('invoicing')
+def reconciliation():
+    start_date = (request.args.get('start_date') or '').strip() or None
+    end_date = (request.args.get('end_date') or '').strip() or None
+    platform_keys = ('澳柯', '香娜露儿', '快手', '幕莲蔓')
+
+    def _buyer_platform(buyer_name):
+        text = buyer_name or ''
+        for key in platform_keys:
+            if key in text:
+                return key
+        return None
+
+    def _append_item(existing, item):
+        return f"{existing}|||{item}" if existing else item
+
+    def _new_summary():
+        return {
+            'expected_total': 0,
+            'expected_count': 0,
+            'belong_total': 0,
+            'belong_count': 0,
+            'transfer_in_total': 0,
+            'transfer_in_count': 0,
+            'transfer_out_total': 0,
+            'transfer_out_count': 0,
+        }
+
+    def _new_detail(platform, alias_name='', nickname_list=''):
+        return {
+            'platform': platform,
+            'alias_name': alias_name or '',
+            'nickname_list': nickname_list or '',
+            'expected_total': 0,
+            'expected_count': 0,
+            'expected_items': '',
+            'belong_total': 0,
+            'belong_count': 0,
+            'belong_items': '',
+            'transfer_in_total': 0,
+            'transfer_in_count': 0,
+            'transfer_in_items': '',
+            'transfer_out_total': 0,
+            'transfer_out_count': 0,
+            'transfer_out_items': '',
+        }
+
+    expected_where = "1=1"
+    expected_params = []
+    if end_date:
+        expected_where += " AND (period_start IS NULL OR period_start <= ?)"
+        expected_params.append(end_date)
+    if start_date:
+        expected_where += " AND (period_end IS NULL OR period_end >= ?)"
+        expected_params.append(start_date)
+
+    invoice_where = "i.is_usable = 1"
+    invoice_params = []
+    if start_date:
+        invoice_where += " AND i.invoice_date >= ?"
+        invoice_params.append(start_date)
+    if end_date:
+        invoice_where += " AND i.invoice_date <= ?"
+        invoice_params.append(end_date)
+
+    expected_sql = f"""
+        WITH customer_alias_one AS (
+            SELECT customer_id, MIN(alias) AS alias
+            FROM customer_alias
+            GROUP BY customer_id
+        )
+        SELECT e.platform,
+               e.period,
+               e.amount,
+               c.id AS customer_id,
+               c.short_name,
+               COALESCE(ca.alias, '') AS alias_name
+        FROM expected_amount e
+        JOIN customer c ON c.id = e.customer_id
+        LEFT JOIN customer_alias_one ca ON ca.customer_id = c.id
+        WHERE {expected_where}
+    """
+
+    invoice_sql = f"""
+        WITH customer_alias_one AS (
+            SELECT customer_id, MIN(alias) AS alias
+            FROM customer_alias
+            GROUP BY customer_id
+        )
+        SELECT i.id,
+               i.invoice_number,
+               i.amount,
+               i.platform AS invoice_platform,
+               i.buyer_name,
+               i.customer_id,
+               COALESCE(NULLIF(i.alias_name, ''), ca.alias, '') AS alias_name,
+               c.short_name,
+               c.platform AS customer_platform
+        FROM invoice i
+        LEFT JOIN customer c ON c.id = i.customer_id
+        LEFT JOIN customer_alias_one ca ON ca.customer_id = c.id
+        WHERE {invoice_where}
+    """
+
+    alias_platform_sql = """
+        SELECT ca.alias, COALESCE(e.platform, c.platform) AS platform
+        FROM customer_alias ca
+        JOIN customer c ON c.id = ca.customer_id
+        LEFT JOIN expected_amount e ON e.customer_id = c.id
+        WHERE COALESCE(e.platform, c.platform, '') <> ''
+    """
+    alias_members_sql = """
+        SELECT ca.alias, c.platform, c.short_name
+        FROM customer_alias ca
+        JOIN customer c ON c.id = ca.customer_id
+        ORDER BY c.short_name
+    """
+    unmatched_sql = """
+        SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
+        FROM invoice
+        WHERE is_usable = 1
+          AND customer_id IS NULL
+          AND (alias_name IS NULL OR alias_name = '')
     """
     unmatched_params = []
     if start_date:
@@ -906,8 +1750,200 @@ def reconciliation():
         unmatched_params.append(end_date)
 
     with get_db_connection() as conn:
-        rows = conn.execute(sql, params).fetchall()
+        expected_rows = conn.execute(expected_sql, expected_params).fetchall()
+        invoice_rows = conn.execute(invoice_sql, invoice_params).fetchall()
+        alias_platform_rows = conn.execute(alias_platform_sql).fetchall()
+        alias_member_rows = conn.execute(alias_members_sql).fetchall()
         unmatched = conn.execute(unmatched_sql, unmatched_params).fetchone()
+
+    alias_platforms = {}
+    for r in alias_platform_rows:
+        alias_platforms.setdefault(r['alias'], set()).add(r['platform'])
+    alias_platform_map = {
+        alias: next(iter(platforms))
+        for alias, platforms in alias_platforms.items()
+        if len(platforms) == 1
+    }
+
+    alias_members = {}
+    alias_members_any = {}
+    for r in alias_member_rows:
+        alias = r['alias']
+        platform = r['platform'] or ''
+        alias_members.setdefault((alias, platform), []).append(r['short_name'])
+        alias_members_any.setdefault(alias, []).append(r['short_name'])
+
+    summaries = {platform: _new_summary() for platform in platform_keys}
+    detail_map = {}
+
+    def _alias_nicknames(alias_name, platform):
+        names = alias_members.get((alias_name, platform)) or alias_members_any.get(alias_name) or []
+        return '、'.join(dict.fromkeys(names))
+
+    def _expected_group(row):
+        alias_name = row['alias_name'] or ''
+        if alias_name:
+            return f"alias:{alias_name}", alias_name, _alias_nicknames(alias_name, row['platform'])
+        return f"customer:{row['customer_id']}", '', row['short_name'] or ''
+
+    def _invoice_group(row, source_platform):
+        alias_name = row['alias_name'] or ''
+        if alias_name:
+            return f"alias:{alias_name}", alias_name, _alias_nicknames(alias_name, source_platform)
+        if row['customer_id']:
+            return f"customer:{row['customer_id']}", '', row['short_name'] or ''
+        return 'unmatched', '', '未匹配发票'
+
+    for r in expected_rows:
+        platform = r['platform']
+        if platform not in summaries:
+            continue
+        summaries[platform]['expected_total'] += r['amount'] or 0
+        summaries[platform]['expected_count'] += 1
+        group_key, alias_name, nickname_list = _expected_group(r)
+        key = (platform, group_key)
+        detail = detail_map.setdefault(key, _new_detail(platform, alias_name, nickname_list))
+        if alias_name and not detail['alias_name']:
+            detail['alias_name'] = alias_name
+        if nickname_list and not detail['nickname_list']:
+            detail['nickname_list'] = nickname_list
+        detail['expected_total'] += r['amount'] or 0
+        detail['expected_count'] += 1
+        period_label = r['period'] or '未设期间'
+        detail['expected_items'] = _append_item(
+            detail['expected_items'],
+            f"{period_label}::{(r['amount'] or 0):.2f}",
+        )
+
+    for r in invoice_rows:
+        amount = r['amount'] or 0
+        alias_name = r['alias_name'] or ''
+        source_platform = (
+            (r['invoice_platform'] or '').strip()
+            or (r['customer_platform'] or '').strip()
+            or alias_platform_map.get(alias_name)
+        )
+        billing_platform = _buyer_platform(r['buyer_name'])
+        group_key, row_alias, nickname_list = _invoice_group(r, source_platform)
+        base_item = f"{r['id']}::{r['invoice_number']}::{amount:.2f}"
+
+        is_transfer_out = (
+            source_platform in summaries
+            and billing_platform
+            and billing_platform != source_platform
+        )
+
+        if source_platform in summaries:
+            if is_transfer_out:
+                summaries[source_platform]['transfer_out_total'] += amount
+                summaries[source_platform]['transfer_out_count'] += 1
+            else:
+                summaries[source_platform]['belong_total'] += amount
+                summaries[source_platform]['belong_count'] += 1
+            key = (source_platform, group_key)
+            detail = detail_map.setdefault(
+                key, _new_detail(source_platform, row_alias, nickname_list)
+            )
+            if row_alias and not detail['alias_name']:
+                detail['alias_name'] = row_alias
+            if nickname_list and not detail['nickname_list']:
+                detail['nickname_list'] = nickname_list
+            note = f"开票至{billing_platform}" if billing_platform and billing_platform != source_platform else ''
+            if is_transfer_out:
+                detail['transfer_out_total'] += amount
+                detail['transfer_out_count'] += 1
+                detail['transfer_out_items'] = _append_item(
+                    detail['transfer_out_items'],
+                    f"{base_item}::转移至{billing_platform}",
+                )
+            else:
+                detail['belong_total'] += amount
+                detail['belong_count'] += 1
+                detail['belong_items'] = _append_item(
+                    detail['belong_items'],
+                    f"{base_item}::{note}",
+                )
+
+        if billing_platform in summaries and billing_platform != source_platform:
+            summaries[billing_platform]['transfer_in_total'] += amount
+            summaries[billing_platform]['transfer_in_count'] += 1
+            if source_platform:
+                transfer_key = f"transfer_in:{source_platform}:{group_key}"
+                label = nickname_list or row_alias or r['short_name'] or '未命名'
+                transfer_label = f"来源：{source_platform} / {label}"
+                note = f"来源{source_platform}"
+                transfer_alias = ''
+            elif row_alias:
+                transfer_key = f"alias:{row_alias}"
+                transfer_label = _alias_nicknames(row_alias, billing_platform) or row_alias
+                note = '按购买方归入'
+                transfer_alias = row_alias
+            else:
+                transfer_key = 'billing_unmatched'
+                transfer_label = f"未匹配 {amount:.2f}"
+                note = '未匹配归属'
+                transfer_alias = ''
+            key = (billing_platform, transfer_key)
+            detail = detail_map.setdefault(
+                key, _new_detail(billing_platform, transfer_alias, transfer_label)
+            )
+            if transfer_alias and not detail['alias_name']:
+                detail['alias_name'] = transfer_alias
+            if transfer_key == 'billing_unmatched':
+                detail['nickname_list'] = f"未匹配 {detail['transfer_in_total'] + amount:.2f}"
+            elif transfer_label and not detail['nickname_list']:
+                detail['nickname_list'] = transfer_label
+            detail['transfer_in_total'] += amount
+            detail['transfer_in_count'] += 1
+            detail['transfer_in_items'] = _append_item(
+                detail['transfer_in_items'],
+                f"{base_item}::{note}",
+            )
+
+    details_by_platform = {platform: [] for platform in platform_keys}
+    for item in detail_map.values():
+        platform = item['platform']
+        if platform not in details_by_platform:
+            continue
+        item['invoiced_total'] = (item['belong_total'] or 0) + (item['transfer_in_total'] or 0)
+        item['invoiced_count'] = (item['belong_count'] or 0) + (item['transfer_in_count'] or 0)
+        item['diff'] = (
+            (item['expected_total'] or 0)
+            - (item['invoiced_total'] or 0)
+            - (item['transfer_out_total'] or 0)
+        )
+        details_by_platform[platform].append(item)
+    for platform in platform_keys:
+        details_by_platform[platform].sort(
+            key=lambda item: (
+                0 if item['alias_name'] else 1,
+                0 if item['expected_total'] else 1,
+                -(item['expected_total'] or item['invoiced_total'] or 0),
+                item['alias_name'] or item['nickname_list'] or '',
+            )
+        )
+
+    rows = []
+    for platform in platform_keys:
+        s = summaries[platform]
+        invoiced_total = (s['belong_total'] or 0) + (s['transfer_in_total'] or 0)
+        invoiced_count = (s['belong_count'] or 0) + (s['transfer_in_count'] or 0)
+        rows.append({
+            'platform': platform,
+            'expected_total': s['expected_total'],
+            'expected_count': s['expected_count'],
+            'belong_total': s['belong_total'],
+            'belong_count': s['belong_count'],
+            'transfer_in_total': s['transfer_in_total'],
+            'transfer_in_count': s['transfer_in_count'],
+            'transfer_out_total': s['transfer_out_total'],
+            'transfer_out_count': s['transfer_out_count'],
+            'invoiced_total': invoiced_total,
+            'invoiced_count': invoiced_count,
+            'settled_total': invoiced_total + (s['transfer_out_total'] or 0),
+            'diff': s['expected_total'] - invoiced_total - (s['transfer_out_total'] or 0),
+            'details': details_by_platform.get(platform, []),
+        })
 
     total_expected = sum((r['expected_total'] or 0) for r in rows)
     total_invoiced = sum((r['invoiced_total'] or 0) for r in rows)

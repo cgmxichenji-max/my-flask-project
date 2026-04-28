@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>{{ customer['short_name'] }} - 客户详情</title>
+    <title>{{ customer['short_name'] }} - 达人/团长昵称详情</title>
     <style>
         body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
         header { background: #4CAF50; color: #fff; padding: 16px; text-align: center; font-size: 20px; }
@@ -26,19 +26,19 @@
     </style>
 </head>
 <body>
-<header>客户详情</header>
+<header>达人/团长昵称详情</header>
 <div class="nav">
     <a href="/">← 首页</a>
     <a href="{{ url_for('invoicing.index') }}">← 发票核对</a>
-    <a href="{{ url_for('invoicing.customers') }}">← 客户列表</a>
+    <a href="{{ url_for('invoicing.customers') }}">← 昵称列表</a>
 </div>
 <main>
     <div class="panel">
         <h2>基本信息（ID: {{ customer['id'] }}）</h2>
         <form method="post" action="{{ url_for('invoicing.update_customer', customer_id=customer['id']) }}">
-            <label>简称（必填）</label>
+            <label>达人/团长昵称（必填）</label>
             <input type="text" name="short_name" value="{{ customer['short_name'] }}" required>
-            <label>完整法人名称（可选）</label>
+            <label>法人/公司名（可选）</label>
             <input type="text" name="full_name" value="{{ customer['full_name'] or '' }}">
             <div class="meta">
                 创建时间：{{ customer['created_at'] }} ｜ 更新时间：{{ customer['updated_at'] }}
@@ -48,17 +48,17 @@
     </div>
 
     <div class="panel">
-        <h2>客户别名（共 {{ aliases|length }} 个）</h2>
-        <p class="meta">别名用于发票导入时通过销售方名 / 简称 / 误写名等回溯到本客户。所有别名统一存放，不区分类型。</p>
+        <h2>别名/归属（共 {{ aliases|length }} 个）</h2>
+        <p class="meta">别名用于把多个达人/团长昵称归到同一个人、公司或销售方名下。一个昵称可以添加多个别名；同一个别名也可以挂到多个昵称下，系统遇到多昵称共用别名时不会自动匹配，需人工选择。</p>
         <form class="add-alias-form" method="post" action="{{ url_for('invoicing.create_alias', customer_id=customer['id']) }}">
-            <input type="text" name="alias" placeholder="新增别名（销售方名 / 简称 / 任意标识）" required>
+            <input type="text" name="alias" placeholder="新增别名/归属名（销售方名 / 人名 / 公司名）" required>
             <button type="submit">添加别名</button>
         </form>
         <table>
             <thead>
                 <tr>
                     <th>ID</th>
-                    <th>别名</th>
+                    <th>别名/归属</th>
                     <th>创建时间</th>
                     <th>操作</th>
                 </tr>

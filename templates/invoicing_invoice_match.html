@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><title>匹配发票 - 发票核对</title>
+<style>
+body{font-family:"Microsoft YaHei",Arial,sans-serif;margin:0;background:#f5f5f5;}
+header{background:#4CAF50;color:#fff;padding:16px;text-align:center;font-size:20px;}
+.nav{background:#fff;padding:10px 20px;border-bottom:1px solid #ddd;font-size:14px;}
+.nav a{color:#2e7d32;text-decoration:none;margin-right:16px;}
+main{padding:20px;max-width:980px;margin:0 auto;}
+.panel{background:#fff;border-radius:8px;padding:18px;margin-bottom:14px;box-shadow:0 2px 6px rgba(0,0,0,.06);}
+.grid{display:grid;grid-template-columns:130px 1fr;gap:8px 12px;font-size:14px;}
+.label{color:#666;}
+label{display:block;margin-top:12px;font-size:13px;color:#666;}
+select,input[type=text]{width:100%;padding:7px 10px;font-size:14px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;}
+.warn{background:#fff3cd;color:#856404;padding:10px;border-radius:4px;margin-top:8px;font-size:13px;}
+.actions{margin-top:18px;display:flex;gap:10px;}
+button{padding:9px 22px;background:#4CAF50;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px;}
+.btn-secondary{background:#1976d2;text-decoration:none;color:#fff;padding:9px 18px;border-radius:4px;font-size:14px;}
+.toggle-row{display:flex;gap:8px;align-items:center;margin-top:14px;}
+</style>
+</head>
+<body>
+<header>匹配发票</header>
+<div class="nav">
+<a href="/">← 首页</a>
+<a href="{{ url_for('invoicing.index') }}">← 发票核对</a>
+<a href="{{ url_for('invoicing.invoices_list') }}">← 发票列表</a>
+<a href="{{ url_for('invoicing.invoice_pdf', invoice_id=invoice.id) }}" target="_blank">查看 PDF</a>
+</div>
+<main>
+<div class="panel">
+<div class="grid">
+<div class="label">发票号</div><div>{{ invoice.invoice_number }}</div>
+<div class="label">日期</div><div>{{ invoice.invoice_date or '' }}</div>
+<div class="label">金额</div><div>{{ '%.2f'|format(invoice.amount) if invoice.amount is not none else '' }}</div>
+<div class="label">类型/税率</div><div>{{ invoice.invoice_type or '' }} {{ invoice.tax_rate or '' }}</div>
+<div class="label">销售方</div><div>{{ invoice.seller_name or '' }}</div>
+<div class="label">购买方</div><div>{{ invoice.buyer_name or '' }}</div>
+<div class="label">项目</div><div>{{ invoice.project_name or '' }}</div>
+</div>
+</div>
+
+<div class="panel">
+<form method="post" action="{{ url_for('invoicing.invoice_match', invoice_id=invoice.id) }}">
+<input type="hidden" name="next" value="{{ url_for('invoicing.invoices_list') }}">
+
+<label>按平台/店铺筛选达人/团长</label>
+<select id="entity-filter">
+<option value="">— 全部平台/店铺 —</option>
+{% for e in entities %}
+<option value="{{ e.name }}">{{ e.name }}</option>
+{% endfor %}
+</select>
+
+<label>筛选关键词</label>
+<input type="text" id="customer-keyword" placeholder="输入昵称、别名或关键词">
+
+<label>匹配达人/团长昵称</label>
+<select name="customer_id" id="customer-select">
+<option value="">— 暂不匹配 —</option>
+{% for c in customers %}
+<option value="{{ c.id }}" data-platform="{{ c.platform }}" {% if invoice.customer_id == c.id %}selected{% endif %}>
+{{ c.short_name }} ｜ {{ c.platform or '未设平台' }} ｜ {{ c.period or '未设期间' }} ｜ 应开 {{ '%.2f'|format(c.expected_total or 0) }} ｜ 匹配后 {{ '%.2f'|format((c.expected_total or 0) - (invoice.amount or 0)) }}{% if c.alias_list %} ｜ 别名：{{ c.alias_list }}{% endif %}
+</option>
+{% endfor %}
+</select>
+<div class="warn" id="no-customer-options" style="display:none;">当前筛选条件下没有可选达人/团长昵称。</div>
+
+<label>匹配别名</label>
+<select name="alias_name" id="alias-select">
+<option value="">— 暂不匹配 —</option>
+{% for a in aliases %}
+<option value="{{ a.customer_id }}::{{ a.alias }}" data-platform="{{ a.platform }}" {% if invoice.alias_name == a.alias and invoice.customer_id == a.customer_id %}selected{% endif %}>
+{{ a.alias }} ｜ {{ a.short_name }} ｜ {{ a.platform or '未设平台' }} ｜ {{ a.period or '未设期间' }} ｜ 应开 {{ '%.2f'|format(a.expected_total or 0) }} ｜ 匹配后 {{ '%.2f'|format((a.expected_total or 0) - (invoice.amount or 0)) }}
+</option>
+{% endfor %}
+</select>
+<div class="warn" id="no-alias-options" style="display:none;">当前筛选条件下没有可选别名。</div>
+
+<div class="toggle-row">
+<input type="checkbox" id="is_usable" name="is_usable" value="1" {% if invoice.is_usable %}checked{% endif %}>
+<label for="is_usable" style="margin:0;">该发票可计入“已开金额”汇总（is_usable=1）</label>
+</div>
+
+<div class="actions">
+<button type="submit">保存匹配</button>
+<a class="btn-secondary" href="{{ url_for('invoicing.invoices_list') }}">取消</a>
+</div>
+</form>
+</div>
+</main>
+<script>
+(function(){
+  const filter=document.getElementById('entity-filter');
+  const keyword=document.getElementById('customer-keyword');
+  const customer=document.getElementById('customer-select');
+  const alias=document.getElementById('alias-select');
+  const emptyTip=document.getElementById('no-customer-options');
+  const emptyAliasTip=document.getElementById('no-alias-options');
+  const allOptions=Array.from(customer.options).map(function(option){
+    return {value:option.value,text:option.text,platform:option.getAttribute('data-platform')||'',selected:option.selected,searchText:(option.text||'').toLowerCase()};
+  });
+  const allAliasOptions=Array.from(alias.options).map(function(option){
+    return {value:option.value,text:option.text,platform:option.getAttribute('data-platform')||'',selected:option.selected,searchText:(option.text||'').toLowerCase()};
+  });
+  function rebuild(select,items,currentValue,emptyNode){
+    const selectedPlatform=filter.value||'';
+    const q=(keyword.value||'').trim().toLowerCase();
+    select.innerHTML='';
+    items.forEach(function(item){
+      if(item.value&&selectedPlatform&&item.platform!==selectedPlatform)return;
+      if(item.value&&q&&item.searchText.indexOf(q)===-1)return;
+      const option=document.createElement('option');
+      option.value=item.value;
+      option.text=item.text;
+      option.setAttribute('data-platform',item.platform);
+      select.appendChild(option);
+    });
+    const hasCurrent=Array.from(select.options).some(function(option){return option.value===currentValue;});
+    select.value=hasCurrent?currentValue:'';
+    const hasCandidate=Array.from(select.options).some(function(option){return !!option.value;});
+    if(emptyNode)emptyNode.style.display=hasCandidate?'none':'';
+  }
+  function applyFilter(){
+    rebuild(customer,allOptions,customer.value,emptyTip);
+    rebuild(alias,allAliasOptions,alias.value,emptyAliasTip);
+  }
+  customer.addEventListener('change',function(){
+    if(customer.value) alias.value='';
+  });
+  alias.addEventListener('change',function(){
+    if(alias.value) customer.value='';
+  });
+  filter.addEventListener('change',applyFilter);
+  keyword.addEventListener('input',applyFilter);
+  applyFilter();
+})();
+</script>
+</body>
+</html>

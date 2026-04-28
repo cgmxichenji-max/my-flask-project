@@ -15,6 +15,9 @@ main{padding:20px;max-width:1500px;margin:0 auto;}
 table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.06);}
 th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #eee;font-size:13px;vertical-align:top;}
 th{background:#f8f8f8;}
+th.sortable{cursor:pointer;user-select:none;}
+th.sortable:hover{background:#eeeeee;}
+th.sortable .sort-mark{color:#888;font-size:11px;margin-left:3px;}
 td select{padding:3px;font-size:12px;max-width:160px;}
 td input[type=text]{padding:3px;font-size:12px;width:60px;}
 .btn-link{color:#1976d2;text-decoration:none;font-size:12px;}
@@ -31,56 +34,81 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 <div class="nav">
 <a href="/">← 首页</a>
 <a href="{{ url_for('invoicing.index') }}">← 发票核对</a>
-<a href="{{ url_for('invoicing.invoices_list') }}" class="{% if not only_unmatched %}active{% endif %}">全部</a>
+<a href="{{ url_for('invoicing.invoices_list') }}" class="{% if not only_unmatched and not usable_filter %}active{% endif %}">全部</a>
 <a href="{{ url_for('invoicing.invoices_list') }}?filter=unmatched" class="{% if only_unmatched %}active{% endif %}">仅未匹配</a>
+<a href="{{ url_for('invoicing.invoices_list') }}?usable=1" class="{% if usable_filter == '1' %}active{% endif %}">仅可用</a>
+<a href="{{ url_for('invoicing.invoices_list') }}?usable=0" class="{% if usable_filter == '0' %}active{% endif %}">仅不可用</a>
 </div>
 <main>
 <div class="bar">
 <a href="{{ url_for('invoicing.invoices_upload_form') }}" class="btn-upload">+ 上传新发票</a>
-<input type="text" id="filter-input" placeholder="筛选：发票号/销售方/购买方/客户/主体/项目（任一含关键字）">
+<input type="text" id="filter-input" placeholder="筛选：发票号/类型/税率/销售方/购买方/达人团长/别名/项目（任一含关键字）">
 <span>共 <span id="total">{{ rows|length }}</span> 张，显示 <span id="visible">{{ rows|length }}</span> 张</span>
 </div>
 
 <table id="invoice-table">
 <thead><tr>
-<th>ID</th><th>发票号</th><th>日期</th><th>金额</th>
-<th>销售方</th><th>购买方</th><th>项目</th>
-<th>客户</th><th>主体</th>
-<th>可用</th><th>PDF</th><th>操作</th>
+<th class="sortable" data-sort="id" data-type="number">ID <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="invoice_number" data-type="text">发票号 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="invoice_date" data-type="text">日期 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="invoice_type" data-type="text">类型 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="tax_rate" data-type="text">税率 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="amount" data-type="number">金额 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="seller_name" data-type="text">销售方 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="buyer_name" data-type="text">购买方 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="project_name" data-type="text">项目 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="customer_name" data-type="text" data-unmatched-first="1">达人/团长昵称 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="alias_name" data-type="text" data-unmatched-first="1">别名 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="is_usable" data-type="number">可用 <span class="sort-mark"></span></th>
+<th>PDF</th><th>操作</th>
 </tr></thead>
 <tbody>
 {% for r in rows %}
-<tr data-search="{{ (r.invoice_number or '') ~ '|' ~ (r.seller_name or '') ~ '|' ~ (r.buyer_name or '') ~ '|' ~ (r.customer_short_name or '') ~ '|' ~ (r.entity_name or '') ~ '|' ~ (r.project_name or '') }}">
+<tr data-search="{{ (r.invoice_number or '') ~ '|' ~ (r.invoice_type or '') ~ '|' ~ (r.tax_rate or '') ~ '|' ~ (r.seller_name or '') ~ '|' ~ (r.buyer_name or '') ~ '|' ~ (r.customer_short_name or '') ~ '|' ~ (r.alias_name or '') ~ '|' ~ (r.project_name or '') }}"
+    data-id="{{ r.id }}"
+    data-invoice_number="{{ r.invoice_number or '' }}"
+    data-invoice_date="{{ r.invoice_date or '' }}"
+    data-invoice_type="{{ r.invoice_type or '' }}"
+    data-tax_rate="{{ r.tax_rate or '' }}"
+    data-amount="{{ r.amount if r.amount is not none else '' }}"
+    data-seller_name="{{ r.seller_name or '' }}"
+    data-buyer_name="{{ r.buyer_name or '' }}"
+    data-project_name="{{ r.project_name or '' }}"
+    data-customer_name="{{ r.customer_short_name or '' }}"
+    data-customer_unmatched="{{ 1 if not r.customer_id else 0 }}"
+    data-alias_name="{{ r.alias_name or '' }}"
+    data-alias_unmatched="{{ 1 if not r.alias_name else 0 }}"
+    data-is_usable="{{ r.is_usable or 0 }}">
 <td>{{ r.id }}</td>
 <td>{{ r.invoice_number }}</td>
 <td>{{ r.invoice_date or '' }}</td>
+<td>{{ r.invoice_type or '' }}</td>
+<td>{{ r.tax_rate or '' }}</td>
 <td>{{ '%.2f'|format(r.amount) if r.amount is not none else '' }}</td>
 <td>{{ r.seller_name or '' }}</td>
 <td>{{ r.buyer_name or '' }}</td>
 <td>{{ r.project_name or '' }}</td>
 <td>
-<form class="inline-form" method="post" action="{{ url_for('invoicing.invoice_match', invoice_id=r.id) }}">
-<select name="customer_id">
-<option value="">{% if r.customer_id %}— 取消匹配 —{% else %}— 暂不匹配 —{% endif %}</option>
-{% for c in customers %}
-<option value="{{ c.id }}" {% if c.id == r.customer_id %}selected{% endif %}>{{ c.short_name }}</option>
-{% endfor %}
-</select>
-<select name="entity_id">
-<option value="">{% if r.entity_id %}— 取消匹配 —{% else %}— 暂不匹配 —{% endif %}</option>
-{% for e in entities %}
-<option value="{{ e.id }}" {% if e.id == r.entity_id %}selected{% endif %}>{{ e.name }}</option>
-{% endfor %}
-</select>
-<button type="submit" class="btn-mini btn-save">保存</button>
-</form>
-{% if not r.customer_id %}<div class="unmatch">未匹配客户</div>{% endif %}
+{{ r.customer_short_name or '' }}
+{% if not r.customer_id %}<div class="unmatch">未匹配达人/团长</div>{% endif %}
 </td>
 <td>
-{% if r.entity_name %}{{ r.entity_name }}{% endif %}
-{% if not r.entity_id %}<div class="unmatch">未匹配主体</div>{% endif %}
+{{ r.alias_name or '' }}
+<a class="btn-link" href="{{ url_for('invoicing.invoice_match', invoice_id=r.id) }}">匹配/修改</a>
+{% if not r.customer_id and not r.alias_name %}<div class="unmatch">未匹配达人/团长或别名</div>{% endif %}
 </td>
-<td class="{{ 'usable-yes' if r.is_usable else 'usable-no' }}">{{ '是' if r.is_usable else '否' }}</td>
+<td class="{{ 'usable-yes' if r.is_usable else 'usable-no' }}">
+{{ '是' if r.is_usable else '否' }}
+{% if not r.is_usable %}
+<form class="inline-form" method="post" action="{{ url_for('invoicing.invoice_match', invoice_id=r.id) }}">
+<input type="hidden" name="customer_id" value="{{ r.customer_id or '' }}">
+<input type="hidden" name="alias_name" value="{{ r.alias_name or '' }}">
+<input type="hidden" name="is_usable" value="1">
+<input type="hidden" name="next" value="{{ request.full_path }}">
+<button type="submit" class="btn-mini btn-save">设为可用</button>
+</form>
+{% endif %}
+</td>
 <td><a class="btn-link" href="{{ url_for('invoicing.invoice_pdf', invoice_id=r.id) }}" target="_blank">查看</a></td>
 <td>
 <form class="inline-form" method="post" action="{{ url_for('invoicing.invoice_delete', invoice_id=r.id) }}" onsubmit="return confirm('删除该发票（含 PDF 文件）？');">
@@ -95,10 +123,14 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 <script>
 (function(){
 var input=document.getElementById('filter-input');
-var rows=document.querySelectorAll('#invoice-table tbody tr');
+var table=document.getElementById('invoice-table');
+var tbody=table.querySelector('tbody');
+var rows=Array.from(tbody.querySelectorAll('tr'));
 var visible=document.getElementById('visible');
-input.addEventListener('input',function(){
-  var q=(this.value||'').trim().toLowerCase();
+var currentSort={key:null,dir:'asc'};
+
+function applyFilter(){
+  var q=(input.value||'').trim().toLowerCase();
   var n=0;
   rows.forEach(function(r){
     var d=(r.getAttribute('data-search')||'').toLowerCase();
@@ -107,7 +139,63 @@ input.addEventListener('input',function(){
     if(match)n++;
   });
   visible.textContent=n;
+}
+
+function valueFor(row,key,type){
+  var raw=row.getAttribute('data-'+key)||'';
+  if(type==='number'){
+    var n=parseFloat(raw);
+    return isNaN(n)?-Infinity:n;
+  }
+  return raw.toLowerCase();
+}
+
+function compareRows(a,b,key,type,dir,unmatchedFirst){
+  if(unmatchedFirst){
+    var au=parseInt(a.getAttribute('data-'+key.replace('_name','')+'_unmatched')||'0',10);
+    var bu=parseInt(b.getAttribute('data-'+key.replace('_name','')+'_unmatched')||'0',10);
+    if(au!==bu) return bu-au;
+  }
+  var av=valueFor(a,key,type);
+  var bv=valueFor(b,key,type);
+  var result=0;
+  if(type==='number'){
+    result=av-bv;
+  }else{
+    result=String(av).localeCompare(String(bv),'zh-Hans-CN');
+  }
+  if(result===0){
+    result=(parseFloat(a.getAttribute('data-id')||'0')||0)-(parseFloat(b.getAttribute('data-id')||'0')||0);
+  }
+  return dir==='asc'?result:-result;
+}
+
+function updateSortMarks(activeTh,dir){
+  table.querySelectorAll('th.sortable').forEach(function(th){
+    var mark=th.querySelector('.sort-mark');
+    if(mark) mark.textContent='';
+  });
+  var activeMark=activeTh.querySelector('.sort-mark');
+  if(activeMark) activeMark.textContent=dir==='asc'?'▲':'▼';
+}
+
+table.querySelectorAll('th.sortable').forEach(function(th){
+  th.addEventListener('click',function(){
+    var key=th.getAttribute('data-sort');
+    var type=th.getAttribute('data-type')||'text';
+    var unmatchedFirst=th.getAttribute('data-unmatched-first')==='1';
+    var dir=(currentSort.key===key&&currentSort.dir==='asc')?'desc':'asc';
+    currentSort={key:key,dir:dir};
+    rows.sort(function(a,b){
+      return compareRows(a,b,key,type,dir,unmatchedFirst);
+    });
+    rows.forEach(function(r){tbody.appendChild(r);});
+    updateSortMarks(th,dir);
+    applyFilter();
+  });
 });
+input.addEventListener('input',applyFilter);
+applyFilter();
 })();
 </script>
 </body></html>

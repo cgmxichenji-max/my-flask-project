@@ -20,6 +20,13 @@
         .result { padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; white-space: pre-wrap; }
         .result-ok { background: #e8f5e9; color: #1b5e20; }
         .result-error { background: #ffebee; color: #b71c1c; }
+        .detail-table { margin-top: 10px; box-shadow: none; border-radius: 4px; }
+        .detail-table th, .detail-table td { font-size: 12px; padding: 6px 8px; background: rgba(255,255,255,0.55); }
+        .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: flex-start; justify-content: center; padding-top: 70px; z-index: 10; }
+        .modal { width: min(1080px, calc(100vw - 48px)); max-height: calc(100vh - 120px); overflow: auto; background: #fff; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.25); padding: 18px; }
+        .modal h3 { margin: 0 0 10px; color: #333; }
+        .modal .modal-tip { color: #666; font-size: 13px; margin-bottom: 12px; }
+        .modal-close { background: #555; float: right; margin-top: 0; }
         table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
         th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; font-size: 14px; }
         th { background: #f8f8f8; }
@@ -40,14 +47,140 @@
     <div class="result {{ 'result-ok' if result.success else 'result-error' }}">
         {{ result.message }}
         {% if result.success %}
-导入记录：{{ result.imported_count }}；自动创建客户：{{ result.created_customer_count }}；跳过行：{{ result.skipped_rows|length }}
+导入记录：{{ result.imported_count }}；自动创建客户：{{ result.created_customer_count }}；缺字段跳过：{{ result.skipped_rows|length }}；重复跳过：{{ result.duplicate_skipped_count }}
         {% endif %}
+        {% if result.skipped_rows %}
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>Excel 行</th>
+                    <th>原因</th>
+                    <th>达人/客户</th>
+                    <th>金额</th>
+                    <th>店铺/平台</th>
+                    <th>期间</th>
+                    <th>归属</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in result.skipped_rows %}
+                <tr>
+                    <td>{{ row.row_number }}</td>
+                    <td>{{ row.reason }}</td>
+                    <td>{{ row.customer_name }}</td>
+                    <td>{{ row.amount }}</td>
+                    <td>{{ row.platform }}</td>
+                    <td>{{ row.period }}</td>
+                    <td>{{ row.entity_name }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+        {% if result.duplicate_rows %}
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>Excel 行</th>
+                    <th>原因</th>
+                    <th>达人/客户</th>
+                    <th>金额</th>
+                    <th>店铺/平台</th>
+                    <th>期间</th>
+                    <th>归属</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in result.duplicate_rows %}
+                <tr>
+                    <td>{{ row.row_number }}</td>
+                    <td>已存在完全相同记录</td>
+                    <td>{{ row.customer_name }}</td>
+                    <td>{{ row.amount }}</td>
+                    <td>{{ row.platform }}</td>
+                    <td>{{ row.period }}</td>
+                    <td>{{ row.entity_name }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if result and (result.skipped_rows or result.duplicate_rows) %}
+    <div class="modal-backdrop" id="import-issue-modal">
+        <div class="modal">
+            <button type="button" class="modal-close" onclick="document.getElementById('import-issue-modal').style.display='none';">关闭</button>
+            <h3>本次导入有未进入系统的数据</h3>
+            <div class="modal-tip">这个提示不会自动消失。请核对下面的 Excel 行号和原因，处理后可重新导入。</div>
+
+            {% if result.skipped_rows %}
+            <h4>缺字段/无法判断（{{ result.skipped_rows|length }} 行）</h4>
+            <table class="detail-table">
+                <thead>
+                    <tr>
+                        <th>Excel 行</th>
+                        <th>原因</th>
+                        <th>达人/客户</th>
+                        <th>金额</th>
+                        <th>店铺/平台</th>
+                        <th>期间</th>
+                        <th>归属</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in result.skipped_rows %}
+                    <tr>
+                        <td>{{ row.row_number }}</td>
+                        <td>{{ row.reason }}</td>
+                        <td>{{ row.customer_name }}</td>
+                        <td>{{ row.amount }}</td>
+                        <td>{{ row.platform }}</td>
+                        <td>{{ row.period }}</td>
+                        <td>{{ row.entity_name }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+
+            {% if result.duplicate_rows %}
+            <h4>已存在完全相同记录（{{ result.duplicate_rows|length }} 行）</h4>
+            <table class="detail-table">
+                <thead>
+                    <tr>
+                        <th>Excel 行</th>
+                        <th>原因</th>
+                        <th>达人/客户</th>
+                        <th>金额</th>
+                        <th>店铺/平台</th>
+                        <th>期间</th>
+                        <th>归属</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in result.duplicate_rows %}
+                    <tr>
+                        <td>{{ row.row_number }}</td>
+                        <td>已存在完全相同记录</td>
+                        <td>{{ row.customer_name }}</td>
+                        <td>{{ row.amount }}</td>
+                        <td>{{ row.platform }}</td>
+                        <td>{{ row.period }}</td>
+                        <td>{{ row.entity_name }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        </div>
     </div>
     {% endif %}
 
     <div class="panel">
         <h2 style="margin-top:0;">Excel 导入</h2>
-        <p class="muted">支持 .xlsx / .xlsm。Excel 至少需要“达人/客户”和“应开金额/带货费用”列；平台、期间、开票主体可由下方默认值补齐。</p>
+        <p class="muted">支持 .xlsx / .xlsm。Excel 至少需要“达人/客户”和“应开金额/带货费用”列；店铺/平台、期间、归属可由下方默认值补齐。当前不再单独采集店铺和备注，店铺统一写入“店铺/平台”。</p>
         <form method="post" action="{{ url_for('invoicing.import_expected_amounts') }}" enctype="multipart/form-data">
             <div class="form-grid">
                 <div>
@@ -55,17 +188,22 @@
                     <input type="file" name="file" accept=".xlsx,.xlsm" required>
                 </div>
                 <div>
-                    <label>默认开票主体</label>
-                    <select name="entity_id" required>
+                    <label>默认归属（用于核对）</label>
+                    <select name="entity_id" id="entity-select" required>
                         <option value="">请选择</option>
                         {% for entity in entities %}
-                        <option value="{{ entity['id'] }}">{{ entity['name'] }}</option>
+                        <option value="{{ entity['id'] }}" data-name="{{ entity['name'] }}">{{ entity['name'] }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div>
-                    <label>默认平台</label>
-                    <input type="text" name="platform" placeholder="如 澳柯 / 香娜露儿" required>
+                    <label>默认店铺/平台</label>
+                    <select name="platform" id="platform-select" required>
+                        <option value="">请选择</option>
+                        {% for entity in entities %}
+                        <option value="{{ entity['name'] }}">{{ entity['name'] }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div>
                     <label>默认期间</label>
@@ -94,13 +232,10 @@
             <tr>
                 <th>ID</th>
                 <th>客户</th>
-                <th>主体</th>
-                <th>平台</th>
+                <th>店铺/平台</th>
                 <th>期间</th>
                 <th>起止日期</th>
                 <th class="num">金额</th>
-                <th>店铺</th>
-                <th>备注</th>
                 <th>创建时间</th>
             </tr>
         </thead>
@@ -109,18 +244,27 @@
             <tr>
                 <td>{{ r['id'] }}</td>
                 <td>{{ r['customer_name'] or '' }}</td>
-                <td>{{ r['entity_name'] or '' }}</td>
                 <td>{{ r['platform'] }}</td>
                 <td>{{ r['period'] }}</td>
                 <td>{{ r['period_start'] or '' }}{% if r['period_start'] or r['period_end'] %} ~ {% endif %}{{ r['period_end'] or '' }}</td>
                 <td class="num">{{ '%.2f'|format(r['amount'] or 0) }}</td>
-                <td>{{ r['shop_name'] or '' }}</td>
-                <td>{{ r['remark'] or '' }}</td>
                 <td>{{ r['created_at'] }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
 </main>
+<script>
+(function() {
+    const entitySelect = document.getElementById('entity-select');
+    const platformSelect = document.getElementById('platform-select');
+    if (!entitySelect || !platformSelect) return;
+    entitySelect.addEventListener('change', function() {
+        const selected = this.options[this.selectedIndex];
+        const name = selected ? (selected.getAttribute('data-name') || '') : '';
+        if (name) platformSelect.value = name;
+    });
+})();
+</script>
 </body>
 </html>

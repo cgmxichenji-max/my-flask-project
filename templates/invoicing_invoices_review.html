@@ -53,6 +53,16 @@ textarea{min-height:60px;resize:vertical;}
 <label>开票日期 (YYYY-MM-DD)</label>
 <input type="text" name="invoice_date" value="{{ parsed.invoice_date or '' }}" placeholder="YYYY-MM-DD">
 
+<label>发票类型</label>
+<select name="invoice_type">
+<option value="">— 未识别 —</option>
+<option value="普通发票" {% if parsed.invoice_type == '普通发票' %}selected{% endif %}>普通发票</option>
+<option value="增值税专用发票" {% if parsed.invoice_type == '增值税专用发票' %}selected{% endif %}>增值税专用发票</option>
+</select>
+
+<label>税率/征收率</label>
+<input type="text" name="tax_rate" value="{{ parsed.tax_rate or '' }}" placeholder="如 1% / 6% / 免税">
+
 <label>金额 (价税合计，元)</label>
 <input type="text" name="amount" value="{{ parsed.amount if parsed.amount is not none else '' }}">
 
@@ -70,25 +80,40 @@ textarea{min-height:60px;resize:vertical;}
 
 <input type="hidden" name="qr_content" value="{{ parsed.qr_content or '' }}">
 
-<h2>归属（可暂不匹配）</h2>
+<h2>匹配达人/团长（可暂不匹配）</h2>
 
-<label>客户（达人/团长）</label>
-<select name="customer_id">
+<label>按平台/店铺筛选达人/团长</label>
+<select id="entity-filter">
+<option value="">— 全部平台/店铺 —</option>
+{% for e in entities %}
+<option value="{{ e.name }}" {% if parsed.suggested_entity_id == e.id %}selected{% endif %}>{{ e.name }}</option>
+{% endfor %}
+</select>
+
+<label>筛选达人/团长昵称</label>
+<input type="text" id="customer-keyword" placeholder="输入昵称、别名或关键词，例如：香港">
+
+<label>匹配达人/团长昵称</label>
+<select name="customer_id" id="customer-select">
 <option value="">— 暂不匹配 —</option>
 {% for c in customers %}
-<option value="{{ c.id }}" {% if parsed.suggested_customer_id == c.id %}selected{% endif %}>
-{{ c.short_name }}{% if c.full_name %} | {{ c.full_name }}{% endif %}
+<option value="{{ c.id }}" data-platform="{{ c.platform }}" {% if parsed.suggested_customer_id == c.id %}selected{% endif %}>
+{{ c.short_name }} ｜ {{ c.platform or '未设平台' }} ｜ {{ c.period or '未设期间' }} ｜ 应开 {{ '%.2f'|format(c.expected_total or 0) }} ｜ 匹配后 {{ '%.2f'|format((c.expected_total or 0) - (parsed.amount or 0)) }}{% if c.alias_list %} ｜ 别名：{{ c.alias_list }}{% endif %}
 </option>
 {% endfor %}
 </select>
+<div class="warn" id="no-customer-options" style="display:none;margin-top:8px;">当前平台/店铺下没有可选达人/团长昵称。</div>
 
-<label>开票主体</label>
-<select name="entity_id">
+<label>匹配别名（可暂不匹配）</label>
+<select name="alias_name" id="alias-select">
 <option value="">— 暂不匹配 —</option>
-{% for e in entities %}
-<option value="{{ e.id }}" {% if parsed.suggested_entity_id == e.id %}selected{% endif %}>{{ e.name }}</option>
+{% for a in aliases %}
+<option value="{{ a.customer_id }}::{{ a.alias }}" data-platform="{{ a.platform }}">
+{{ a.alias }} ｜ {{ a.short_name }} ｜ {{ a.platform or '未设平台' }} ｜ {{ a.period or '未设期间' }} ｜ 应开 {{ '%.2f'|format(a.expected_total or 0) }} ｜ 匹配后 {{ '%.2f'|format((a.expected_total or 0) - (parsed.amount or 0)) }}
+</option>
 {% endfor %}
 </select>
+<div class="warn" id="no-alias-options" style="display:none;margin-top:8px;">当前筛选条件下没有可选别名。</div>
 
 <div class="toggle-row">
 <input type="checkbox" id="is_usable" name="is_usable" value="1" {% if parsed.suggested_is_usable == 1 %}checked{% endif %}>
@@ -109,4 +134,105 @@ textarea{min-height:60px;resize:vertical;}
 <button type="submit" class="btn-discard" style="margin-top:10px;width:100%;">丢弃（不入库）</button>
 </form>
 </div>
+<script>
+(function() {
+    const filter = document.getElementById('entity-filter');
+    const keyword = document.getElementById('customer-keyword');
+    const customer = document.getElementById('customer-select');
+    const alias = document.getElementById('alias-select');
+    const emptyTip = document.getElementById('no-customer-options');
+    const emptyAliasTip = document.getElementById('no-alias-options');
+    if (!filter || !customer) return;
+    const allOptions = Array.from(customer.options).map(function(option) {
+        return {
+            value: option.value,
+            text: option.text,
+            platform: option.getAttribute('data-platform') || '',
+            selected: option.selected,
+            searchText: (option.text || '').toLowerCase()
+        };
+    });
+    const allAliasOptions = alias ? Array.from(alias.options).map(function(option) {
+        return {
+            value: option.value,
+            text: option.text,
+            platform: option.getAttribute('data-platform') || '',
+            searchText: (option.text || '').toLowerCase()
+        };
+    }) : [];
+    function applyFilter() {
+        const selectedPlatform = filter.value || '';
+        const q = keyword ? (keyword.value || '').trim().toLowerCase() : '';
+        const currentValue = customer.value;
+        customer.innerHTML = '';
+        allOptions.forEach(function(item) {
+            if (item.value && selectedPlatform && item.platform !== selectedPlatform) {
+                return;
+            }
+            if (item.value && q && item.searchText.indexOf(q) === -1) {
+                return;
+            }
+            const option = document.createElement('option');
+            option.value = item.value;
+            option.text = item.text;
+            option.setAttribute('data-platform', item.platform);
+            customer.appendChild(option);
+        });
+        const hasCurrent = Array.from(customer.options).some(function(option) {
+            return option.value === currentValue;
+        });
+        customer.value = hasCurrent ? currentValue : '';
+        const hasCandidate = Array.from(customer.options).some(function(option) {
+            return !!option.value;
+        });
+        if (emptyTip) {
+            emptyTip.style.display = hasCandidate ? 'none' : '';
+        }
+        if (alias) {
+            const currentAlias = alias.value;
+            alias.innerHTML = '';
+            allAliasOptions.forEach(function(item) {
+                if (item.value && selectedPlatform && item.platform !== selectedPlatform) {
+                    return;
+                }
+                if (item.value && q && item.searchText.indexOf(q) === -1) {
+                    return;
+                }
+                const option = document.createElement('option');
+                option.value = item.value;
+                option.text = item.text;
+                option.setAttribute('data-platform', item.platform);
+                alias.appendChild(option);
+            });
+            const hasAliasCurrent = Array.from(alias.options).some(function(option) {
+                return option.value === currentAlias;
+            });
+            alias.value = hasAliasCurrent ? currentAlias : '';
+            const hasAliasCandidate = Array.from(alias.options).some(function(option) {
+                return !!option.value;
+            });
+            if (emptyAliasTip) {
+                emptyAliasTip.style.display = hasAliasCandidate ? 'none' : '';
+            }
+        }
+    }
+    filter.addEventListener('change', applyFilter);
+    if (keyword) {
+        keyword.addEventListener('input', applyFilter);
+    }
+    customer.addEventListener('change', function() {
+        if (customer.value && alias) {
+            alias.value = '';
+        }
+    });
+    if (alias) {
+        alias.addEventListener('change', function() {
+            if (alias.value) {
+                customer.value = '';
+            }
+        });
+    }
+    applyFilter();
+})();
+</script>
 </div></body></html>
