@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, current_app
+from flask import Blueprint, render_template, redirect, url_for, current_app, session
 import json
 import os
 import sqlite3
@@ -61,6 +61,12 @@ def logs():
         conn.close()
 
     return render_template('logs.html', rows=rows)
+
+
+@logs_bp.route('/logs/logout', methods=['POST'])
+def logs_logout():
+    session.clear()
+    return redirect(url_for('auth.login'))
 
 
 @logs_bp.route('/logs/rollback/<int:log_id>', methods=['POST'])
