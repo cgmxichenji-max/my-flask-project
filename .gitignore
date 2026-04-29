@@ -62,3 +62,11 @@ __marimo__/
 # -----------------
 data/
 db/
+
+# -----------------
+# Local deployment logs
+# -----------------
+logs/deploy_stdout.log
+logs/deploy_stderr.log
+pip_install.log
+pip313_install.log
