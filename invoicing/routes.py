@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import uuid
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from openpyxl import load_workbook
 from flask import send_file
@@ -59,6 +60,31 @@ def _safe_folder_name(name):
         return UNMATCHED_ENTITY_FOLDER
     cleaned = re.sub(r'[\\/:*?"<>|]', '_', str(name).strip())
     return cleaned or UNMATCHED_ENTITY_FOLDER
+
+
+def _desktop_dir():
+    return Path.home() / 'Desktop'
+
+
+def _sanitize_download_filename(name):
+    cleaned = re.sub(r'[\\/:*?"<>|]', '_', str(name or '').strip())
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+    return cleaned.strip(' .') or 'invoice'
+
+
+def _invoice_type_label(invoice_type, tax_rate):
+    raw_type = (invoice_type or '').strip()
+    raw_tax = (tax_rate or '').strip()
+    type_label = '专票' if '专' in raw_type else '普票'
+    return f"{type_label}{raw_tax}" if raw_tax else type_label
+
+
+def _with_query_params(url, **params):
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    for key, value in params.items():
+        query[key] = str(value)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 def _match_customer_id(conn, raw_name):
@@ -753,6 +779,8 @@ def delete_alias(alias_id):
 def invoices_list():
     only_unmatched = request.args.get('filter') == 'unmatched'
     usable_filter = (request.args.get('usable') or '').strip()
+    download_ok = (request.args.get('download_ok') or '').strip()
+    download_error = (request.args.get('download_error') or '').strip()
     with get_db_connection() as conn:
         sql = """
             SELECT i.id, i.invoice_number, i.invoice_date, i.amount,
@@ -761,7 +789,39 @@ def invoices_list():
                    i.alias_name,
                    i.pdf_remark, i.is_usable, i.customer_id, i.entity_id,
                    i.pdf_file_path, i.qr_content, i.created_at,
-                   c.short_name AS customer_short_name
+                   c.short_name AS customer_short_name,
+                   c.platform AS customer_platform,
+                   COALESCE(
+                       NULLIF(i.period, ''),
+                       (
+                           SELECT ea.period
+                           FROM expected_amount ea
+                           WHERE ea.customer_id = i.customer_id
+                             AND COALESCE(ea.period, '') <> ''
+                           ORDER BY
+                               COALESCE(ea.period_end, '') DESC,
+                               COALESCE(ea.period_start, '') DESC,
+                               ea.id DESC
+                           LIMIT 1
+                       ),
+                       ''
+                   ) AS matched_period,
+                   COALESCE(
+                       NULLIF(i.platform, ''),
+                       NULLIF(c.platform, ''),
+                       (
+                           SELECT ea.platform
+                           FROM expected_amount ea
+                           WHERE ea.customer_id = i.customer_id
+                             AND COALESCE(ea.platform, '') <> ''
+                           ORDER BY
+                               COALESCE(ea.period_end, '') DESC,
+                               COALESCE(ea.period_start, '') DESC,
+                               ea.id DESC
+                           LIMIT 1
+                       ),
+                       ''
+                   ) AS matched_platform
               FROM invoice i
               LEFT JOIN customer c ON c.id = i.customer_id
         """
@@ -781,7 +841,121 @@ def invoices_list():
         rows=rows,
         only_unmatched=only_unmatched,
         usable_filter=usable_filter,
+        download_ok=download_ok,
+        download_error=download_error,
     )
+
+
+@invoicing_bp.route('/invoices/download-selected', methods=['POST'])
+@module_required('invoicing')
+def invoices_download_selected():
+    selected_ids = []
+    for raw_id in request.form.getlist('invoice_ids'):
+        raw_id = (raw_id or '').strip()
+        if raw_id.isdigit():
+            selected_ids.append(int(raw_id))
+
+    next_url = (request.form.get('next') or '').strip() or url_for('invoicing.invoices_list')
+    if not selected_ids:
+        return redirect(_with_query_params(next_url, download_error='请选择至少一张发票'))
+
+    desktop_dir = _desktop_dir()
+    desktop_dir.mkdir(parents=True, exist_ok=True)
+
+    placeholders = ','.join('?' for _ in selected_ids)
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT i.id, i.invoice_number, i.amount, i.invoice_type, i.tax_rate,
+                   i.alias_name, i.is_usable, i.pdf_file_path, i.period, i.platform,
+                   c.short_name AS customer_short_name,
+                   c.platform AS customer_platform,
+                   COALESCE(
+                       NULLIF(i.period, ''),
+                       (
+                           SELECT ea.period
+                           FROM expected_amount ea
+                           WHERE ea.customer_id = i.customer_id
+                             AND COALESCE(ea.period, '') <> ''
+                           ORDER BY
+                               COALESCE(ea.period_end, '') DESC,
+                               COALESCE(ea.period_start, '') DESC,
+                               ea.id DESC
+                           LIMIT 1
+                       ),
+                       ''
+                   ) AS matched_period,
+                   COALESCE(
+                       NULLIF(i.platform, ''),
+                       NULLIF(c.platform, ''),
+                       (
+                           SELECT ea.platform
+                           FROM expected_amount ea
+                           WHERE ea.customer_id = i.customer_id
+                             AND COALESCE(ea.platform, '') <> ''
+                           ORDER BY
+                               COALESCE(ea.period_end, '') DESC,
+                               COALESCE(ea.period_start, '') DESC,
+                               ea.id DESC
+                           LIMIT 1
+                       ),
+                       ''
+                   ) AS matched_platform
+            FROM invoice i
+            LEFT JOIN customer c ON c.id = i.customer_id
+            WHERE i.id IN ({placeholders})
+            ORDER BY i.id DESC
+            """,
+            selected_ids,
+        ).fetchall()
+
+    if not rows:
+        return redirect(_with_query_params(next_url, download_error='未找到可下载的发票'))
+
+    copied_count = 0
+    skipped_count = 0
+    for row in rows:
+        pdf_rel_path = row['pdf_file_path'] or ''
+        pdf_abs_path = Path(BASE_DIR) / pdf_rel_path
+        if not pdf_rel_path or not pdf_abs_path.exists():
+            skipped_count += 1
+            continue
+
+        prefix = '不能使用 ' if not row['is_usable'] else ''
+        amount_text = f"{(row['amount'] or 0):.2f}"
+        nickname = (
+            (row['customer_short_name'] or '').strip()
+            or (row['alias_name'] or '').strip()
+            or '未匹配'
+        )
+        invoice_number = (row['invoice_number'] or '').strip() or f"invoice_{row['id']}"
+        platform_name = (
+            (row['matched_platform'] or '').strip()
+            or (row['customer_platform'] or '').strip()
+            or '未归属平台'
+        )
+        period_name = ((row['matched_period'] or '').strip() or '未设周期')
+        type_name = _invoice_type_label(row['invoice_type'], row['tax_rate'])
+
+        target_stem = _sanitize_download_filename(
+            f"{prefix}{amount_text} {nickname} {invoice_number} {platform_name} {period_name} {type_name}"
+        )
+        target_path = desktop_dir / f"{target_stem}.pdf"
+        suffix = 2
+        while target_path.exists():
+            target_path = desktop_dir / f"{target_stem} ({suffix}).pdf"
+            suffix += 1
+
+        shutil.copy2(pdf_abs_path, target_path)
+        copied_count += 1
+
+    if copied_count == 0:
+        return redirect(_with_query_params(next_url, download_error='选中的发票未能成功保存到桌面'))
+
+    message = f'已保存 {copied_count} 张到桌面'
+    if skipped_count:
+        message += f'，跳过 {skipped_count} 张缺少PDF的记录'
+    return redirect(_with_query_params(next_url, download_ok=message))
 
 
 @invoicing_bp.route('/invoices/upload', methods=['GET'])
@@ -1794,6 +1968,42 @@ def reconciliation():
             return f"customer:{row['customer_id']}", '', row['short_name'] or ''
         return 'unmatched', '', '未匹配发票'
 
+    def _new_alias_summary(group_key, display_name, nickname_list=''):
+        return {
+            'group_key': group_key,
+            'display_name': display_name or '',
+            'nickname_list': nickname_list or '',
+            'expected_total': 0,
+            'invoiced_total': 0,
+            'invoice_count': 0,
+            'expected_items': '',
+            'invoice_items': '',
+            'balance': 0,
+            'balance_items': '',
+            'platform_totals': {},
+        }
+
+    def _alias_summary_group(alias_name, customer_id, short_name, platform):
+        if alias_name:
+            return (
+                f"alias:{alias_name}",
+                alias_name,
+                _alias_nicknames(alias_name, platform) or alias_name,
+            )
+        nickname = short_name or '未命名'
+        return f"customer:{customer_id}", nickname, nickname
+
+    def _merge_platform_total(summary, platform_label, expected_delta=0, invoiced_delta=0, count_delta=0):
+        bucket = summary['platform_totals'].setdefault(
+            platform_label,
+            {'expected_total': 0, 'invoiced_total': 0, 'invoice_count': 0},
+        )
+        bucket['expected_total'] += expected_delta or 0
+        bucket['invoiced_total'] += invoiced_delta or 0
+        bucket['invoice_count'] += count_delta or 0
+
+    alias_summary_map = {}
+
     for r in expected_rows:
         platform = r['platform']
         if platform not in summaries:
@@ -1813,6 +2023,34 @@ def reconciliation():
         detail['expected_items'] = _append_item(
             detail['expected_items'],
             f"{period_label}::{(r['amount'] or 0):.2f}",
+        )
+
+        alias_group_key, alias_display_name, alias_nickname_list = _alias_summary_group(
+            r['alias_name'] or '',
+            r['customer_id'],
+            r['short_name'],
+            platform,
+        )
+        alias_summary = alias_summary_map.setdefault(
+            alias_group_key,
+            _new_alias_summary(alias_group_key, alias_display_name, alias_nickname_list),
+        )
+        if alias_nickname_list and alias_nickname_list not in (alias_summary['nickname_list'] or ''):
+            if alias_summary['nickname_list']:
+                existing_names = alias_summary['nickname_list'].split('、')
+                merged_names = existing_names + alias_nickname_list.split('、')
+                alias_summary['nickname_list'] = '、'.join(dict.fromkeys(n for n in merged_names if n))
+            else:
+                alias_summary['nickname_list'] = alias_nickname_list
+        alias_summary['expected_total'] += r['amount'] or 0
+        alias_summary['expected_items'] = _append_item(
+            alias_summary['expected_items'],
+            f"{platform or '未归属平台'}::{period_label}::{(r['amount'] or 0):.2f}",
+        )
+        _merge_platform_total(
+            alias_summary,
+            platform or '未归属平台',
+            expected_delta=r['amount'] or 0,
         )
 
     for r in invoice_rows:
@@ -1900,6 +2138,41 @@ def reconciliation():
                 f"{base_item}::{note}",
             )
 
+        if alias_name or r['customer_id']:
+            alias_group_key, alias_display_name, alias_nickname_list = _alias_summary_group(
+                alias_name,
+                r['customer_id'],
+                r['short_name'],
+                source_platform or billing_platform,
+            )
+            alias_summary = alias_summary_map.setdefault(
+                alias_group_key,
+                _new_alias_summary(alias_group_key, alias_display_name, alias_nickname_list),
+            )
+            if alias_nickname_list and alias_nickname_list not in (alias_summary['nickname_list'] or ''):
+                if alias_summary['nickname_list']:
+                    existing_names = alias_summary['nickname_list'].split('、')
+                    merged_names = existing_names + alias_nickname_list.split('、')
+                    alias_summary['nickname_list'] = '、'.join(dict.fromkeys(n for n in merged_names if n))
+                else:
+                    alias_summary['nickname_list'] = alias_nickname_list
+            source_label = source_platform or billing_platform or '未归属平台'
+            source_note = f"归属平台：{source_label}"
+            if billing_platform and billing_platform != source_platform:
+                source_note += f"；开票至：{billing_platform}"
+            alias_summary['invoiced_total'] += amount
+            alias_summary['invoice_count'] += 1
+            alias_summary['invoice_items'] = _append_item(
+                alias_summary['invoice_items'],
+                f"{source_label}::{r['id']}::{r['invoice_number']}::{amount:.2f}::{source_note}",
+            )
+            _merge_platform_total(
+                alias_summary,
+                source_label,
+                invoiced_delta=amount,
+                count_delta=1,
+            )
+
     details_by_platform = {platform: [] for platform in platform_keys}
     for item in detail_map.values():
         platform = item['platform']
@@ -1949,9 +2222,38 @@ def reconciliation():
     total_invoiced = sum((r['invoiced_total'] or 0) for r in rows)
     total_diff = total_expected - total_invoiced
 
+    alias_rows = []
+    for item in alias_summary_map.values():
+        balance_items = []
+        for platform_label, totals in item['platform_totals'].items():
+            platform_balance = (totals['expected_total'] or 0) - (totals['invoiced_total'] or 0)
+            balance_items.append(
+                f"{platform_label}::{(totals['expected_total'] or 0):.2f}::{(totals['invoiced_total'] or 0):.2f}::{platform_balance:.2f}"
+            )
+        item['balance'] = (item['expected_total'] or 0) - (item['invoiced_total'] or 0)
+        item['balance_items'] = '|||'.join(
+            sorted(
+                balance_items,
+                key=lambda raw: (
+                    -abs(float(raw.split('::')[3])),
+                    raw.split('::')[0],
+                ),
+            )
+        )
+        alias_rows.append(item)
+
+    alias_rows.sort(
+        key=lambda item: (
+            0 if item['group_key'].startswith('alias:') else 1,
+            -(item['expected_total'] or item['invoiced_total'] or 0),
+            item['display_name'] or '',
+        )
+    )
+
     return render_template(
         'invoicing_reconciliation.html',
         rows=rows,
+        alias_rows=alias_rows,
         start_date=start_date or '',
         end_date=end_date or '',
         unmatched_total=unmatched['total'] or 0,

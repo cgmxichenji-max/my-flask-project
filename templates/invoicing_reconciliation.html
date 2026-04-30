@@ -20,14 +20,15 @@ main{padding:20px;max-width:1800px;margin:0 auto;}
 .summary div{font-size:14px;}
 .summary strong{font-size:18px;color:#1976d2;}
 .summary .diff strong{color:#c62828;}
-table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.06);table-layout:fixed;}
+.section-title{margin:22px 0 10px;font-size:18px;color:#2e7d32;font-weight:bold;}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:visible;box-shadow:0 2px 6px rgba(0,0,0,.06);table-layout:fixed;}
 th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #eee;font-size:13px;vertical-align:top;}
 th{background:#f8f8f8;}
 tr.unmatched{background:#fff8f0;}
 .platform-toggle{color:#1976d2;cursor:pointer;font-weight:bold;text-decoration:underline;}
 .detail-row{display:none;background:#fafafa;}
-.detail-wrap{padding:12px 18px;}
-.detail-table{box-shadow:none;border-radius:4px;}
+.detail-wrap{padding:12px 18px;overflow-x:auto;}
+.detail-table{box-shadow:none;border-radius:4px;width:max-content;min-width:100%;}
 .detail-table th,.detail-table td{font-size:12px;padding:7px 9px;}
 .col-platform{width:120px;}
 .col-money{width:130px;}
@@ -35,20 +36,32 @@ tr.unmatched{background:#fff8f0;}
 .col-progress{width:110px;}
 .col-alias{width:115px;}
 .col-nickname{width:360px;}
+.col-name{width:150px;}
 .detail-money{width:118px;}
 .num{text-align:right;white-space:nowrap;}
 .nickname-cell{line-height:1.55;word-break:break-all;}
 .detail-empty{color:#888;font-size:13px;}
-.expected-toggle,.invoice-toggle{color:#1976d2;cursor:pointer;text-decoration:underline;}
-.expected-links,.invoice-links{display:none;margin-top:6px;line-height:1.8;}
-.expected-links span,.invoice-links a{color:#1976d2;text-decoration:none;margin-right:10px;white-space:normal;overflow-wrap:anywhere;word-break:break-all;}
+.expected-toggle,.invoice-toggle,.balance-toggle{cursor:pointer;text-decoration:underline;}
+.expected-toggle,.invoice-toggle{color:#1976d2;}
+.balance-toggle{color:inherit;}
+.expected-links,.invoice-links,.balance-links{display:none;margin-top:6px;line-height:1.8;overflow-x:auto;max-width:100%;}
+.expected-links span{display:block;color:#1976d2;white-space:nowrap;overflow-wrap:normal;word-break:normal;}
+.invoice-links .invoice-line{display:block;white-space:nowrap;}
+.invoice-links a{color:#1976d2;text-decoration:none;white-space:nowrap;overflow-wrap:normal;word-break:normal;}
+.balance-links span{display:block;white-space:nowrap;overflow-wrap:normal;word-break:normal;}
 .invoice-links small{color:#888;margin-left:4px;}
 .diff-pos{color:#c62828;font-weight:bold;}
 .diff-neg{color:#1976d2;font-weight:bold;}
 .diff-zero{color:#2e7d32;}
+.diff-pos .balance-toggle{color:#c62828;}
+.diff-neg .balance-toggle{color:#1976d2;}
+.diff-zero .balance-toggle{color:#2e7d32;}
 .bar{height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden;width:80px;display:inline-block;vertical-align:middle;}
 .bar-fill{height:100%;background:#4CAF50;}
 .bar-fill.over{background:#ff9800;}
+#alias-recon-table{table-layout:auto;}
+#alias-recon-table .col-nickname{width:34%;}
+#alias-recon-table .col-money{width:190px;}
 </style></head>
 <body>
 <header>应开 vs 已开核对</header>
@@ -146,7 +159,7 @@ tr.unmatched{background:#fff8f0;}
 {% for item in d.expected_items.split('|||') %}
 {% set parts = item.split('::') %}
 {% if parts|length >= 2 %}
-<span>{{ parts[0] }} / ¥{{ parts[1] }}</span>
+<span>{{ parts[0] }} / {{ parts[1] }}</span>
 {% endif %}
 {% endfor %}
 </div>
@@ -161,8 +174,10 @@ tr.unmatched{background:#fff8f0;}
 {% for item in d.belong_items.split('|||') %}
 {% set parts = item.split('::') %}
 {% if parts|length >= 3 %}
-<a href="{{ url_for('invoicing.invoice_pdf', invoice_id=parts[0]|int) }}" target="_blank">{{ parts[1] }} / ¥{{ parts[2] }}</a>
+<div class="invoice-line">
+<a href="{{ url_for('invoicing.invoice_pdf', invoice_id=parts[0]|int) }}" target="_blank">{{ parts[1] }} / {{ parts[2] }}</a>
 {% if parts|length >= 4 and parts[3] %}<small>{{ parts[3] }}</small>{% endif %}
+</div>
 {% endif %}
 {% endfor %}
 </div>
@@ -177,8 +192,10 @@ tr.unmatched{background:#fff8f0;}
 {% for item in d.transfer_in_items.split('|||') %}
 {% set parts = item.split('::') %}
 {% if parts|length >= 3 %}
-<a href="{{ url_for('invoicing.invoice_pdf', invoice_id=parts[0]|int) }}" target="_blank">{{ parts[1] }} / ¥{{ parts[2] }}</a>
+<div class="invoice-line">
+<a href="{{ url_for('invoicing.invoice_pdf', invoice_id=parts[0]|int) }}" target="_blank">{{ parts[1] }} / {{ parts[2] }}</a>
 {% if parts|length >= 4 and parts[3] %}<small>{{ parts[3] }}</small>{% endif %}
+</div>
 {% endif %}
 {% endfor %}
 </div>
@@ -193,8 +210,10 @@ tr.unmatched{background:#fff8f0;}
 {% for item in d.transfer_out_items.split('|||') %}
 {% set parts = item.split('::') %}
 {% if parts|length >= 3 %}
-<a href="{{ url_for('invoicing.invoice_pdf', invoice_id=parts[0]|int) }}" target="_blank">{{ parts[1] }} / ¥{{ parts[2] }}</a>
+<div class="invoice-line">
+<a href="{{ url_for('invoicing.invoice_pdf', invoice_id=parts[0]|int) }}" target="_blank">{{ parts[1] }} / {{ parts[2] }}</a>
 {% if parts|length >= 4 and parts[3] %}<small>{{ parts[3] }}</small>{% endif %}
+</div>
 {% endif %}
 {% endfor %}
 </div>
@@ -212,6 +231,82 @@ tr.unmatched{background:#fff8f0;}
 <div class="detail-empty">暂无明细</div>
 {% endif %}
 </div>
+</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+<div class="section-title">别名 / 昵称汇总</div>
+<div class="filter-bar">
+<label>关键词：
+<input type="text" id="alias-kw" placeholder="别名或昵称关键词（前端筛选）">
+</label>
+<span>共<span id="alias-visible">{{ alias_rows|length }}</span> / {{ alias_rows|length }} 行</span>
+</div>
+
+<table id="alias-recon-table">
+<thead><tr>
+<th class="col-name">别名/昵称</th>
+<th class="col-nickname">昵称合集或说明</th>
+<th class="col-money num">应开金额（总计）</th>
+<th class="col-money num">已开票（总计）</th>
+<th class="col-count num">张数</th>
+<th class="col-money num">余额</th>
+</tr></thead>
+<tbody>
+{% for r in alias_rows %}
+<tr data-search="{{ (r.display_name or '') ~ '|' ~ (r.nickname_list or '') }}">
+<td>{{ r.display_name }}</td>
+<td class="nickname-cell">{{ r.nickname_list or '' }}</td>
+<td class="num">
+{% if r.expected_items %}
+<span class="expected-toggle">{{ '%.2f'|format(r.expected_total) }}</span>
+<div class="expected-links">
+{% for item in r.expected_items.split('|||') %}
+{% set parts = item.split('::') %}
+{% if parts|length >= 3 %}
+<span>{{ parts[0] }} / {{ parts[1] }} / {{ parts[2] }}</span>
+{% endif %}
+{% endfor %}
+</div>
+{% else %}
+{{ '%.2f'|format(r.expected_total) }}
+{% endif %}
+</td>
+<td class="num">
+{% if r.invoice_items %}
+<span class="invoice-toggle">{{ '%.2f'|format(r.invoiced_total) }}</span>
+<div class="invoice-links">
+{% for item in r.invoice_items.split('|||') %}
+{% set parts = item.split('::') %}
+{% if parts|length >= 4 %}
+<div class="invoice-line">
+<a href="{{ url_for('invoicing.invoice_pdf', invoice_id=parts[1]|int) }}" target="_blank">{{ parts[0] }} / {{ parts[2] }} / {{ parts[3] }}</a>
+{% if parts|length >= 5 and parts[4] %}<small>{{ parts[4] }}</small>{% endif %}
+</div>
+{% endif %}
+{% endfor %}
+</div>
+{% else %}
+{{ '%.2f'|format(r.invoiced_total) }}
+{% endif %}
+</td>
+<td class="num">{{ r.invoice_count }}</td>
+<td class="num {% if r.balance > 0.005 %}diff-pos{% elif r.balance < -0.005 %}diff-neg{% else %}diff-zero{% endif %}">
+{% if r.balance_items %}
+<span class="balance-toggle">{{ '%.2f'|format(r.balance) }}</span>
+<div class="balance-links">
+{% for item in r.balance_items.split('|||') %}
+{% set parts = item.split('::') %}
+{% if parts|length >= 4 %}
+<span class="{% if parts[3]|float > 0.005 %}diff-pos{% elif parts[3]|float < -0.005 %}diff-neg{% else %}diff-zero{% endif %}">{{ parts[0] }} / 应开 {{ parts[1] }} / 已开 {{ parts[2] }} / 余额 {{ parts[3] }}</span>
+{% endif %}
+{% endfor %}
+</div>
+{% else %}
+{{ '%.2f'|format(r.balance) }}
+{% endif %}
 </td>
 </tr>
 {% endfor %}
@@ -236,6 +331,20 @@ input.addEventListener('input',function(){
   });
   visible.textContent=n;
 });
+var aliasInput=document.getElementById('alias-kw');
+var aliasRows=document.querySelectorAll('#alias-recon-table tbody tr');
+var aliasVisible=document.getElementById('alias-visible');
+aliasInput.addEventListener('input',function(){
+  var q=(this.value||'').trim().toLowerCase();
+  var n=0;
+  aliasRows.forEach(function(r){
+    var d=(r.getAttribute('data-search')||'').toLowerCase();
+    var match=!q||d.indexOf(q)!==-1;
+    r.style.display=match?'':'none';
+    if(match)n++;
+  });
+  aliasVisible.textContent=n;
+});
 document.querySelectorAll('.platform-toggle').forEach(function(el){
   el.addEventListener('click',function(){
     var platform=el.getAttribute('data-platform');
@@ -244,16 +353,10 @@ document.querySelectorAll('.platform-toggle').forEach(function(el){
     detail.style.display=detail.style.display==='table-row'?'none':'table-row';
   });
 });
-document.querySelectorAll('.invoice-toggle').forEach(function(el){
+document.querySelectorAll('.expected-toggle,.invoice-toggle,.balance-toggle').forEach(function(el){
   el.addEventListener('click',function(){
-    var links=el.parentElement.querySelector('.invoice-links');
-    if(!links)return;
-    links.style.display=links.style.display==='block'?'none':'block';
-  });
-});
-document.querySelectorAll('.expected-toggle').forEach(function(el){
-  el.addEventListener('click',function(){
-    var links=el.parentElement.querySelector('.expected-links');
+    var container=el.parentElement;
+    var links=container.querySelector('.expected-links') || container.querySelector('.invoice-links') || container.querySelector('.balance-links');
     if(!links)return;
     links.style.display=links.style.display==='block'?'none':'block';
   });

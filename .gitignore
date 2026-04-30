@@ -70,3 +70,5 @@ logs/deploy_stdout.log
 logs/deploy_stderr.log
 pip_install.log
 pip313_install.log
+flask_restart.log
+flask_restart.err
