@@ -100,8 +100,16 @@ def _invoice_download_name(row):
         or '未归属平台'
     )
     period_name = ((row['matched_period'] or '').strip() or '未设周期')
-    seller_platform = _detect_platform_keyword(row['seller_name'])
-    diff_label = f"开票{seller_platform}" if seller_platform and seller_platform != platform_name else ''
+    billing_platform = (
+        _detect_platform_keyword(row['buyer_name'])
+        or _detect_platform_keyword(row['seller_name'])
+    )
+    matched_platform = _detect_platform_keyword(platform_name)
+    diff_label = (
+        f"开票{billing_platform}"
+        if billing_platform and billing_platform != matched_platform
+        else ''
+    )
     type_name = _invoice_type_label(row['invoice_type'], row['tax_rate'])
 
     parts = [f"{prefix}{amount_text}".strip(), nickname, invoice_number, platform_name, period_name]
@@ -897,7 +905,7 @@ def invoices_download_selected():
             f"""
             SELECT i.id, i.invoice_number, i.amount, i.invoice_type, i.tax_rate,
                    i.alias_name, i.is_usable, i.pdf_file_path, i.period, i.platform,
-                   i.seller_name,
+                   i.seller_name, i.buyer_name,
                    c.short_name AS customer_short_name,
                    c.platform AS customer_platform,
                    COALESCE(
