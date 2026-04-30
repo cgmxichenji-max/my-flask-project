@@ -1,10 +1,12 @@
 from flask import Blueprint, render_template, request, redirect, url_for, current_app
 import json
+import io
 import os
 import re
 import shutil
 import sqlite3
 import uuid
+import zipfile
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -62,10 +64,6 @@ def _safe_folder_name(name):
     return cleaned or UNMATCHED_ENTITY_FOLDER
 
 
-def _desktop_dir():
-    return Path.home() / 'Desktop'
-
-
 def _sanitize_download_filename(name):
     cleaned = re.sub(r'[\\/:*?"<>|]', '_', str(name or '').strip())
     cleaned = re.sub(r'\s+', ' ', cleaned)
@@ -77,6 +75,40 @@ def _invoice_type_label(invoice_type, tax_rate):
     raw_tax = (tax_rate or '').strip()
     type_label = '专票' if '专' in raw_type else '普票'
     return f"{type_label}{raw_tax}" if raw_tax else type_label
+
+
+def _detect_platform_keyword(text):
+    raw_text = (text or '').strip()
+    for keyword in ('澳柯', '幕莲蔓', '香娜露儿', '快手'):
+        if keyword in raw_text:
+            return keyword
+    return ''
+
+
+def _invoice_download_name(row):
+    prefix = '不能使用 ' if not row['is_usable'] else ''
+    amount_text = f"{(row['amount'] or 0):.2f}"
+    nickname = (
+        (row['customer_short_name'] or '').strip()
+        or (row['alias_name'] or '').strip()
+        or '未匹配'
+    )
+    invoice_number = (row['invoice_number'] or '').strip() or f"invoice_{row['id']}"
+    platform_name = (
+        (row['matched_platform'] or '').strip()
+        or (row['customer_platform'] or '').strip()
+        or '未归属平台'
+    )
+    period_name = ((row['matched_period'] or '').strip() or '未设周期')
+    seller_platform = _detect_platform_keyword(row['seller_name'])
+    diff_label = f"开票{seller_platform}" if seller_platform and seller_platform != platform_name else ''
+    type_name = _invoice_type_label(row['invoice_type'], row['tax_rate'])
+
+    parts = [f"{prefix}{amount_text}".strip(), nickname, invoice_number, platform_name, period_name]
+    if diff_label:
+        parts.append(diff_label)
+    parts.append(type_name)
+    return _sanitize_download_filename(' '.join(part for part in parts if part))
 
 
 def _with_query_params(url, **params):
@@ -859,15 +891,13 @@ def invoices_download_selected():
     if not selected_ids:
         return redirect(_with_query_params(next_url, download_error='请选择至少一张发票'))
 
-    desktop_dir = _desktop_dir()
-    desktop_dir.mkdir(parents=True, exist_ok=True)
-
     placeholders = ','.join('?' for _ in selected_ids)
     with get_db_connection() as conn:
         rows = conn.execute(
             f"""
             SELECT i.id, i.invoice_number, i.amount, i.invoice_type, i.tax_rate,
                    i.alias_name, i.is_usable, i.pdf_file_path, i.period, i.platform,
+                   i.seller_name,
                    c.short_name AS customer_short_name,
                    c.platform AS customer_platform,
                    COALESCE(
@@ -912,50 +942,43 @@ def invoices_download_selected():
     if not rows:
         return redirect(_with_query_params(next_url, download_error='未找到可下载的发票'))
 
+    archive_buffer = io.BytesIO()
     copied_count = 0
     skipped_count = 0
-    for row in rows:
-        pdf_rel_path = row['pdf_file_path'] or ''
-        pdf_abs_path = Path(BASE_DIR) / pdf_rel_path
-        if not pdf_rel_path or not pdf_abs_path.exists():
-            skipped_count += 1
-            continue
+    used_names = set()
+    with zipfile.ZipFile(archive_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for row in rows:
+            pdf_rel_path = row['pdf_file_path'] or ''
+            pdf_abs_path = Path(BASE_DIR) / pdf_rel_path
+            if not pdf_rel_path or not pdf_abs_path.exists():
+                skipped_count += 1
+                continue
 
-        prefix = '不能使用 ' if not row['is_usable'] else ''
-        amount_text = f"{(row['amount'] or 0):.2f}"
-        nickname = (
-            (row['customer_short_name'] or '').strip()
-            or (row['alias_name'] or '').strip()
-            or '未匹配'
-        )
-        invoice_number = (row['invoice_number'] or '').strip() or f"invoice_{row['id']}"
-        platform_name = (
-            (row['matched_platform'] or '').strip()
-            or (row['customer_platform'] or '').strip()
-            or '未归属平台'
-        )
-        period_name = ((row['matched_period'] or '').strip() or '未设周期')
-        type_name = _invoice_type_label(row['invoice_type'], row['tax_rate'])
+            target_stem = _invoice_download_name(row)
+            archive_name = f"{target_stem}.pdf"
+            suffix = 2
+            while archive_name in used_names:
+                archive_name = f"{target_stem} ({suffix}).pdf"
+                suffix += 1
+            used_names.add(archive_name)
 
-        target_stem = _sanitize_download_filename(
-            f"{prefix}{amount_text} {nickname} {invoice_number} {platform_name} {period_name} {type_name}"
-        )
-        target_path = desktop_dir / f"{target_stem}.pdf"
-        suffix = 2
-        while target_path.exists():
-            target_path = desktop_dir / f"{target_stem} ({suffix}).pdf"
-            suffix += 1
-
-        shutil.copy2(pdf_abs_path, target_path)
-        copied_count += 1
+            zf.write(pdf_abs_path, arcname=archive_name)
+            copied_count += 1
 
     if copied_count == 0:
-        return redirect(_with_query_params(next_url, download_error='选中的发票未能成功保存到桌面'))
+        return redirect(_with_query_params(next_url, download_error='选中的发票没有可下载的PDF'))
 
-    message = f'已保存 {copied_count} 张到桌面'
+    archive_buffer.seek(0)
+    archive_name = f"selected_invoices_{uuid.uuid4().hex[:8]}.zip"
+    response = send_file(
+        archive_buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=archive_name,
+    )
     if skipped_count:
-        message += f'，跳过 {skipped_count} 张缺少PDF的记录'
-    return redirect(_with_query_params(next_url, download_ok=message))
+        response.headers['X-Skipped-Invoices'] = str(skipped_count)
+    return response
 
 
 @invoicing_bp.route('/invoices/upload', methods=['GET'])

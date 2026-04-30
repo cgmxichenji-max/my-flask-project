@@ -58,7 +58,7 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 <input type="hidden" name="next" value="{{ request.full_path }}">
 </form>
 <a href="{{ url_for('invoicing.invoices_upload_form') }}" class="btn-upload">+ 上传新发票</a>
-<button type="submit" form="download-form" class="btn-download" id="download-selected-btn" disabled>下载发票到桌面</button>
+<button type="submit" form="download-form" class="btn-download" id="download-selected-btn" disabled>下载选中发票</button>
 <input type="text" id="filter-input" placeholder="筛选：发票号/类型/税率/销售方/购买方/达人团长/别名/项目（任一含关键字）">
 <span>共 <span id="total">{{ rows|length }}</span> 张，显示 <span id="visible">{{ rows|length }}</span> 张</span>
 </div>
