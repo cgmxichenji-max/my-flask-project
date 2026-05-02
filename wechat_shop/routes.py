@@ -5,6 +5,7 @@ import sqlite3
 from flask import current_app, jsonify, render_template, render_template_string, request, send_file
 
 from auth.decorators import module_required
+from common.upload_staging import finish_staged_upload, stage_uploaded_files
 
 from .table_schemas import (
     ORDER_COLUMN_MAPPING,
@@ -197,8 +198,25 @@ def import_orders():
             'message': '未接收到任何文件'
         }), 400
 
-    result = read_order_excel_files(files)
+    staged_batch = None
+    try:
+        staged_batch = stage_uploaded_files(files, 'wechat_shop/orders', ('.xlsx', '.xls'))
+        upload_batch_id = staged_batch.batch_id
+        result = read_order_excel_files(staged_batch.files)
+        finish_staged_upload(
+            staged_batch,
+            'success' if result.get('success') else 'failed',
+            result.get('message', ''),
+        )
+        staged_batch = None
+    except ValueError as exc:
+        finish_staged_upload(staged_batch, 'failed', str(exc))
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        finish_staged_upload(staged_batch, 'failed', str(exc))
+        return jsonify({'success': False, 'message': f'导入失败：{exc}'}), 400
 
+    result['upload_batch_id'] = upload_batch_id
     if not result.get('success'):
         return jsonify(result), 400
 
@@ -221,8 +239,25 @@ def import_fund_flow():
             'message': '未接收到任何文件'
         }), 400
 
-    result = read_fund_flow_excel_files(files)
+    staged_batch = None
+    try:
+        staged_batch = stage_uploaded_files(files, 'wechat_shop/fund_flows', ('.xlsx', '.xls'))
+        upload_batch_id = staged_batch.batch_id
+        result = read_fund_flow_excel_files(staged_batch.files)
+        finish_staged_upload(
+            staged_batch,
+            'success' if result.get('success') else 'failed',
+            result.get('message', ''),
+        )
+        staged_batch = None
+    except ValueError as exc:
+        finish_staged_upload(staged_batch, 'failed', str(exc))
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        finish_staged_upload(staged_batch, 'failed', str(exc))
+        return jsonify({'success': False, 'message': f'导入失败：{exc}'}), 400
 
+    result['upload_batch_id'] = upload_batch_id
     if not result.get('success'):
         return jsonify(result), 400
 
@@ -245,8 +280,25 @@ def import_after_sales():
             'message': '未接收到任何文件'
         }), 400
 
-    result = read_after_sales_excel_files(files)
+    staged_batch = None
+    try:
+        staged_batch = stage_uploaded_files(files, 'wechat_shop/aftersales', ('.xlsx', '.xls'))
+        upload_batch_id = staged_batch.batch_id
+        result = read_after_sales_excel_files(staged_batch.files)
+        finish_staged_upload(
+            staged_batch,
+            'success' if result.get('success') else 'failed',
+            result.get('message', ''),
+        )
+        staged_batch = None
+    except ValueError as exc:
+        finish_staged_upload(staged_batch, 'failed', str(exc))
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        finish_staged_upload(staged_batch, 'failed', str(exc))
+        return jsonify({'success': False, 'message': f'导入失败：{exc}'}), 400
 
+    result['upload_batch_id'] = upload_batch_id
     if not result.get('success'):
         return jsonify(result), 400
 

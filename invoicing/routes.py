@@ -15,6 +15,7 @@ from flask import send_file
 from werkzeug.utils import secure_filename
 
 from auth.decorators import module_required
+from common.upload_staging import finish_staged_upload, stage_uploaded_files
 from invoicing.pdf_parser import parse_pdf, suggest_is_usable
 
 
@@ -334,8 +335,16 @@ def import_expected_amounts():
     elif not default_period:
         result['message'] = '请输入默认期间'
     else:
+        staged_batch = None
+        workbook = None
         try:
-            workbook = load_workbook(upload_file, data_only=True)
+            staged_batch = stage_uploaded_files(
+                [upload_file],
+                'invoicing/expected_amounts',
+                ('.xlsx', '.xlsm'),
+            )
+            upload_batch_id = staged_batch.batch_id
+            workbook = load_workbook(staged_batch.files[0].path, data_only=True)
             worksheet = workbook[sheet_name] if sheet_name else workbook.active
             rows_iter = worksheet.iter_rows(values_only=True)
             raw_headers = next(rows_iter, None)
@@ -449,8 +458,18 @@ def import_expected_amounts():
                 f"成功导入 {result['imported_count']} 条应开金额记录；"
                 f"已存在跳过 {result['duplicate_skipped_count']} 条"
             )
+            result['upload_batch_id'] = upload_batch_id
+            workbook.close()
+            workbook = None
+            finish_staged_upload(staged_batch, 'success', result['message'])
+            staged_batch = None
         except Exception as exc:
+            if workbook is not None:
+                workbook.close()
             result['message'] = f'导入失败：{str(exc)}'
+            if staged_batch is not None:
+                result['upload_batch_id'] = staged_batch.batch_id
+            finish_staged_upload(staged_batch, 'failed', str(exc))
 
     with get_db_connection() as conn:
         rows = conn.execute(

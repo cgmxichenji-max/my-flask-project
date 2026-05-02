@@ -217,6 +217,26 @@ def _get_database_path() -> Path:
 
     return Path(current_app.root_path) / 'data' / 'wechat_shop.db'
 
+
+def _get_upload_source_filename(file_obj: Any) -> str:
+    """兼容浏览器上传流和服务器暂存文件对象。"""
+    return str(getattr(file_obj, 'filename', '') or '').strip()
+
+
+def _read_upload_source_bytes(file_obj: Any) -> bytes:
+    """读取 Excel 内容；优先读取暂存文件，避免导入阶段依赖请求流。"""
+    path = getattr(file_obj, 'path', None)
+    if path:
+        return Path(path).read_bytes()
+    return file_obj.read()
+
+
+def _reset_upload_source(file_obj: Any) -> None:
+    """旧上传流需要复位；暂存文件无需处理。"""
+    stream = getattr(file_obj, 'stream', None)
+    if stream is not None:
+        stream.seek(0)
+
 # === Begin export to excel helpers ===
 def _normalize_export_datetime_text(value: str | None) -> str | None:
     """把前端传入的日期/时间文本统一转换为可用于 SQLite 比较的字符串。"""
@@ -1141,7 +1161,7 @@ def read_fund_flow_excel_files(files: list[FileStorage]) -> dict[str, Any]:
     has_structure_mismatch = False
 
     for file_obj in files:
-        filename = (file_obj.filename or '').strip()
+        filename = _get_upload_source_filename(file_obj)
         if not filename:
             invalid_files.append('未命名文件')
             continue
@@ -1163,10 +1183,10 @@ def read_fund_flow_excel_files(files: list[FileStorage]) -> dict[str, Any]:
         }
 
     for file_obj in valid_files:
-        filename = (file_obj.filename or '').strip()
+        filename = _get_upload_source_filename(file_obj)
 
         try:
-            file_bytes = file_obj.read()
+            file_bytes = _read_upload_source_bytes(file_obj)
             excel_buffer = BytesIO(file_bytes)
             dtype_mapping = _build_text_dtype_mapping(excel_buffer)
             df = pd.read_excel(excel_buffer, dtype=dtype_mapping if dtype_mapping else None)
@@ -1234,7 +1254,7 @@ def read_fund_flow_excel_files(files: list[FileStorage]) -> dict[str, Any]:
                 'error': str(exc),
             })
         finally:
-            file_obj.stream.seek(0)
+            _reset_upload_source(file_obj)
 
     success_count = len(file_summaries)
 
@@ -1348,7 +1368,7 @@ def read_order_excel_files(files: list[FileStorage]) -> dict[str, Any]:
     table_message = ''
 
     for file_obj in files:
-        filename = (file_obj.filename or '').strip()
+        filename = _get_upload_source_filename(file_obj)
         if not filename:
             invalid_files.append('未命名文件')
             continue
@@ -1370,10 +1390,10 @@ def read_order_excel_files(files: list[FileStorage]) -> dict[str, Any]:
         }
 
     for file_obj in valid_files:
-        filename = (file_obj.filename or '').strip()
+        filename = _get_upload_source_filename(file_obj)
 
         try:
-            file_bytes = file_obj.read()
+            file_bytes = _read_upload_source_bytes(file_obj)
             excel_buffer = BytesIO(file_bytes)
             dtype_mapping = _build_text_dtype_mapping(excel_buffer)
             df = pd.read_excel(excel_buffer, dtype=dtype_mapping if dtype_mapping else None)
@@ -1443,7 +1463,7 @@ def read_order_excel_files(files: list[FileStorage]) -> dict[str, Any]:
                 'error': str(exc),
             })
         finally:
-            file_obj.stream.seek(0)
+            _reset_upload_source(file_obj)
 
     success_count = len(file_summaries)
 
@@ -1749,7 +1769,7 @@ def read_after_sales_excel_files(files: list[FileStorage]) -> dict[str, Any]:
     has_structure_mismatch = False
 
     for file_obj in files:
-        filename = (file_obj.filename or '').strip()
+        filename = _get_upload_source_filename(file_obj)
         if not filename:
             invalid_files.append('未命名文件')
             continue
@@ -1771,10 +1791,10 @@ def read_after_sales_excel_files(files: list[FileStorage]) -> dict[str, Any]:
         }
 
     for file_obj in valid_files:
-        filename = (file_obj.filename or '').strip()
+        filename = _get_upload_source_filename(file_obj)
 
         try:
-            file_bytes = file_obj.read()
+            file_bytes = _read_upload_source_bytes(file_obj)
             excel_buffer = BytesIO(file_bytes)
             dtype_mapping = _build_text_dtype_mapping(excel_buffer)
             df = pd.read_excel(excel_buffer, dtype=dtype_mapping if dtype_mapping else None)
@@ -1842,7 +1862,7 @@ def read_after_sales_excel_files(files: list[FileStorage]) -> dict[str, Any]:
                 'error': str(exc),
             })
         finally:
-            file_obj.stream.seek(0)
+            _reset_upload_source(file_obj)
 
     success_count = len(file_summaries)
 

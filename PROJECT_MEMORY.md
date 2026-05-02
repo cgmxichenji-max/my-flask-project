@@ -1,5 +1,13 @@
 # 项目记忆
 
+## [2026-05-02 11:47] 修改记录
+- 修改内容：新增统一 Excel 上传暂存前序模块，微信小店订单/资金流水/售后 Excel 导入与发票核对应开金额 Excel 导入统一改为先保存到服务器独立批次临时目录，再从本地暂存文件读取导入；导入成功或失败后立即清理当前批次目录，并在导入前清理超过 2 小时的孤儿批次目录。新增 PROJECT_MEMORY_FILE_STORAGE.md 作为本聊天上传/文件系统专项记录。
+- 修改文件：common/upload_staging.py；wechat_shop/routes.py；wechat_shop/services.py；invoicing/routes.py；PROJECT_MEMORY.md；PROJECT_MEMORY_FILE_STORAGE.md
+- 修改原因：服务器端作为唯一正式运行环境时，Excel 导入需要先完成可靠落盘，避免导入阶段依赖浏览器请求流和网络连接稳定性，同时防止临时文件长期占用服务器硬盘或影响下次导入。
+- 影响范围：微信小店 Excel 导入、发票核对应开金额 Excel 导入；不影响发票 PDF 上传、核对计算、库存采购入库等模块。
+- 是否涉及数据库：否
+- 是否需要回滚：是，回滚代码文件并删除 data/upload_staging/ 目录即可。
+
 更新时间：2026-04-23
 
 ## 项目定位
