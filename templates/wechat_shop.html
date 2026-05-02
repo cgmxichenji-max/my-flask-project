@@ -377,9 +377,9 @@
         <section class="section-card">
             <div class="section-title">数据导入</div>
             <div class="import-actions">
-                <input type="file" id="order-files-input" webkitdirectory directory style="display:none">
-                <input type="file" id="fund-flow-files-input" webkitdirectory directory style="display:none">
-                <input type="file" id="after-sales-files-input" webkitdirectory directory style="display:none">
+                <input type="file" id="order-files-input" accept=".xlsx,.xls" multiple style="display:none">
+                <input type="file" id="fund-flow-files-input" accept=".xlsx,.xls" multiple style="display:none">
+                <input type="file" id="after-sales-files-input" accept=".xlsx,.xls" multiple style="display:none">
                 <button class="btn btn-primary" type="button" id="btn-import-orders">导入订单表</button>
                 <button class="btn btn-primary" type="button" id="btn-import-fund-flow">导入资金流水表</button>
                 <button class="btn btn-primary" type="button" id="btn-import-after-sales">导入售后表</button>
@@ -884,7 +884,25 @@
         }
     }
 
-    async function handleFolderImport({
+    async function parseJsonResponse(response) {
+        const contentType = response.headers.get('Content-Type') || '';
+        const responseText = await response.text();
+
+        if (contentType.includes('application/json')) {
+            return JSON.parse(responseText || '{}');
+        }
+
+        const plainText = responseText
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const summary = plainText ? `：${plainText.slice(0, 160)}` : '';
+        throw new Error(`服务器返回了非 JSON 响应（HTTP ${response.status}）${summary}`);
+    }
+
+    async function handleExcelImport({
         buttonElement,
         fileInputElement,
         resultElement,
@@ -908,10 +926,14 @@
 
             const response = await fetch(importUrl, {
                 method: 'POST',
-                body: formData
+                body: formData,
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
             });
 
-            const data = await response.json();
+            const data = await parseJsonResponse(response);
 
             if (!response.ok || !data.success) {
                 showImportMessage(resultElement, data.message || '导入失败', false);
@@ -962,12 +984,12 @@
         });
 
         orderFileInput.addEventListener('change', async function () {
-            await handleFolderImport({
+            await handleExcelImport({
                 buttonElement: btnImportOrders,
                 fileInputElement: orderFileInput,
                 resultElement: importOrdersResult,
                 importUrl: '/wechat_shop/import_orders',
-                loadingText: '正在读取文件夹...',
+                loadingText: '正在导入文件...',
                 defaultButtonText: '导入订单表'
             });
         });
@@ -979,12 +1001,12 @@
         });
 
         fundFlowFileInput.addEventListener('change', async function () {
-            await handleFolderImport({
+            await handleExcelImport({
                 buttonElement: btnImportFundFlow,
                 fileInputElement: fundFlowFileInput,
                 resultElement: importFundFlowResult,
                 importUrl: '/wechat_shop/import_fund_flow',
-                loadingText: '正在读取资金流水文件夹...',
+                loadingText: '正在导入资金流水...',
                 defaultButtonText: '导入资金流水表'
             });
         });
@@ -996,12 +1018,12 @@
         });
 
         afterSalesFileInput.addEventListener('change', async function () {
-            await handleFolderImport({
+            await handleExcelImport({
                 buttonElement: btnImportAfterSales,
                 fileInputElement: afterSalesFileInput,
                 resultElement: importAfterSalesResult,
                 importUrl: '/wechat_shop/import_after_sales',
-                loadingText: '正在读取售后文件夹...',
+                loadingText: '正在导入售后文件...',
                 defaultButtonText: '导入售后表'
             });
         });

@@ -1,5 +1,13 @@
 # 项目记忆
 
+## [2026-05-02 12:18] 修改记录
+- 修改内容：修正微信小店 Excel 导入控件，由只能选择文件夹改为可选择一个或多个 .xlsx/.xls 文件；导入 fetch 请求增加 JSON 期望请求头与非 JSON 响应兜底提示；认证/授权装饰器对 AJAX/JSON 请求返回 JSON 401/403，避免登录页 HTML 被前端当作 JSON 解析。
+- 修改文件：templates/wechat_shop.html；auth/decorators.py；PROJECT_MEMORY.md；PROJECT_MEMORY_FILE_STORAGE.md
+- 修改原因：服务器端测试导入时发现页面只能选择文件夹，且接口返回 HTML 时前端报 Unexpected token '<'，需要改为单文件/多文件选择并提供明确错误提示。
+- 影响范围：微信小店 Excel 导入页面；AJAX/JSON 请求的登录失效和无权限错误返回格式。普通页面访问的登录跳转行为保持不变。
+- 是否涉及数据库：否
+- 是否需要回滚：是，回滚上述代码文件即可。
+
 ## [2026-05-02 11:47] 修改记录
 - 修改内容：新增统一 Excel 上传暂存前序模块，微信小店订单/资金流水/售后 Excel 导入与发票核对应开金额 Excel 导入统一改为先保存到服务器独立批次临时目录，再从本地暂存文件读取导入；导入成功或失败后立即清理当前批次目录，并在导入前清理超过 2 小时的孤儿批次目录。新增 PROJECT_MEMORY_FILE_STORAGE.md 作为本聊天上传/文件系统专项记录。
 - 修改文件：common/upload_staging.py；wechat_shop/routes.py；wechat_shop/services.py；invoicing/routes.py；PROJECT_MEMORY.md；PROJECT_MEMORY_FILE_STORAGE.md
