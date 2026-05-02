@@ -1,5 +1,13 @@
 # 项目记忆
 
+## [2026-05-02 12:28] 修改记录
+- 修改内容：服务器 nginx 站点配置增加 client_max_body_size 200m，解除 Excel 上传被 nginx 以 413 Request Entity Too Large 拦截的问题；同步补充 SERVER_RUNBOOK.md 中的上传限制说明。
+- 修改文件：服务器 /etc/nginx/sites-available/flaskapp；SERVER_RUNBOOK.md；PROJECT_MEMORY.md；PROJECT_MEMORY_FILE_STORAGE.md
+- 修改原因：服务器端测试微信小店导入时，大文件上传在到达 Flask 前被 nginx 默认请求体大小限制拦截，前端收到 HTTP 413。
+- 影响范围：通过 nginx 访问的所有请求允许最大 200MB 请求体；主要影响 Excel/PDF 上传，不改变导入业务逻辑。
+- 是否涉及数据库：否
+- 是否需要回滚：是，将服务器 /etc/nginx/sites-available/flaskapp 恢复为 /etc/nginx/sites-available/flaskapp.backup_before_upload_limit_20260502_042757 后执行 nginx -t && systemctl reload nginx；文档改动可 git revert。
+
 ## [2026-05-02 12:18] 修改记录
 - 修改内容：修正微信小店 Excel 导入控件，由只能选择文件夹改为可选择一个或多个 .xlsx/.xls 文件；导入 fetch 请求增加 JSON 期望请求头与非 JSON 响应兜底提示；认证/授权装饰器对 AJAX/JSON 请求返回 JSON 401/403，避免登录页 HTML 被前端当作 JSON 解析。
 - 修改文件：templates/wechat_shop.html；auth/decorators.py；PROJECT_MEMORY.md；PROJECT_MEMORY_FILE_STORAGE.md

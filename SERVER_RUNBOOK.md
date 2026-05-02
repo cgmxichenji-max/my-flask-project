@@ -81,6 +81,33 @@ curl -s -o /dev/null -w '5001=%{http_code}\n' http://108.61.200.244:5001/auth/lo
 curl -s -o /dev/null -w 'nginx=%{http_code}\n' http://108.61.200.244/auth/login
 ```
 
+### 查看 nginx 上传大小限制
+
+Excel/PDF 上传经 nginx 反向代理进入 Flask。当前站点配置要求包含：
+
+```nginx
+client_max_body_size 200m;
+```
+
+检查命令：
+
+```bash
+nginx -T 2>/dev/null | grep -n 'client_max_body_size\|server_name gqjcore'
+```
+
+如果上传时出现 `413 Request Entity Too Large`，先确认 `/etc/nginx/sites-available/flaskapp` 的 `server` 块内是否有上述配置，再执行：
+
+```bash
+nginx -t
+systemctl reload nginx
+```
+
+2026-05-02 调整前备份文件：
+
+```text
+/etc/nginx/sites-available/flaskapp.backup_before_upload_limit_20260502_042757
+```
+
 ## 3. 东京服务器启动 / 停止 / 重启
 
 ### 推荐启动方式（debug 关闭）
@@ -496,4 +523,3 @@ fi
 sleep 2
 nohup python3 -c "from app import app; app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False)" > flask.log 2>&1 &
 ```
-

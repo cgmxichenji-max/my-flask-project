@@ -2,6 +2,15 @@
 
 本文件记录本聊天后续所有涉及上传文件、临时文件、归档目录、清理策略、文件系统回滚路径的修改。不得覆盖历史，只能追加。
 
+## [2026-05-02 12:28] 文件系统修改记录
+- 修改内容：东京服务器 nginx 站点配置增加 `client_max_body_size 200m;`，允许通过 nginx 上传最大 200MB 的 Excel/PDF 请求体。
+- 涉及目录/文件：
+  - 服务器配置：/etc/nginx/sites-available/flaskapp
+  - 服务器备份：/etc/nginx/sites-available/flaskapp.backup_before_upload_limit_20260502_042757
+  - 项目文档：SERVER_RUNBOOK.md
+- 文件保留策略：不改变应用上传暂存策略；Excel 原始文件仍只在单次导入批次中短暂暂存，导入成功或失败后立即删除当前批次目录。
+- 回滚路径：在服务器执行 `cp /etc/nginx/sites-available/flaskapp.backup_before_upload_limit_20260502_042757 /etc/nginx/sites-available/flaskapp && nginx -t && systemctl reload nginx`；文档改动可 git revert。
+
 ## [2026-05-02 12:18] 文件系统修改记录
 - 修改内容：微信小店 Excel 导入控件由目录选择改为文件选择，支持一次选择一个或多个 .xlsx/.xls 文件；前端导入请求增加 JSON 响应识别，服务器返回 HTML 时显示明确错误摘要。
 - 涉及目录：无新增目录；继续使用 data/upload_staging/tmp/<导入类型>/<批次ID>/ 短暂暂存。
