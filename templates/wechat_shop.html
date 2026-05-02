@@ -403,7 +403,7 @@
                 </div>
                 <div class="form-group">
                     <label for="date_start">开始日期</label>
-                    <input id="date_start" name="date_start" type="date" value="2026-03-01">
+                    <input id="date_start" name="date_start" type="date">
                 </div>
                 <div class="form-group">
                     <label for="time_start">开始时间</label>
@@ -411,7 +411,7 @@
                 </div>
                 <div class="form-group">
                     <label for="date_end">结束日期</label>
-                    <input id="date_end" name="date_end" type="date" value="2026-03-20">
+                    <input id="date_end" name="date_end" type="date">
                 </div>
                 <div class="form-group">
                     <label for="time_end">结束时间</label>
@@ -467,6 +467,7 @@
         <div class="footer-note">© 2026 包材管理系统</div>
     </div>
 <script id="export-field-config-data" type="application/json">{{ export_field_config_json | safe }}</script>
+<script id="export-date-ranges-data" type="application/json">{{ export_date_ranges_json | safe }}</script>
 <script>
     const btnImportOrders = document.getElementById('btn-import-orders');
     const importOrdersResult = document.getElementById('import-orders-result');
@@ -503,6 +504,7 @@
     const exportFieldStorageKeyPrefix = 'wechat_shop_export_fields_';
 
     const exportFieldConfigs = JSON.parse(document.getElementById('export-field-config-data')?.textContent || '{}');
+    const exportDateRanges = JSON.parse(document.getElementById('export-date-ranges-data')?.textContent || '{}');
 
     const filterOperatorOptions = [
         { value: 'eq', label: '等于' },
@@ -541,6 +543,22 @@
         }
 
         return isEnd ? `${dateText}T23:59` : `${dateText}T00:00`;
+    }
+
+    function applyExportDateRange(tableKey) {
+        const range = exportDateRanges[tableKey] || {};
+        if (dateStartInput) {
+            dateStartInput.value = range.start_date || '';
+        }
+        if (dateEndInput) {
+            dateEndInput.value = range.end_date || '';
+        }
+        if (timeStartInput && !timeStartInput.value) {
+            timeStartInput.value = '00:00';
+        }
+        if (timeEndInput && !timeEndInput.value) {
+            timeEndInput.value = '23:59';
+        }
     }
 
     function getExportFieldStorageKey(tableKey) {
@@ -1050,9 +1068,11 @@
 
     if (sourceTableSelect) {
         sourceTableSelect.addEventListener('change', function () {
+            applyExportDateRange(sourceTableSelect.value);
             renderExportFields(sourceTableSelect.value);
             refreshAllFilterFieldOptions();
         });
+        applyExportDateRange(sourceTableSelect.value);
         renderExportFields(sourceTableSelect.value);
     }
 

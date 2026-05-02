@@ -2,9 +2,10 @@ from datetime import datetime
 import json
 import sqlite3
 
-from flask import current_app, jsonify, render_template, render_template_string, request, send_file
+from flask import current_app, jsonify, render_template, render_template_string, request
 
 from auth.decorators import module_required
+from common.download_utils import send_excel_download
 from common.upload_staging import finish_staged_upload, stage_uploaded_files
 
 from .table_schemas import (
@@ -176,10 +177,22 @@ def _attach_status_rows(result: dict) -> dict:
 def index():
     data_status_rows = _get_data_status_rows()
     export_field_config_json = json.dumps(EXPORT_FIELD_CONFIG, ensure_ascii=False)
+    export_date_ranges = {}
+    for row in data_status_rows:
+        table_key = row.get('table_key')
+        min_date = (row.get('min_date') or '')[:10].replace('/', '-')
+        max_date = (row.get('max_date') or '')[:10].replace('/', '-')
+        if table_key:
+            export_date_ranges[table_key] = {
+                'start_date': min_date,
+                'end_date': max_date,
+            }
+    export_date_ranges_json = json.dumps(export_date_ranges, ensure_ascii=False)
     return render_template(
         'wechat_shop.html',
         data_status_rows=data_status_rows,
         export_field_config_json=export_field_config_json,
+        export_date_ranges_json=export_date_ranges_json,
     )
 
 
@@ -325,7 +338,6 @@ def export_data():
         else:
             filter_conditions = []
 
-        print('筛选条件：', filter_conditions)
         output, download_name = export_data_to_excel(
             table_key=table_key,
             start_time=start_time,
@@ -333,12 +345,7 @@ def export_data():
             selected_fields=selected_fields,
             filter_conditions=filter_conditions,
         )
-        return send_file(
-            output,
-            as_attachment=True,
-            download_name=download_name,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+        return send_excel_download(output, download_name)
 
     except Exception as e:
         return jsonify({

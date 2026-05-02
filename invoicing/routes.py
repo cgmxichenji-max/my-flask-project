@@ -15,6 +15,7 @@ from flask import send_file
 from werkzeug.utils import secure_filename
 
 from auth.decorators import module_required
+from common.download_utils import send_zip_download
 from common.upload_staging import finish_staged_upload, stage_uploaded_files
 from invoicing.pdf_parser import parse_pdf, suggest_is_usable
 
@@ -997,12 +998,7 @@ def invoices_download_selected():
 
     archive_buffer.seek(0)
     archive_name = f"selected_invoices_{uuid.uuid4().hex[:8]}.zip"
-    response = send_file(
-        archive_buffer,
-        mimetype='application/zip',
-        as_attachment=True,
-        download_name=archive_name,
-    )
+    response = send_zip_download(archive_buffer, archive_name)
     if skipped_count:
         response.headers['X-Skipped-Invoices'] = str(skipped_count)
     return response

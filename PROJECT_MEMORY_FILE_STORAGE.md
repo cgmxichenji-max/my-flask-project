@@ -2,6 +2,16 @@
 
 本文件记录本聊天后续所有涉及上传文件、临时文件、归档目录、清理策略、文件系统回滚路径的修改。不得覆盖历史，只能追加。
 
+## [2026-05-02 13:21] 文件系统修改记录
+- 修改内容：新增下载响应标准模块 common/download_utils.py，微信小店 Excel 导出和发票批量 ZIP 下载统一通过标准函数返回文件；微信小店导出默认日期改为随当前数据范围自动填充。
+- 涉及目录/文件：
+  - common/download_utils.py
+  - wechat_shop/routes.py
+  - templates/wechat_shop.html
+  - invoicing/routes.py
+- 文件保留策略：不新增服务器持久文件；导出文件仍在内存中生成后直接返回浏览器下载。
+- 回滚路径：回滚上述代码文件；数据库无需回滚；data/upload_staging/ 不受影响。
+
 ## [2026-05-02 12:28] 文件系统修改记录
 - 修改内容：东京服务器 nginx 站点配置增加 `client_max_body_size 200m;`，允许通过 nginx 上传最大 200MB 的 Excel/PDF 请求体。
 - 涉及目录/文件：

@@ -1,5 +1,13 @@
 # 项目记忆
 
+## [2026-05-02 13:21] 修改记录
+- 修改内容：修正微信小店原始数据导出默认日期，改为按当前数据状态表中的最早/最晚日期自动填充，避免写死未来日期导致导出空白；新增 common/download_utils.py 统一下载响应，微信小店 Excel 导出与发票批量 ZIP 下载改用标准下载函数；移除微信小店导出调试 print。
+- 修改文件：common/download_utils.py；wechat_shop/routes.py；wechat_shop/services.py；templates/wechat_shop.html；invoicing/routes.py；PROJECT_MEMORY.md；PROJECT_MEMORY_FILE_STORAGE.md
+- 修改原因：微信小店导出页面默认日期为 2026-03-01 到 2026-03-20，而实际微信小店数据集中在 2024-11 至 2025-03，导致按默认条件导出只有表头无数据；下载响应也需要与发票批量下载统一管理。
+- 影响范围：微信小店原始数据导出默认日期和 Excel 下载响应；发票批量下载 ZIP 响应；不影响 Excel/PDF 上传、导入写库和核对计算。
+- 是否涉及数据库：否
+- 是否需要回滚：是，回滚上述代码文件即可。
+
 ## [2026-05-02 12:28] 修改记录
 - 修改内容：服务器 nginx 站点配置增加 client_max_body_size 200m，解除 Excel 上传被 nginx 以 413 Request Entity Too Large 拦截的问题；同步补充 SERVER_RUNBOOK.md 中的上传限制说明。
 - 修改文件：服务器 /etc/nginx/sites-available/flaskapp；SERVER_RUNBOOK.md；PROJECT_MEMORY.md；PROJECT_MEMORY_FILE_STORAGE.md

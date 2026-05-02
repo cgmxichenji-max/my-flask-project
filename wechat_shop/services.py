@@ -617,10 +617,6 @@ def export_data_to_excel(
 
     sql += f" ORDER BY {config['date_field']} ASC, id ASC"
 
-    print('export_data_to_excel -> filter_conditions =', filter_conditions)
-    print('export_data_to_excel -> sql =', sql)
-    print('export_data_to_excel -> params =', params)
-
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
