@@ -196,6 +196,48 @@ def _update_data_status(table_key: str) -> None:
         conn.commit()
 
 
+def _try_update_data_status(table_key: str) -> str:
+    try:
+        _update_data_status(table_key)
+        return ''
+    except Exception as exc:
+        return f'提示：数据已写入，但刷新数据状态失败，请刷新页面确认。错误：{exc}'
+
+
+def _build_import_precheck_failed_response(
+    title: str,
+    file_summaries: list[dict[str, Any]],
+    invalid_files: list[str],
+    failed_files: list[dict[str, str]],
+) -> dict[str, Any]:
+    message_parts: list[str] = [f'{title}预检未通过，未写入数据库']
+
+    for summary in file_summaries:
+        message_parts.append('')
+        message_parts.append(_build_file_summary_text(summary))
+
+    if failed_files:
+        message_parts.append('')
+        message_parts.append('预检失败：')
+        for failed in failed_files:
+            message_parts.append(f"- {failed['filename']}（{failed['error']}）")
+
+    if invalid_files:
+        message_parts.append('')
+        message_parts.append(f"无效文件：{'，'.join(invalid_files)}")
+
+    return {
+        'success': False,
+        'message': '\n'.join(message_parts),
+        'file_count': len(file_summaries),
+        'files': file_summaries,
+        'invalid_files': invalid_files,
+        'failed_files': failed_files,
+        'precheck_failed': True,
+        'written_rows': 0,
+    }
+
+
 def _build_file_summary_text(file_info: dict[str, Any]) -> str:
     """把单个文件摘要拼成前端当前文本框可直接显示的文字。"""
     lines = [
@@ -1239,7 +1281,6 @@ def read_fund_flow_excel_files(files: list[FileStorage]) -> dict[str, Any]:
                     })
                     has_structure_mismatch = True
                     file_summaries.append(current_summary)
-                    prepared_dataframes.append(df)
                     continue
 
                 file_summaries.append(current_summary)
@@ -1254,31 +1295,13 @@ def read_fund_flow_excel_files(files: list[FileStorage]) -> dict[str, Any]:
 
     success_count = len(file_summaries)
 
-    if has_structure_mismatch:
-        message_parts: list[str] = ['本次资金流水导入已终止']
-
-        for summary in file_summaries:
-            message_parts.append('')
-            message_parts.append(_build_file_summary_text(summary))
-
-        if failed_files:
-            message_parts.append('')
-            message_parts.append('读取失败：')
-            for failed in failed_files:
-                message_parts.append(f"- {failed['filename']}（{failed['error']}）")
-
-        if invalid_files:
-            message_parts.append('')
-            message_parts.append(f"无效文件：{'，'.join(invalid_files)}")
-
-        return {
-            'success': False,
-            'message': '\n'.join(message_parts),
-            'file_count': success_count,
-            'files': file_summaries,
-            'invalid_files': invalid_files,
-            'failed_files': failed_files,
-        }
+    if has_structure_mismatch or failed_files:
+        return _build_import_precheck_failed_response(
+            '本次资金流水导入',
+            file_summaries,
+            invalid_files,
+            failed_files,
+        )
 
     if success_count == 0:
         message_parts: list[str] = ['资金流水文件已接收，但读取失败']
@@ -1305,8 +1328,6 @@ def read_fund_flow_excel_files(files: list[FileStorage]) -> dict[str, Any]:
     try:
         table_created, table_message = _ensure_fund_flow_table_exists()
         written_rows, write_message = _write_fund_flow_to_db(prepared_dataframes)
-        if written_rows > 0:
-            _update_data_status('fund_flows')
     except Exception as exc:
         db_path = _get_database_path()
         return {
@@ -1318,11 +1339,14 @@ def read_fund_flow_excel_files(files: list[FileStorage]) -> dict[str, Any]:
             'failed_files': failed_files,
         }
 
+    status_warning = _try_update_data_status('fund_flows') if written_rows > 0 else ''
     message = f'成功读取 {success_count} 个资金流水文件'
     if table_message:
         message += f'\n{table_message}'
     if write_message:
         message += f'\n{write_message}'
+    if status_warning:
+        message += f'\n{status_warning}'
 
     return {
         'success': True,
@@ -1448,7 +1472,6 @@ def read_order_excel_files(files: list[FileStorage]) -> dict[str, Any]:
                     })
                     has_structure_mismatch = True
                     file_summaries.append(current_summary)
-                    prepared_dataframes.append(df)
                     continue
 
                 file_summaries.append(current_summary)
@@ -1463,31 +1486,13 @@ def read_order_excel_files(files: list[FileStorage]) -> dict[str, Any]:
 
     success_count = len(file_summaries)
 
-    if has_structure_mismatch:
-        message_parts: list[str] = ['本次导入已终止']
-
-        for summary in file_summaries:
-            message_parts.append('')
-            message_parts.append(_build_file_summary_text(summary))
-
-        if failed_files:
-            message_parts.append('')
-            message_parts.append('读取失败：')
-            for failed in failed_files:
-                message_parts.append(f"- {failed['filename']}（{failed['error']}）")
-
-        if invalid_files:
-            message_parts.append('')
-            message_parts.append(f"无效文件：{'，'.join(invalid_files)}")
-
-        return {
-            'success': False,
-            'message': '\n'.join(message_parts),
-            'file_count': success_count,
-            'files': file_summaries,
-            'invalid_files': invalid_files,
-            'failed_files': failed_files,
-        }
+    if has_structure_mismatch or failed_files:
+        return _build_import_precheck_failed_response(
+            '本次订单导入',
+            file_summaries,
+            invalid_files,
+            failed_files,
+        )
 
     if success_count == 0:
         message_parts: list[str] = ['文件已接收，但读取失败']
@@ -1514,8 +1519,6 @@ def read_order_excel_files(files: list[FileStorage]) -> dict[str, Any]:
     try:
         table_created, table_message = _ensure_order_table_exists()
         written_rows, write_message = _write_orders_to_db(prepared_dataframes)
-        if written_rows > 0:
-            _update_data_status('orders')
     except Exception as exc:
         db_path = _get_database_path()
         return {
@@ -1527,11 +1530,14 @@ def read_order_excel_files(files: list[FileStorage]) -> dict[str, Any]:
             'failed_files': failed_files,
         }
 
+    status_warning = _try_update_data_status('orders') if written_rows > 0 else ''
     message = f'成功读取 {success_count} 个订单文件'
     if table_message:
         message += f'\n{table_message}'
     if write_message:
         message += f'\n{write_message}'
+    if status_warning:
+        message += f'\n{status_warning}'
 
     return {
         'success': True,
@@ -1847,7 +1853,6 @@ def read_after_sales_excel_files(files: list[FileStorage]) -> dict[str, Any]:
                     })
                     has_structure_mismatch = True
                     file_summaries.append(current_summary)
-                    prepared_dataframes.append(df)
                     continue
 
                 file_summaries.append(current_summary)
@@ -1862,31 +1867,13 @@ def read_after_sales_excel_files(files: list[FileStorage]) -> dict[str, Any]:
 
     success_count = len(file_summaries)
 
-    if has_structure_mismatch:
-        message_parts: list[str] = ['本次售后导入已终止']
-
-        for summary in file_summaries:
-            message_parts.append('')
-            message_parts.append(_build_file_summary_text(summary))
-
-        if failed_files:
-            message_parts.append('')
-            message_parts.append('读取失败：')
-            for failed in failed_files:
-                message_parts.append(f"- {failed['filename']}（{failed['error']}）")
-
-        if invalid_files:
-            message_parts.append('')
-            message_parts.append(f"无效文件：{'，'.join(invalid_files)}")
-
-        return {
-            'success': False,
-            'message': '\n'.join(message_parts),
-            'file_count': success_count,
-            'files': file_summaries,
-            'invalid_files': invalid_files,
-            'failed_files': failed_files,
-        }
+    if has_structure_mismatch or failed_files:
+        return _build_import_precheck_failed_response(
+            '本次售后导入',
+            file_summaries,
+            invalid_files,
+            failed_files,
+        )
 
     if success_count == 0:
         message_parts: list[str] = ['售后文件已接收，但读取失败']
@@ -1913,8 +1900,6 @@ def read_after_sales_excel_files(files: list[FileStorage]) -> dict[str, Any]:
     try:
         table_created, table_message = _ensure_after_sales_table_exists()
         written_rows, write_message = _write_after_sales_to_db(prepared_dataframes)
-        if written_rows > 0:
-            _update_data_status('aftersales')
     except Exception as exc:
         db_path = _get_database_path()
         return {
@@ -1926,11 +1911,14 @@ def read_after_sales_excel_files(files: list[FileStorage]) -> dict[str, Any]:
             'failed_files': failed_files,
         }
 
+    status_warning = _try_update_data_status('aftersales') if written_rows > 0 else ''
     message = f'成功读取 {success_count} 个售后文件'
     if table_message:
         message += f'\n{table_message}'
     if write_message:
         message += f'\n{write_message}'
+    if status_warning:
+        message += f'\n{status_warning}'
 
     return {
         'success': True,

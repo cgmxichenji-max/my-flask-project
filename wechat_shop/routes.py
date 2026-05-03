@@ -172,6 +172,18 @@ def _attach_status_rows(result: dict) -> dict:
     return result
 
 
+def _attach_status_rows_safely(result: dict) -> dict:
+    try:
+        return _attach_status_rows(result)
+    except Exception as exc:
+        result['status_rows_error'] = str(exc)
+        result['message'] = (
+            f"{result.get('message', '')}\n"
+            f"提示：导入已完成，但刷新页面数据状态失败，请刷新页面确认。错误：{exc}"
+        ).strip()
+        return result
+
+
 @wechat_shop_bp.route('/', strict_slashes=False)
 @module_required('wechat_shop')
 def index():
@@ -233,7 +245,7 @@ def import_orders():
     if not result.get('success'):
         return jsonify(result), 400
 
-    result = _attach_status_rows(result)
+    result = _attach_status_rows_safely(result)
     return jsonify(result)
 
 
@@ -274,7 +286,7 @@ def import_fund_flow():
     if not result.get('success'):
         return jsonify(result), 400
 
-    result = _attach_status_rows(result)
+    result = _attach_status_rows_safely(result)
     return jsonify(result)
 
 
@@ -315,7 +327,7 @@ def import_after_sales():
     if not result.get('success'):
         return jsonify(result), 400
 
-    result = _attach_status_rows(result)
+    result = _attach_status_rows_safely(result)
     return jsonify(result)
 
 

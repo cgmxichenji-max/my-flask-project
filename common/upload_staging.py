@@ -74,11 +74,15 @@ def _safe_import_key(import_key: str) -> str:
 
 
 def _write_event(event: dict) -> None:
-    log_path = _log_path()
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {'time': _now_text(), **event}
-    with open(log_path, 'a', encoding='utf-8') as log_file:
-        log_file.write(json.dumps(payload, ensure_ascii=False) + '\n')
+    try:
+        log_path = _log_path()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {'time': _now_text(), **event}
+        with open(log_path, 'a', encoding='utf-8') as log_file:
+            log_file.write(json.dumps(payload, ensure_ascii=False) + '\n')
+    except OSError:
+        # Upload logging is diagnostic only; it must not change import outcome.
+        return
 
 
 def cleanup_stale_upload_batches(max_age_hours: int = DEFAULT_STALE_HOURS) -> int:

@@ -863,18 +863,29 @@
         try {
             const response = await fetch('/wechat_shop/export_data', {
                 method: 'POST',
-                body: formData
+                body: formData,
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
+                const errorData = await parseJsonResponse(response);
                 showImportMessage(exportResult, errorData.message || '导出失败', false);
                 return;
             }
 
+            const responseType = response.headers.get('Content-Type') || '';
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const isExcelResponse = responseType.includes('spreadsheetml.sheet')
+                || disposition.toLowerCase().includes('attachment');
+            if (!isExcelResponse) {
+                await parseJsonResponse(response);
+            }
+
             const blob = await response.blob();
             const downloadUrl = window.URL.createObjectURL(blob);
-            const disposition = response.headers.get('Content-Disposition') || '';
             let fileName = '导出数据.xlsx';
             const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
             const normalMatch = disposition.match(/filename="?([^";]+)"?/i);

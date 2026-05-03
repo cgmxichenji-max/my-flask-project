@@ -20,6 +20,7 @@ from invoicing.routes import invoicing_bp     # 发票核对模块
 app = Flask(__name__)
 # ===== 数据库统一配置 =====
 app.config['DATABASE_PATH'] = 'data/main.db'
+app.config['MAX_CONTENT_LENGTH'] = 512 * 1024 * 1024
 
 
 def get_secret_key():

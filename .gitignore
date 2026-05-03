@@ -22,6 +22,12 @@ env.bak/
 .cursorignore
 .cursorindexingignore
 .ruff_cache/
+.obsidian/
+
+# -----------------
+# Local sensitive runbooks
+# -----------------
+NEWYORK_SERVER_RUNBOOK.md
 
 # -----------------
 # Excel temporary/cache files
