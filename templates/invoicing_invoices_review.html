@@ -97,8 +97,8 @@ textarea{min-height:60px;resize:vertical;}
 <select name="customer_id" id="customer-select">
 <option value="">— 暂不匹配 —</option>
 {% for c in customers %}
-<option value="{{ c.id }}" data-platform="{{ c.platform }}" {% if parsed.suggested_customer_id == c.id %}selected{% endif %}>
-{{ c.short_name }} ｜ {{ c.platform or '未设平台' }} ｜ {{ c.period or '未设期间' }} ｜ 应开 {{ '%.2f'|format(c.expected_total or 0) }} ｜ 匹配后 {{ '%.2f'|format((c.expected_total or 0) - (parsed.amount or 0)) }}{% if c.alias_list %} ｜ 别名：{{ c.alias_list }}{% endif %}
+<option value="{{ c.expected_amount_id }}" data-platform="{{ c.platform }}" {% if parsed.suggested_expected_amount_id == c.expected_amount_id %}selected{% endif %}>
+{{ c.short_name }} ｜ {{ c.platform or '未设平台' }} ｜ {{ c.period or '未设期间' }} ｜ 应开 {{ '%.2f'|format(c.expected_total or 0) }} ｜ 已开 {{ '%.2f'|format(c.invoiced_total or 0) }} ｜ 匹配后 {{ '%.2f'|format(c.remaining_total or 0) }}{% if c.alias_list %} ｜ 别名：{{ c.alias_list }}{% endif %}
 </option>
 {% endfor %}
 </select>
@@ -108,8 +108,8 @@ textarea{min-height:60px;resize:vertical;}
 <select name="alias_name" id="alias-select">
 <option value="">— 暂不匹配 —</option>
 {% for a in aliases %}
-<option value="{{ a.customer_id }}::{{ a.alias }}" data-platform="{{ a.platform }}">
-{{ a.alias }} ｜ {{ a.short_name }} ｜ {{ a.platform or '未设平台' }} ｜ {{ a.period or '未设期间' }} ｜ 应开 {{ '%.2f'|format(a.expected_total or 0) }} ｜ 匹配后 {{ '%.2f'|format((a.expected_total or 0) - (parsed.amount or 0)) }}
+<option value="{{ a.expected_amount_id }}::{{ a.alias }}" data-platform="{{ a.platform }}">
+{{ a.alias }} ｜ {{ a.short_name }} ｜ {{ a.platform or '未设平台' }} ｜ {{ a.period or '未设期间' }} ｜ 应开 {{ '%.2f'|format(a.expected_total or 0) }} ｜ 已开 {{ '%.2f'|format(a.invoiced_total or 0) }} ｜ 匹配后 {{ '%.2f'|format(a.remaining_total or 0) }}
 </option>
 {% endfor %}
 </select>

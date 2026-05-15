@@ -926,3 +926,24 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：微信小店原始数据 Excel 导出失败提示；正常登录态下 Excel 下载不受影响。
 - 是否涉及数据库：否
 - 是否需要回滚：是
+## [2026-05-15 21:15] 修改记录
+- 修改内容：发票匹配关系升级为中间表 `invoice_expected_match`，字段为 `invoice_id`、`expected_amount_id`、`matched_amount`、`created_at`；历史 227 张已匹配发票已回填中间表，1 张未匹配发票保持空匹配；发票复核入库、发票列表单张匹配页、列表“设为可用”快捷操作均改为写入中间表；发票列表与批量下载命名优先从中间表关联的 `expected_amount.platform/period` 读取账期；应开 vs 已开核对页的已开归属平台优先使用中间表匹配账单平台。
+- 修改文件：invoicing/routes.py；templates/invoicing_invoice_match.html；templates/invoicing_invoices_review.html；templates/invoicing_invoices.html；data/main.db；PROJECT_MEMORY.md
+- 修改原因：修复历史发票下载时按达人/团长动态推断最新账期，导致旧发票被命名成新账期的问题；保存确定的“发票 -> 应开账单”关系，避免新增账期影响历史发票。
+- 影响范围：发票复核、发票匹配、发票列表展示、批量下载 ZIP 命名、应开 vs 已开核对页已开归属平台；达人/团长昵称管理仍按 `expected_amount` 汇总，不依赖中间表。
+- 是否涉及数据库：是（已备份 `data/main_backup_before_invoice_expected_match_20260515_210147.db`）
+- 是否需要回滚：是
+## [2026-05-15 21:24] 修改记录
+- 修改内容：复核发票 `26372000001596608446`，确认其通过 `invoice_expected_match` 绑定 `expected_amount_id=76`、对应 `香娜露儿 / 25年34季度`，但发票本身确认为不可用；已将误设的 `is_usable=1` 回滚为 `is_usable=0`。
+- 修改文件：data/main.db；PROJECT_MEMORY.md
+- 修改原因：人工复核后确认该发票不应计入已开金额，核对页显示 1949 已开为 0 属于当前可用口径下的正确结果。
+- 影响范围：仅该发票是否计入应开 vs 已开核对与相关汇总；不影响中间表匹配关系。
+- 是否涉及数据库：是
+- 是否需要回滚：否
+## [2026-05-15 21:34] 修改记录
+- 修改内容：发票复核页与单张发票匹配页的候选下拉新增“已开”金额展示，已开按当前候选账期对应的 `invoice_expected_match` 已匹配金额汇总；“匹配后”改为 `应开 - 已开 - 当前发票金额`；候选排序改为按 `abs(匹配后)` 从小到大，匹配后为 0 的候选优先显示。修改已有发票时，候选已开金额会排除当前发票自身，避免重复扣减。
+- 修改文件：invoicing/routes.py；templates/invoicing_invoice_match.html；templates/invoicing_invoices_review.html；PROJECT_MEMORY.md
+- 修改原因：匹配时需要直接看到该账期已经被发票占用的金额，并优先展示最接近完全匹配的候选。
+- 影响范围：仅发票复核/匹配候选展示与排序；不改变已保存的发票匹配关系、核对页汇总口径和达人/团长昵称管理汇总。
+- 是否涉及数据库：否
+- 是否需要回滚：否

@@ -174,6 +174,81 @@ def _parse_alias_match_value(raw_value):
     return customer_id, alias_name
 
 
+def _parse_expected_alias_match_value(raw_value):
+    value = (raw_value or '').strip()
+    if not value:
+        return None, None
+    if '::' not in value:
+        return None, value
+    expected_amount_id_text, alias_name = value.split('::', 1)
+    alias_name = alias_name.strip() or None
+    try:
+        expected_amount_id = int(expected_amount_id_text)
+    except ValueError:
+        expected_amount_id = None
+    return expected_amount_id, alias_name
+
+
+def _ensure_invoice_expected_match_table(conn):
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS invoice_expected_match (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL,
+            expected_amount_id INTEGER NOT NULL,
+            matched_amount REAL NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (invoice_id) REFERENCES invoice(id),
+            FOREIGN KEY (expected_amount_id) REFERENCES expected_amount(id),
+            UNIQUE (invoice_id, expected_amount_id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_invoice_expected_match_invoice_id
+        ON invoice_expected_match(invoice_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_invoice_expected_match_expected_amount_id
+        ON invoice_expected_match(expected_amount_id)
+        """
+    )
+
+
+def _expected_amount_row(conn, expected_amount_id):
+    if not expected_amount_id:
+        return None
+    return conn.execute(
+        """
+        SELECT id, customer_id, platform, period
+        FROM expected_amount
+        WHERE id = ?
+        """,
+        (expected_amount_id,),
+    ).fetchone()
+
+
+def _replace_invoice_expected_match(conn, invoice_id, expected_amount_id, matched_amount):
+    _ensure_invoice_expected_match_table(conn)
+    conn.execute(
+        "DELETE FROM invoice_expected_match WHERE invoice_id = ?",
+        (invoice_id,),
+    )
+    if expected_amount_id:
+        conn.execute(
+            """
+            INSERT INTO invoice_expected_match (
+                invoice_id, expected_amount_id, matched_amount
+            )
+            VALUES (?, ?, ?)
+            """,
+            (invoice_id, expected_amount_id, matched_amount or 0),
+        )
+
+
 invoicing_bp = Blueprint('invoicing', __name__, template_folder='../templates')
 
 
@@ -842,6 +917,7 @@ def invoices_list():
     download_ok = (request.args.get('download_ok') or '').strip()
     download_error = (request.args.get('download_error') or '').strip()
     with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
         sql = """
             SELECT i.id, i.invoice_number, i.invoice_date, i.amount,
                    i.invoice_type, i.tax_rate,
@@ -849,41 +925,24 @@ def invoices_list():
                    i.alias_name,
                    i.pdf_remark, i.is_usable, i.customer_id, i.entity_id,
                    i.pdf_file_path, i.qr_content, i.created_at,
+                   m.expected_amount_id AS matched_expected_amount_id,
                    c.short_name AS customer_short_name,
                    c.platform AS customer_platform,
                    COALESCE(
+                       NULLIF(me.period, ''),
                        NULLIF(i.period, ''),
-                       (
-                           SELECT ea.period
-                           FROM expected_amount ea
-                           WHERE ea.customer_id = i.customer_id
-                             AND COALESCE(ea.period, '') <> ''
-                           ORDER BY
-                               COALESCE(ea.period_end, '') DESC,
-                               COALESCE(ea.period_start, '') DESC,
-                               ea.id DESC
-                           LIMIT 1
-                       ),
                        ''
                    ) AS matched_period,
                    COALESCE(
+                       NULLIF(me.platform, ''),
                        NULLIF(i.platform, ''),
                        NULLIF(c.platform, ''),
-                       (
-                           SELECT ea.platform
-                           FROM expected_amount ea
-                           WHERE ea.customer_id = i.customer_id
-                             AND COALESCE(ea.platform, '') <> ''
-                           ORDER BY
-                               COALESCE(ea.period_end, '') DESC,
-                               COALESCE(ea.period_start, '') DESC,
-                               ea.id DESC
-                           LIMIT 1
-                       ),
                        ''
                    ) AS matched_platform
               FROM invoice i
               LEFT JOIN customer c ON c.id = i.customer_id
+              LEFT JOIN invoice_expected_match m ON m.invoice_id = i.id
+              LEFT JOIN expected_amount me ON me.id = m.expected_amount_id
         """
         where_parts = []
         params = []
@@ -921,6 +980,7 @@ def invoices_download_selected():
 
     placeholders = ','.join('?' for _ in selected_ids)
     with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
         rows = conn.execute(
             f"""
             SELECT i.id, i.invoice_number, i.amount, i.invoice_type, i.tax_rate,
@@ -929,38 +989,20 @@ def invoices_download_selected():
                    c.short_name AS customer_short_name,
                    c.platform AS customer_platform,
                    COALESCE(
+                       NULLIF(me.period, ''),
                        NULLIF(i.period, ''),
-                       (
-                           SELECT ea.period
-                           FROM expected_amount ea
-                           WHERE ea.customer_id = i.customer_id
-                             AND COALESCE(ea.period, '') <> ''
-                           ORDER BY
-                               COALESCE(ea.period_end, '') DESC,
-                               COALESCE(ea.period_start, '') DESC,
-                               ea.id DESC
-                           LIMIT 1
-                       ),
                        ''
                    ) AS matched_period,
                    COALESCE(
+                       NULLIF(me.platform, ''),
                        NULLIF(i.platform, ''),
                        NULLIF(c.platform, ''),
-                       (
-                           SELECT ea.platform
-                           FROM expected_amount ea
-                           WHERE ea.customer_id = i.customer_id
-                             AND COALESCE(ea.platform, '') <> ''
-                           ORDER BY
-                               COALESCE(ea.period_end, '') DESC,
-                               COALESCE(ea.period_start, '') DESC,
-                               ea.id DESC
-                           LIMIT 1
-                       ),
                        ''
                    ) AS matched_platform
             FROM invoice i
             LEFT JOIN customer c ON c.id = i.customer_id
+            LEFT JOIN invoice_expected_match m ON m.invoice_id = i.id
+            LEFT JOIN expected_amount me ON me.id = m.expected_amount_id
             WHERE i.id IN ({placeholders})
             ORDER BY i.id DESC
             """,
@@ -1062,28 +1104,36 @@ def invoices_review(pending_id):
         parsed = json.load(f)
     current_amount = parsed.get('amount') or 0
     with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
         customers = conn.execute(
             """
             SELECT
+                MIN(e.id) AS expected_amount_id,
                 c.id,
                 c.short_name,
                 COALESCE(e.platform, c.platform) AS platform,
                 COALESCE(e.period, '') AS period,
                 COALESCE(SUM(e.amount), 0) AS expected_total,
                 COALESCE((
-                    SELECT SUM(i.amount)
-                    FROM invoice i
-                    WHERE i.is_usable = 1
-                      AND i.customer_id = c.id
-                      AND (i.alias_name IS NULL OR i.alias_name = '')
+                    SELECT SUM(m.matched_amount)
+                    FROM invoice_expected_match m
+                    JOIN invoice mi ON mi.id = m.invoice_id
+                    JOIN expected_amount me ON me.id = m.expected_amount_id
+                    WHERE mi.is_usable = 1
+                      AND me.customer_id = c.id
+                      AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                      AND COALESCE(me.period, '') = COALESCE(e.period, '')
                 ), 0) AS invoiced_total,
                 COALESCE(SUM(e.amount), 0) - COALESCE((
-                    SELECT SUM(i.amount)
-                    FROM invoice i
-                    WHERE i.is_usable = 1
-                      AND i.customer_id = c.id
-                      AND (i.alias_name IS NULL OR i.alias_name = '')
-                ), 0) AS remaining_total,
+                    SELECT SUM(m.matched_amount)
+                    FROM invoice_expected_match m
+                    JOIN invoice mi ON mi.id = m.invoice_id
+                    JOIN expected_amount me ON me.id = m.expected_amount_id
+                    WHERE mi.is_usable = 1
+                      AND me.customer_id = c.id
+                      AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                      AND COALESCE(me.period, '') = COALESCE(e.period, '')
+                ), 0) - ? AS remaining_total,
                 COALESCE(a.alias_list, '') AS alias_list
             FROM customer c
             JOIN expected_amount e ON e.customer_id = c.id AND e.amount <> 0
@@ -1098,13 +1148,24 @@ def invoices_review(pending_id):
             ) a ON a.customer_id = c.id
             GROUP BY c.id, COALESCE(e.platform, c.platform), COALESCE(e.period, '')
             ORDER BY
+                ABS(
+                    COALESCE(SUM(e.amount), 0) - COALESCE((
+                        SELECT SUM(m.matched_amount)
+                        FROM invoice_expected_match m
+                        JOIN invoice mi ON mi.id = m.invoice_id
+                        JOIN expected_amount me ON me.id = m.expected_amount_id
+                        WHERE mi.is_usable = 1
+                          AND me.customer_id = c.id
+                          AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                          AND COALESCE(me.period, '') = COALESCE(e.period, '')
+                    ), 0) - ?
+                ) ASC,
                 COALESCE(e.platform, c.platform),
                 CASE WHEN COALESCE(a.alias_list, '') <> '' THEN 0 ELSE 1 END,
-                (COALESCE(SUM(e.amount), 0) - ?) ASC,
                 COALESCE(e.period, '') DESC,
                 c.short_name
             """,
-            (current_amount,),
+            (current_amount, current_amount),
         ).fetchall()
         entities = conn.execute(
             "SELECT id, name FROM billing_entity ORDER BY name"
@@ -1112,6 +1173,7 @@ def invoices_review(pending_id):
         aliases = conn.execute(
             """
             SELECT
+                MIN(e.id) AS expected_amount_id,
                 ca.alias,
                 c.id AS customer_id,
                 c.short_name,
@@ -1119,33 +1181,93 @@ def invoices_review(pending_id):
                 COALESCE(e.period, '') AS period,
                 COALESCE(SUM(e.amount), 0) AS expected_total,
                 COALESCE((
-                    SELECT SUM(i.amount)
-                    FROM invoice i
-                    WHERE i.is_usable = 1
-                      AND i.alias_name = ca.alias
-                      AND i.customer_id = c.id
+                    SELECT SUM(m.matched_amount)
+                    FROM invoice_expected_match m
+                    JOIN invoice mi ON mi.id = m.invoice_id
+                    JOIN expected_amount me ON me.id = m.expected_amount_id
+                    WHERE mi.is_usable = 1
+                      AND mi.alias_name = ca.alias
+                      AND me.customer_id = c.id
+                      AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                      AND COALESCE(me.period, '') = COALESCE(e.period, '')
                 ), 0) AS invoiced_total,
                 COALESCE(SUM(e.amount), 0) - COALESCE((
-                    SELECT SUM(i.amount)
-                    FROM invoice i
-                    WHERE i.is_usable = 1
-                      AND i.alias_name = ca.alias
-                      AND i.customer_id = c.id
-                ), 0) AS remaining_total,
+                    SELECT SUM(m.matched_amount)
+                    FROM invoice_expected_match m
+                    JOIN invoice mi ON mi.id = m.invoice_id
+                    JOIN expected_amount me ON me.id = m.expected_amount_id
+                    WHERE mi.is_usable = 1
+                      AND mi.alias_name = ca.alias
+                      AND me.customer_id = c.id
+                      AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                      AND COALESCE(me.period, '') = COALESCE(e.period, '')
+                ), 0) - ? AS remaining_total,
                 COUNT(*) AS expected_count
             FROM customer_alias ca
             JOIN customer c ON c.id = ca.customer_id
             JOIN expected_amount e ON e.customer_id = c.id AND e.amount <> 0
             GROUP BY ca.alias, c.id, c.short_name, COALESCE(e.platform, c.platform), COALESCE(e.period, '')
             ORDER BY
+                ABS(
+                    COALESCE(SUM(e.amount), 0) - COALESCE((
+                        SELECT SUM(m.matched_amount)
+                        FROM invoice_expected_match m
+                        JOIN invoice mi ON mi.id = m.invoice_id
+                        JOIN expected_amount me ON me.id = m.expected_amount_id
+                        WHERE mi.is_usable = 1
+                          AND mi.alias_name = ca.alias
+                          AND me.customer_id = c.id
+                          AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                          AND COALESCE(me.period, '') = COALESCE(e.period, '')
+                    ), 0) - ?
+                ) ASC,
                 COALESCE(e.platform, c.platform),
-                (COALESCE(SUM(e.amount), 0) - ?) ASC,
                 COALESCE(e.period, '') DESC,
                 c.short_name,
                 ca.alias
             """,
-            (current_amount,),
+            (current_amount, current_amount),
         ).fetchall()
+        if parsed.get('suggested_customer_id') and not parsed.get('suggested_expected_amount_id'):
+            suggested_match = conn.execute(
+                """
+                WITH eg AS (
+                    SELECT
+                        MIN(id) AS expected_amount_id,
+                        customer_id,
+                        COALESCE(platform, '') AS platform,
+                        COALESCE(period, '') AS period,
+                        SUM(amount) AS expected_total
+                    FROM expected_amount
+                    WHERE customer_id = ?
+                      AND amount <> 0
+                    GROUP BY customer_id, COALESCE(platform, ''), COALESCE(period, '')
+                )
+                SELECT expected_amount_id
+                FROM eg
+                ORDER BY
+                    ABS(
+                        expected_total - COALESCE((
+                            SELECT SUM(m.matched_amount)
+                            FROM invoice_expected_match m
+                            JOIN invoice mi ON mi.id = m.invoice_id
+                            JOIN expected_amount me ON me.id = m.expected_amount_id
+                            WHERE mi.is_usable = 1
+                              AND me.customer_id = eg.customer_id
+                              AND COALESCE(me.platform, '') = eg.platform
+                              AND COALESCE(me.period, '') = eg.period
+                        ), 0) - ?
+                    ) ASC,
+                    expected_amount_id DESC
+                LIMIT 1
+                """,
+                (
+                    parsed.get('suggested_customer_id'),
+                    current_amount,
+                ),
+            ).fetchone()
+            if suggested_match:
+                parsed['suggested_expected_amount_id'] = suggested_match['expected_amount_id']
     return render_template(
         'invoicing_invoices_review.html',
         pending_id=pending_id,
@@ -1176,7 +1298,7 @@ def invoices_review_confirm(pending_id):
     pdf_remark = (request.form.get('pdf_remark') or '').strip() or None
     qr_content = (request.form.get('qr_content') or '').strip() or None
     customer_id_raw = (request.form.get('customer_id') or '').strip()
-    alias_customer_id, alias_name = _parse_alias_match_value(request.form.get('alias_name'))
+    alias_expected_amount_id, alias_name = _parse_expected_alias_match_value(request.form.get('alias_name'))
     entity_id_raw = (request.form.get('entity_id') or '').strip()
     is_usable = 1 if (request.form.get('is_usable') == '1') else 0
 
@@ -1185,17 +1307,20 @@ def invoices_review_confirm(pending_id):
     except ValueError:
         amount = None
 
-    customer_id = int(customer_id_raw) if customer_id_raw else None
+    expected_amount_id = int(customer_id_raw) if customer_id_raw else None
     if alias_name:
-        customer_id = alias_customer_id
+        expected_amount_id = alias_expected_amount_id
     entity_id = int(entity_id_raw) if entity_id_raw else None
 
     if not invoice_number:
         return redirect(url_for('invoicing.invoices_review', pending_id=pending_id))
 
     with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
         if conn.execute("SELECT id FROM invoice WHERE invoice_number = ?", (invoice_number,)).fetchone():
             return redirect(url_for('invoicing.invoices_review', pending_id=pending_id) + '?duplicate=1')
+        expected_row = _expected_amount_row(conn, expected_amount_id)
+        customer_id = expected_row['customer_id'] if expected_row else None
 
         if entity_id:
             er = conn.execute("SELECT name FROM billing_entity WHERE id = ?", (entity_id,)).fetchone()
@@ -1219,7 +1344,7 @@ def invoices_review_confirm(pending_id):
 
         relative_path = str(final_path.relative_to(Path(BASE_DIR)))
 
-        conn.execute("""
+        cursor = conn.execute("""
             INSERT INTO invoice (
                 invoice_number, invoice_date, customer_id, entity_id,
                 alias_name,
@@ -1234,6 +1359,12 @@ def invoices_review_confirm(pending_id):
             relative_path, qr_content,
             project_name, pdf_remark, is_usable,
         ))
+        _replace_invoice_expected_match(
+            conn,
+            cursor.lastrowid,
+            expected_amount_id,
+            amount or 0,
+        )
         conn.commit()
 
     return redirect(url_for('invoicing.invoices_list'))
@@ -1276,14 +1407,17 @@ def invoice_pdf_pending(pending_id):
 def invoice_match(invoice_id):
     if request.method == 'GET':
         with get_db_connection() as conn:
+            _ensure_invoice_expected_match_table(conn)
             invoice = conn.execute(
                 """
                 SELECT i.id, i.invoice_number, i.invoice_date, i.amount,
                        i.invoice_type, i.tax_rate, i.seller_name, i.buyer_name,
                        i.project_name, i.customer_id, i.alias_name, i.is_usable,
-                       c.short_name AS customer_short_name
+                       c.short_name AS customer_short_name,
+                       m.expected_amount_id AS matched_expected_amount_id
                 FROM invoice i
                 LEFT JOIN customer c ON c.id = i.customer_id
+                LEFT JOIN invoice_expected_match m ON m.invoice_id = i.id
                 WHERE i.id = ?
                 """,
                 (invoice_id,),
@@ -1294,25 +1428,34 @@ def invoice_match(invoice_id):
             customers = conn.execute(
                 """
                 SELECT
+                    MIN(e.id) AS expected_amount_id,
                     c.id,
                     c.short_name,
                     COALESCE(e.platform, c.platform) AS platform,
                     COALESCE(e.period, '') AS period,
                     COALESCE(SUM(e.amount), 0) AS expected_total,
                     COALESCE((
-                        SELECT SUM(i.amount)
-                        FROM invoice i
-                        WHERE i.is_usable = 1
-                          AND i.customer_id = c.id
-                          AND (i.alias_name IS NULL OR i.alias_name = '')
+                        SELECT SUM(m.matched_amount)
+                        FROM invoice_expected_match m
+                        JOIN invoice mi ON mi.id = m.invoice_id
+                        JOIN expected_amount me ON me.id = m.expected_amount_id
+                        WHERE mi.is_usable = 1
+                          AND mi.id <> ?
+                          AND me.customer_id = c.id
+                          AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                          AND COALESCE(me.period, '') = COALESCE(e.period, '')
                     ), 0) AS invoiced_total,
                     COALESCE(SUM(e.amount), 0) - COALESCE((
-                        SELECT SUM(i.amount)
-                        FROM invoice i
-                        WHERE i.is_usable = 1
-                          AND i.customer_id = c.id
-                          AND (i.alias_name IS NULL OR i.alias_name = '')
-                    ), 0) AS remaining_total,
+                        SELECT SUM(m.matched_amount)
+                        FROM invoice_expected_match m
+                        JOIN invoice mi ON mi.id = m.invoice_id
+                        JOIN expected_amount me ON me.id = m.expected_amount_id
+                        WHERE mi.is_usable = 1
+                          AND mi.id <> ?
+                          AND me.customer_id = c.id
+                          AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                          AND COALESCE(me.period, '') = COALESCE(e.period, '')
+                    ), 0) - ? AS remaining_total,
                     COALESCE(a.alias_list, '') AS alias_list
                 FROM customer c
                 JOIN expected_amount e ON e.customer_id = c.id AND e.amount <> 0
@@ -1327,17 +1470,30 @@ def invoice_match(invoice_id):
                 ) a ON a.customer_id = c.id
                 GROUP BY c.id, COALESCE(e.platform, c.platform), COALESCE(e.period, '')
                 ORDER BY
+                    ABS(
+                        COALESCE(SUM(e.amount), 0) - COALESCE((
+                            SELECT SUM(m.matched_amount)
+                            FROM invoice_expected_match m
+                            JOIN invoice mi ON mi.id = m.invoice_id
+                            JOIN expected_amount me ON me.id = m.expected_amount_id
+                            WHERE mi.is_usable = 1
+                              AND mi.id <> ?
+                              AND me.customer_id = c.id
+                              AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                              AND COALESCE(me.period, '') = COALESCE(e.period, '')
+                        ), 0) - ?
+                    ) ASC,
                     COALESCE(e.platform, c.platform),
                     CASE WHEN COALESCE(a.alias_list, '') <> '' THEN 0 ELSE 1 END,
-                    (COALESCE(SUM(e.amount), 0) - ?) ASC,
                     COALESCE(e.period, '') DESC,
                     c.short_name
                 """,
-                (current_amount,),
+                (invoice_id, invoice_id, current_amount, invoice_id, current_amount),
             ).fetchall()
             aliases = conn.execute(
                 """
                 SELECT
+                    MIN(e.id) AS expected_amount_id,
                     ca.alias,
                     c.id AS customer_id,
                     c.short_name,
@@ -1345,31 +1501,54 @@ def invoice_match(invoice_id):
                     COALESCE(e.period, '') AS period,
                     COALESCE(SUM(e.amount), 0) AS expected_total,
                     COALESCE((
-                        SELECT SUM(i.amount)
-                        FROM invoice i
-                        WHERE i.is_usable = 1
-                          AND i.alias_name = ca.alias
-                          AND i.customer_id = c.id
+                        SELECT SUM(m.matched_amount)
+                        FROM invoice_expected_match m
+                        JOIN invoice mi ON mi.id = m.invoice_id
+                        JOIN expected_amount me ON me.id = m.expected_amount_id
+                        WHERE mi.is_usable = 1
+                          AND mi.id <> ?
+                          AND mi.alias_name = ca.alias
+                          AND me.customer_id = c.id
+                          AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                          AND COALESCE(me.period, '') = COALESCE(e.period, '')
                     ), 0) AS invoiced_total,
                     COALESCE(SUM(e.amount), 0) - COALESCE((
-                        SELECT SUM(i.amount)
-                        FROM invoice i
-                        WHERE i.is_usable = 1
-                          AND i.alias_name = ca.alias
-                          AND i.customer_id = c.id
-                    ), 0) AS remaining_total
+                        SELECT SUM(m.matched_amount)
+                        FROM invoice_expected_match m
+                        JOIN invoice mi ON mi.id = m.invoice_id
+                        JOIN expected_amount me ON me.id = m.expected_amount_id
+                        WHERE mi.is_usable = 1
+                          AND mi.id <> ?
+                          AND mi.alias_name = ca.alias
+                          AND me.customer_id = c.id
+                          AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                          AND COALESCE(me.period, '') = COALESCE(e.period, '')
+                    ), 0) - ? AS remaining_total
                 FROM customer_alias ca
                 JOIN customer c ON c.id = ca.customer_id
                 JOIN expected_amount e ON e.customer_id = c.id AND e.amount <> 0
                 GROUP BY ca.alias, c.id, c.short_name, COALESCE(e.platform, c.platform), COALESCE(e.period, '')
                 ORDER BY
+                    ABS(
+                        COALESCE(SUM(e.amount), 0) - COALESCE((
+                            SELECT SUM(m.matched_amount)
+                            FROM invoice_expected_match m
+                            JOIN invoice mi ON mi.id = m.invoice_id
+                            JOIN expected_amount me ON me.id = m.expected_amount_id
+                            WHERE mi.is_usable = 1
+                              AND mi.id <> ?
+                              AND mi.alias_name = ca.alias
+                              AND me.customer_id = c.id
+                              AND COALESCE(me.platform, c.platform) = COALESCE(e.platform, c.platform)
+                              AND COALESCE(me.period, '') = COALESCE(e.period, '')
+                        ), 0) - ?
+                    ) ASC,
                     COALESCE(e.platform, c.platform),
-                    (COALESCE(SUM(e.amount), 0) - ?) ASC,
                     COALESCE(e.period, '') DESC,
                     c.short_name,
                     ca.alias
                 """,
-                (current_amount,),
+                (invoice_id, invoice_id, current_amount, invoice_id, current_amount),
             ).fetchall()
             entities = conn.execute(
                 "SELECT id, name FROM billing_entity ORDER BY name"
@@ -1383,13 +1562,21 @@ def invoice_match(invoice_id):
         )
 
     customer_id_raw = (request.form.get('customer_id') or '').strip()
-    customer_id = int(customer_id_raw) if customer_id_raw else None
-    alias_customer_id, alias_name = _parse_alias_match_value(request.form.get('alias_name'))
+    expected_amount_id = int(customer_id_raw) if customer_id_raw else None
+    alias_expected_amount_id, alias_name = _parse_expected_alias_match_value(request.form.get('alias_name'))
     if alias_name:
-        customer_id = alias_customer_id
+        expected_amount_id = alias_expected_amount_id
     is_usable_raw = request.form.get('is_usable')
     next_url = (request.form.get('next') or '').strip()
     with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
+        expected_row = _expected_amount_row(conn, expected_amount_id)
+        customer_id = expected_row['customer_id'] if expected_row else None
+        invoice_amount_row = conn.execute(
+            "SELECT amount FROM invoice WHERE id = ?",
+            (invoice_id,),
+        ).fetchone()
+        matched_amount = (invoice_amount_row['amount'] if invoice_amount_row else 0) or 0
         if is_usable_raw is not None:
             is_usable = 1 if is_usable_raw == '1' else 0
             conn.execute(
@@ -1401,6 +1588,12 @@ def invoice_match(invoice_id):
                 "UPDATE invoice SET customer_id = ?, alias_name = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
                 (customer_id, alias_name, invoice_id),
             )
+        _replace_invoice_expected_match(
+            conn,
+            invoice_id,
+            expected_amount_id,
+            matched_amount,
+        )
         conn.commit()
     return redirect(next_url or url_for('invoicing.invoices_list'))
 
@@ -1929,6 +2122,7 @@ def reconciliation():
         SELECT i.id,
                i.invoice_number,
                i.amount,
+               me.platform AS matched_platform,
                i.platform AS invoice_platform,
                i.buyer_name,
                i.customer_id,
@@ -1938,6 +2132,8 @@ def reconciliation():
         FROM invoice i
         LEFT JOIN customer c ON c.id = i.customer_id
         LEFT JOIN customer_alias_one ca ON ca.customer_id = c.id
+        LEFT JOIN invoice_expected_match m ON m.invoice_id = i.id
+        LEFT JOIN expected_amount me ON me.id = m.expected_amount_id
         WHERE {invoice_where}
     """
 
@@ -2103,7 +2299,8 @@ def reconciliation():
         amount = r['amount'] or 0
         alias_name = r['alias_name'] or ''
         source_platform = (
-            (r['invoice_platform'] or '').strip()
+            (r['matched_platform'] or '').strip()
+            or (r['invoice_platform'] or '').strip()
             or (r['customer_platform'] or '').strip()
             or alias_platform_map.get(alias_name)
         )

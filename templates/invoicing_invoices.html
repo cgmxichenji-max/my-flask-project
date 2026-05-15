@@ -118,8 +118,8 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 {{ '是' if r.is_usable else '否' }}
 {% if not r.is_usable %}
 <form class="inline-form" method="post" action="{{ url_for('invoicing.invoice_match', invoice_id=r.id) }}">
-<input type="hidden" name="customer_id" value="{{ r.customer_id or '' }}">
-<input type="hidden" name="alias_name" value="{{ r.alias_name or '' }}">
+<input type="hidden" name="customer_id" value="{{ r.matched_expected_amount_id or '' }}">
+<input type="hidden" name="alias_name" value="{% if r.alias_name and r.matched_expected_amount_id %}{{ r.matched_expected_amount_id }}::{{ r.alias_name }}{% endif %}">
 <input type="hidden" name="is_usable" value="1">
 <input type="hidden" name="next" value="{{ request.full_path }}">
 <button type="submit" class="btn-mini btn-save">设为可用</button>
