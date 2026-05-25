@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>页头打印 — 包材管理系统</title>
+    <style>
+        *{box-sizing:border-box}
+        body{font-family:"Microsoft YaHei",Arial,sans-serif;margin:0;padding:0;
+             background:#f5f5f5;min-height:100vh;display:flex;flex-direction:column}
+        header{background:#4CAF50;color:white;padding:13px 22px;font-size:20px;font-weight:bold;
+               display:flex;align-items:center;gap:14px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+        header a{color:#c8e6c9;font-size:13px;text-decoration:none}
+        header a:hover{color:white}
+
+        .tab-bar{background:#fff;border-bottom:2px solid #e0e0e0;display:flex;padding:0 16px;
+                 overflow-x:auto;white-space:nowrap}
+        .tab-btn{padding:10px 18px;font-size:13px;font-weight:bold;border:none;background:none;
+                 cursor:pointer;color:#666;border-bottom:3px solid transparent;margin-bottom:-2px;flex-shrink:0}
+        .tab-btn.active{color:#2e7d32;border-bottom-color:#4CAF50}
+        .tab-btn:hover:not(.active){color:#333}
+
+        .tab-panel{display:none}
+        .tab-panel.active{display:block}
+        main{flex:1;padding:18px;max-width:1060px;margin:0 auto;width:100%}
+
+        .notice{padding:7px 12px;margin-bottom:10px;border-radius:5px;font-size:13px}
+        .notice.ok {background:#e8f5e9;color:#2e7d32}
+        .notice.err{background:#ffebee;color:#c62828}
+
+        /* ── 打印 tab ── */
+        .global-row{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);
+                    padding:11px 16px;display:flex;align-items:center;gap:16px;margin-bottom:12px}
+        .global-row label{font-size:14px;font-weight:bold;color:#333;white-space:nowrap}
+        .global-row input[type=number]{width:86px;padding:5px 7px;border:2px solid #4CAF50;
+                                       border-radius:6px;font-size:16px;font-weight:bold;
+                                       text-align:center;color:#2e7d32;font-family:inherit}
+        .global-row input:focus{outline:none;border-color:#2e7d32}
+        .global-hint{font-size:12px;color:#999}
+        .parse-box{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);
+                   padding:11px 16px;margin-bottom:12px}
+        .parse-head{display:flex;align-items:center;gap:10px;margin-bottom:7px;flex-wrap:wrap}
+        .parse-head label{font-size:13px;font-weight:bold;color:#333}
+        .parse-status{font-size:12px;color:#999}
+        .parse-box textarea{width:100%;min-height:86px;resize:vertical;padding:7px 9px;
+                            border:1px solid #ccc;border-radius:5px;font-size:13px;
+                            line-height:1.5;font-family:"Microsoft YaHei",Arial,sans-serif}
+        .parse-box textarea:focus{outline:none;border-color:#4CAF50}
+        .cookie-row{display:flex;gap:8px;margin-top:8px;align-items:flex-start}
+        .cookie-row textarea{min-height:38px;font-size:12px;color:#666}
+        .btn-cookie{padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;
+                    border-radius:6px;font-size:12px;font-weight:bold;cursor:pointer;white-space:nowrap}
+        .btn-cookie:hover{background:#eee}
+        .btn-parse{padding:6px 14px;background:#1976d2;color:white;border:none;border-radius:6px;
+                   font-size:13px;font-weight:bold;cursor:pointer}
+        .btn-parse:hover{background:#0d47a1}
+
+        .input-table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;
+                     overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+        .input-table th{background:#e8f5e9;padding:7px 6px;font-size:12px;font-weight:bold;
+                        color:#2e7d32;text-align:center;border-bottom:1px solid #c8e6c9}
+        .input-table td{padding:5px 4px;border-bottom:1px solid #f0f0f0;
+                        text-align:center;vertical-align:middle}
+        .input-table tr:last-child td{border-bottom:none}
+        .input-table input[type=text],.input-table input[type=number]{
+            width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;
+            font-size:13px;text-align:center;font-family:inherit}
+        .input-table input:focus{outline:none;border-color:#4CAF50}
+        .td-short{font-weight:bold;font-size:13px}
+        .td-boxes{font-size:11px;color:#555;line-height:1.6}
+        .boxes-exact{color:#1565c0;font-weight:bold}
+
+        .btn-del{background:none;border:none;color:#e53935;font-size:16px;
+                 cursor:pointer;padding:2px 5px;border-radius:3px}
+        .btn-del:hover{background:#ffebee}
+        .btn-add{margin-top:9px;padding:6px 14px;background:#e8f5e9;color:#2e7d32;
+                 border:1px dashed #4CAF50;border-radius:6px;font-size:13px;
+                 font-weight:bold;cursor:pointer}
+        .btn-add:hover{background:#c8e6c9}
+
+        .summary-bar{margin-top:12px;background:#fff;border-radius:8px;padding:10px 16px;
+                     box-shadow:0 1px 4px rgba(0,0,0,.1);display:flex;gap:28px;
+                     align-items:center;flex-wrap:wrap}
+        .summary-item{font-size:13px;color:#333}
+        .summary-item span{font-weight:bold;color:#2e7d32;font-size:15px}
+        .btn-print{padding:7px 22px;background:#4CAF50;color:white;border:none;
+                   border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer;
+                   margin-left:auto;box-shadow:0 2px 6px rgba(76,175,80,.4)}
+        .btn-print:hover{background:#388e3c}
+
+        /* ── 辅助表通用 ── */
+        .mgmt-layout{display:flex;gap:16px;align-items:flex-start}
+        .mgmt-form{width:210px;flex-shrink:0;background:#fff;border-radius:8px;
+                   box-shadow:0 1px 4px rgba(0,0,0,.1);padding:13px 14px}
+        .mgmt-form h3{margin:0 0 9px;font-size:13px;color:#2e7d32}
+        .ff{margin-bottom:8px}
+        .ff label{display:block;font-size:11px;color:#666;margin-bottom:2px}
+        .ff input[type=text],.ff input[type=number],.ff select{
+            width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px;
+            font-size:13px;font-family:inherit;background:#fff}
+        .ff input:focus,.ff select:focus{outline:none;border-color:#4CAF50}
+        .ff-code input{font-weight:bold;color:#1a237e}
+        .ff-check{display:flex;align-items:center;gap:6px}
+        .ff-check input[type=checkbox]{width:auto;cursor:pointer}
+        .ff-check label{font-size:11px;color:#444;cursor:pointer;display:inline;margin:0}
+        .btn-submit{width:100%;padding:7px;background:#4CAF50;color:white;border:none;
+                    border-radius:4px;font-size:13px;font-weight:bold;cursor:pointer;margin-top:2px}
+        .btn-submit:hover{background:#388e3c}
+        .form-hint{font-size:10px;color:#aaa;margin-top:4px;text-align:center}
+        .btn-clear{width:100%;margin-top:4px;padding:4px;background:#f5f5f5;
+                   border:1px solid #ddd;border-radius:4px;font-size:11px;color:#777;cursor:pointer}
+        .btn-clear:hover{background:#eee}
+
+        .mgmt-table-wrap{flex:1;min-width:0}
+        .mgmt-table{width:100%;border-collapse:collapse;background:#fff;
+                    border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+        .mgmt-table th{background:#e8f5e9;padding:7px 8px;font-size:12px;font-weight:bold;
+                       color:#2e7d32;text-align:left;border-bottom:1px solid #c8e6c9}
+        .mgmt-table td{padding:6px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+        .mgmt-table tr:last-child td{border-bottom:none}
+        .mgmt-table tbody tr{cursor:pointer;transition:background .1s}
+        .mgmt-table tbody tr:hover td{background:#f1f8e9}
+        .mgmt-table tbody tr.selected td{background:#dcedc8}
+        .btn-del-sm{padding:2px 7px;font-size:11px;border:none;background:#ffebee;
+                    color:#c62828;border-radius:3px;cursor:pointer;font-weight:bold}
+        .btn-del-sm:hover{background:#ffcdd2}
+        .tag-irreg{display:inline-block;padding:1px 5px;background:#fff3e0;
+                   color:#e65100;border-radius:3px;font-size:10px;font-weight:bold}
+        .section-title{font-size:13px;font-weight:bold;color:#333;margin:0 0 8px}
+
+        /* ── 打印历史 ── */
+        .hist-table{width:100%;border-collapse:collapse;background:#fff;
+                    border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+        .hist-table th{background:#e8f5e9;padding:7px 10px;font-size:12px;font-weight:bold;
+                       color:#2e7d32;text-align:left;border-bottom:1px solid #c8e6c9}
+        .hist-table td{padding:6px 10px;font-size:12px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+        .hist-table tr:last-child td{border-bottom:none}
+        .items-summary{color:#555;font-size:11px;line-height:1.6}
+
+        footer{text-align:center;padding:10px;font-size:12px;color:#999;background:#f0f0f0}
+
+        /* ── 包装推荐 ── */
+        .rec-display{margin-top:8px;background:#fff;border-radius:8px;padding:9px 16px;
+                     box-shadow:0 1px 4px rgba(0,0,0,.1);font-size:13px;min-height:36px;
+                     display:flex;align-items:center;flex-wrap:wrap;gap:8px;line-height:1.6}
+        .rec-box{color:#1565c0;font-size:14px;font-weight:bold}
+        .rec-bag{color:#2e7d32;font-size:14px;font-weight:bold}
+        .rec-key{font-size:11px;color:#bbb;cursor:pointer;border-bottom:1px dashed #ddd}
+        .rec-key:hover{color:#888}
+        .weight-display{margin-top:6px;background:#fff;border-radius:8px;padding:8px 16px;
+                        box-shadow:0 1px 4px rgba(0,0,0,.1);font-size:12px;color:#444;line-height:1.6}
+        .weight-total{color:#6a1b9a;font-size:14px;font-weight:bold}
+        .weight-missing{color:#c62828;font-size:11px;margin-left:8px}
+
+        /* ── 算法说明 ── */
+        .algo-desc{margin-top:16px;background:#f9fbe7;border-radius:8px;padding:14px 16px;
+                   font-size:12px;color:#444;border:1px solid #e6ee9c}
+        .algo-desc h4{margin:0 0 8px;font-size:13px;color:#2e7d32}
+        .algo-desc p{margin:4px 0;line-height:1.7}
+    </style>
+</head>
+<body>
+<header>
+    <a href="/">← 返回首页</a>
+    页头打印
+</header>
+
+<div class="tab-bar">
+    <button class="tab-btn {% if active_tab=='print'           %}active{% endif %}" id="tabBtn-print"           onclick="switchTab('print')">打印</button>
+    <button class="tab-btn {% if active_tab=='products'        %}active{% endif %}" id="tabBtn-products"        onclick="switchTab('products')">产品管理</button>
+    <button class="tab-btn {% if active_tab=='weights'         %}active{% endif %}" id="tabBtn-weights"         onclick="switchTab('weights')">货物重量</button>
+    <button class="tab-btn {% if active_tab=='sizes'           %}active{% endif %}" id="tabBtn-sizes"           onclick="switchTab('sizes')">尺寸管理</button>
+    <button class="tab-btn {% if active_tab=='packing_weights' %}active{% endif %}" id="tabBtn-packing_weights" onclick="switchTab('packing_weights')">包材重量</button>
+    <button class="tab-btn {% if active_tab=='packing_sizes'  %}active{% endif %}" id="tabBtn-packing_sizes"  onclick="switchTab('packing_sizes')">包材尺寸</button>
+    <button class="tab-btn {% if active_tab=='pack_presets'   %}active{% endif %}" id="tabBtn-pack_presets"   onclick="switchTab('pack_presets')">预设规则</button>
+    <button class="tab-btn {% if active_tab=='pack_settings'  %}active{% endif %}" id="tabBtn-pack_settings"  onclick="switchTab('pack_settings')">参数设置</button>
+    <button class="tab-btn {% if active_tab=='history'         %}active{% endif %}" id="tabBtn-history"         onclick="switchTab('history')">打印历史</button>
+</div>
+
+<main>
+    {% if request.args.get('ok')=='added'   %}<div class="notice ok">✓ 新增成功</div>
+    {% elif request.args.get('ok')=='updated' %}<div class="notice ok">✓ 修改已保存</div>
+    {% elif request.args.get('ok') %}<div class="notice ok">✓ 操作成功</div>{% endif %}
+    {% if request.args.get('error') %}<div class="notice err">✗ {{ request.args.get('error') }}</div>{% endif %}
+
+    {# ══════ 打印 ══════ #}
+    <div class="tab-panel {% if active_tab=='print' %}active{% endif %}" id="panel-print">
+        <div class="global-row">
+            <label>总票数</label>
+            <input type="number" id="global-tickets" min="1" placeholder="票数" oninput="recalc()">
+            <span class="global-hint">本批次所有货物共同的票数</span>
+        </div>
+        <div class="parse-box">
+            <div class="parse-head">
+                <label for="kdocs-parse-text">解析txt</label>
+                <button class="btn-parse" type="button" onclick="parseKdocsToday()">解析</button>
+                <span class="parse-status" id="kdocs-parse-status">读取金山文档当天提交时间，填入第6列内容</span>
+            </div>
+            <textarea id="kdocs-parse-text" placeholder="解析结果会显示在这里；如果金山需要登录，也可以把表格复制到这里后再点解析"></textarea>
+            <div class="cookie-row">
+                <textarea id="kdocs-cookie" placeholder="金山已登录 Cookie（可选，保存后解析按钮会带登录态读取）"></textarea>
+                <button class="btn-cookie" type="button" onclick="saveKdocsCookie()">保存Cookie</button>
+            </div>
+        </div>
+        <p class="section-title">货物录入</p>
+        <table class="input-table">
+            <thead><tr>
+                <th style="width:100px">货物编号</th>
+                <th style="width:85px">每票件数</th>
+                <th style="width:90px">仓库简称</th>
+                <th style="width:170px">箱数（+零头 / -零头）</th>
+                <th style="width:30px"></th>
+            </tr></thead>
+            <tbody id="input-tbody"></tbody>
+        </table>
+        <button class="btn-add" onclick="addRow()">＋ 添加货物</button>
+        <div class="summary-bar">
+            <div class="summary-item">总票数：<span id="sum-tickets">0</span> 单</div>
+            <div class="summary-item">总数量：<span id="sum-qty">0</span> 个</div>
+            <button class="btn-print" onclick="doPrint()">🖨 打印</button>
+        </div>
+        <div id="rec-display" class="rec-display">
+            <span style="color:#aaa;font-size:12px">输入货物编号和件数后显示推荐包装</span>
+        </div>
+        <div id="weight-display" class="weight-display" style="display:none"></div>
+    </div>
+
+    {# ══════ 产品管理 ══════ #}
+    <div class="tab-panel {% if active_tab=='products' %}active{% endif %}" id="panel-products">
+        <div class="mgmt-layout">
+            <div class="mgmt-form">
+                <h3>产品信息</h3>
+                <form method="post" action="/label_print/products/upsert">
+                    <div class="ff ff-code"><label>货物编号 *</label><input type="text" name="code" id="pf-code" required></div>
+                    <div class="ff"><label>仓库简称 *</label><input type="text" name="short_name" id="pf-sn" required></div>
+                    <div class="ff"><label>商品名称</label><input type="text" name="product_name" id="pf-pn"></div>
+                    <div class="ff"><label>规格</label><input type="text" name="spec" id="pf-sp"></div>
+                    <div class="ff"><label>箱规（每箱件数）</label><input type="number" name="box_spec" id="pf-bs" min="0" value="0"></div>
+                    <button type="submit" class="btn-submit">提 交</button>
+                    <div class="form-hint">同编号→修改 / 新编号→新增</div>
+                </form>
+                <button class="btn-clear" onclick="clr('pf-code','pf-sn','pf-pn','pf-sp'); document.getElementById('pf-bs').value=0; deselAll()">清空</button>
+            </div>
+            <div class="mgmt-table-wrap">
+                <p class="section-title">已有产品（点击填入表单）</p>
+                <table class="mgmt-table">
+                    <thead><tr><th style="width:65px">编号</th><th style="width:70px">简称</th><th>名称</th><th style="width:70px">规格</th><th style="width:52px">箱规</th><th style="width:44px">操作</th></tr></thead>
+                    <tbody>{% for p in products %}
+                    <tr onclick="setVals(['pf-code','pf-sn','pf-pn','pf-sp','pf-bs'],['{{ p.code }}','{{ p.short_name|e }}','{{ p.product_name|e }}','{{ p.spec|e }}','{{ p.box_spec }}']); hlRow(this)">
+                        <td><strong>{{ p.code }}</strong></td><td>{{ p.short_name }}</td>
+                        <td style="color:#666">{{ p.product_name }}</td><td>{{ p.spec }}</td>
+                        <td style="text-align:center">{{ p.box_spec or '—' }}</td>
+                        <td><form method="post" action="/label_print/products/{{ p.id }}/delete"
+                                  onsubmit="return confirm('删除 {{ p.code }}？')" onclick="event.stopPropagation()">
+                            <button type="submit" class="btn-del-sm">删</button></form></td>
+                    </tr>{% else %}<tr><td colspan="6" style="text-align:center;color:#999;padding:14px">暂无数据</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {# ══════ 货物重量 ══════ #}
+    <div class="tab-panel {% if active_tab=='weights' %}active{% endif %}" id="panel-weights">
+        <div class="mgmt-layout">
+            <div class="mgmt-form">
+                <h3>货物重量（kg）</h3>
+                <form method="post" action="/label_print/weights/upsert">
+                    <div class="ff ff-code"><label>货物编号 *</label><input type="text" name="code" id="wf-code" required></div>
+                    <div class="ff"><label>重量 (kg)</label><input type="number" name="weight" id="wf-wt" step="0.01" min="0" value="0"></div>
+                    <button type="submit" class="btn-submit">提 交</button>
+                    <div class="form-hint">同编号→修改 / 新编号→新增</div>
+                </form>
+                <button class="btn-clear" onclick="clr('wf-code'); document.getElementById('wf-wt').value=0; deselAll()">清空</button>
+            </div>
+            <div class="mgmt-table-wrap">
+                <p class="section-title">货物重量数据（点击填入表单）</p>
+                <table class="mgmt-table">
+                    <thead><tr><th style="width:90px">货物编号</th><th>重量 (kg)</th><th style="width:44px">操作</th></tr></thead>
+                    <tbody>{% for w in weights %}
+                    <tr onclick="setVals(['wf-code','wf-wt'],['{{ w.code }}','{{ w.weight }}']); hlRow(this)">
+                        <td><strong>{{ w.code }}</strong></td>
+                        <td>{{ '%.2f'|format(w.weight) }}</td>
+                        <td><form method="post" action="/label_print/weights/{{ w.id }}/delete"
+                                  onsubmit="return confirm('删除 {{ w.code }}？')" onclick="event.stopPropagation()">
+                            <button type="submit" class="btn-del-sm">删</button></form></td>
+                    </tr>{% else %}<tr><td colspan="3" style="text-align:center;color:#999;padding:14px">暂无数据</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {# ══════ 尺寸管理 ══════ #}
+    <div class="tab-panel {% if active_tab=='sizes' %}active{% endif %}" id="panel-sizes">
+        <div class="mgmt-layout">
+            <div class="mgmt-form">
+                <h3>尺寸信息（mm）</h3>
+                <form method="post" action="/label_print/sizes/upsert">
+                    <div class="ff ff-code"><label>货物编号 *</label><input type="text" name="code" id="sf-code" required></div>
+                    <div class="ff"><label>长 (mm)</label><input type="number" name="length" id="sf-l" min="0" value="0"></div>
+                    <div class="ff"><label>宽 (mm)</label><input type="number" name="width"  id="sf-w" min="0" value="0"></div>
+                    <div class="ff"><label>高 (mm)</label><input type="number" name="height" id="sf-h" min="0" value="0"></div>
+                    <div class="ff ff-check">
+                        <input type="checkbox" name="is_irregular" id="sf-ir" value="1">
+                        <label for="sf-ir">不规则形状（如184两端高不同）</label>
+                    </div>
+                    <button type="submit" class="btn-submit">提 交</button>
+                    <div class="form-hint">同编号→修改 / 新编号→新增</div>
+                </form>
+                <button class="btn-clear" onclick="clr('sf-code'); ['sf-l','sf-w','sf-h'].forEach(function(i){document.getElementById(i).value=0}); document.getElementById('sf-ir').checked=false; deselAll()">清空</button>
+            </div>
+            <div class="mgmt-table-wrap">
+                <p class="section-title">尺寸数据（点击填入表单）</p>
+                <table class="mgmt-table">
+                    <thead><tr><th style="width:70px">编号</th><th style="width:48px">长</th><th style="width:48px">宽</th><th style="width:48px">高</th><th style="width:55px">不规则</th><th style="width:44px">操作</th></tr></thead>
+                    <tbody>{% for s in sizes %}
+                    <tr onclick="fillSizeForm('{{ s.code }}','{{ s.length }}','{{ s.width }}','{{ s.height }}',{{ s.is_irregular }}); hlRow(this)">
+                        <td><strong>{{ s.code }}</strong></td>
+                        <td style="text-align:center">{{ s.length }}</td>
+                        <td style="text-align:center">{{ s.width }}</td>
+                        <td style="text-align:center">{{ s.height }}</td>
+                        <td style="text-align:center">{% if s.is_irregular %}<span class="tag-irreg">异形</span>{% else %}—{% endif %}</td>
+                        <td><form method="post" action="/label_print/sizes/{{ s.id }}/delete"
+                                  onsubmit="return confirm('删除 {{ s.code }}？')" onclick="event.stopPropagation()">
+                            <button type="submit" class="btn-del-sm">删</button></form></td>
+                    </tr>{% else %}<tr><td colspan="6" style="text-align:center;color:#999;padding:14px">暂无数据</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {# ══════ 包材重量 ══════ #}
+    <div class="tab-panel {% if active_tab=='packing_weights' %}active{% endif %}" id="panel-packing_weights">
+        <div class="mgmt-layout">
+            <div class="mgmt-form">
+                <h3>包材重量（kg）</h3>
+                <form method="post" action="/label_print/packing_weights/upsert">
+                    <div class="ff">
+                        <label>包材名称 *</label>
+                        <select name="pack_name" id="pwf-name" required>
+                            <option value="">-- 请选择 --</option>
+                            {% for n in pack_names %}
+                            <option value="{{ n }}">{{ n }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="ff"><label>重量 (kg)</label><input type="number" name="weight" id="pwf-wt" step="0.001" min="0" value="0"></div>
+                    <button type="submit" class="btn-submit">提 交</button>
+                    <div class="form-hint">同包材名称→修改 / 新名称→新增</div>
+                </form>
+                <button class="btn-clear" onclick="document.getElementById('pwf-name').value=''; document.getElementById('pwf-wt').value=0; deselAll()">清空</button>
+            </div>
+            <div class="mgmt-table-wrap">
+                <p class="section-title">包材重量数据（点击填入表单）</p>
+                <table class="mgmt-table">
+                    <thead><tr><th>包材名称</th><th style="width:100px">重量 (kg)</th><th style="width:44px">操作</th></tr></thead>
+                    <tbody>{% for pw in packing_weights %}
+                    <tr onclick="document.getElementById('pwf-name').value='{{ pw.pack_name }}'; document.getElementById('pwf-wt').value='{{ pw.weight }}'; hlRow(this)">
+                        <td><strong>{{ pw.pack_name }}</strong></td>
+                        <td>{{ '%.3f'|format(pw.weight) }}</td>
+                        <td><form method="post" action="/label_print/packing_weights/{{ pw.id }}/delete"
+                                  onsubmit="return confirm('删除 {{ pw.pack_name }}？')" onclick="event.stopPropagation()">
+                            <button type="submit" class="btn-del-sm">删</button></form></td>
+                    </tr>{% else %}<tr><td colspan="3" style="text-align:center;color:#999;padding:14px">暂无数据，请手工添加</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {# ══════ 包材尺寸 ══════ #}
+    <div class="tab-panel {% if active_tab=='packing_sizes' %}active{% endif %}" id="panel-packing_sizes">
+        <div class="mgmt-layout">
+            <div class="mgmt-form">
+                <h3>包材尺寸</h3>
+                <form method="post" action="/label_print/packing_sizes/upsert">
+                    <div class="ff">
+                        <label>包材名称 *</label>
+                        <select name="pack_name" id="psf-name" required>
+                            <option value="">-- 请选择 --</option>
+                            {% for n in pack_names %}
+                            <option value="{{ n }}">{{ n }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="ff"><label>尺寸（长×宽×高，mm）</label><input type="text" name="size" id="psf-size" placeholder="如：145×85×105"></div>
+                    <button type="submit" class="btn-submit">提 交</button>
+                    <div class="form-hint">同名称→修改 / 新名称→新增</div>
+                </form>
+                <button class="btn-clear" onclick="document.getElementById('psf-name').value=''; clr('psf-size'); deselAll()">清空</button>
+            </div>
+            <div class="mgmt-table-wrap">
+                <p class="section-title">包材尺寸数据（点击填入表单）</p>
+                <table class="mgmt-table">
+                    <thead><tr><th>包材名称</th><th>尺寸（mm）</th><th style="width:44px">操作</th></tr></thead>
+                    <tbody>{% for ps in packing_sizes %}
+                    <tr onclick="document.getElementById('psf-name').value='{{ ps.pack_name|e }}'; document.getElementById('psf-size').value='{{ ps.size|e }}'; hlRow(this)">
+                        <td><strong>{{ ps.pack_name }}</strong></td>
+                        <td>{{ ps.size }}</td>
+                        <td><form method="post" action="/label_print/packing_sizes/{{ ps.id }}/delete"
+                                  onsubmit="return confirm('删除 {{ ps.pack_name|e }}？')" onclick="event.stopPropagation()">
+                            <button type="submit" class="btn-del-sm">删</button></form></td>
+                    </tr>{% else %}<tr><td colspan="3" style="text-align:center;color:#999;padding:14px">暂无数据</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {# ══════ 预设规则 ══════ #}
+    <div class="tab-panel {% if active_tab=='pack_presets' %}active{% endif %}" id="panel-pack_presets">
+        <div class="mgmt-layout">
+            <div class="mgmt-form" style="width:260px">
+                <h3>包装预设规则</h3>
+                <form method="post" action="/label_print/pack_presets/upsert">
+                    <div class="ff ff-code">
+                        <label>组合编号 *</label>
+                        <input type="text" name="combo_key" id="ppf-key" required placeholder="如：113B×1+140×2">
+                        <div style="font-size:10px;color:#aaa;margin-top:2px">打印Tab推荐区绿色小字即为当前组合编号，点击可复制</div>
+                    </div>
+                    <div class="ff">
+                        <label>推荐箱型</label>
+                        <select name="box_name" id="ppf-box">
+                            <option value="">-- 不指定 --</option>
+                            {% for ps in packing_sizes %}{% if ps.size.count('×') == 2 %}
+                            <option value="{{ ps.pack_name }}">{{ ps.pack_name }} ({{ ps.size }})</option>
+                            {% endif %}{% endfor %}
+                        </select>
+                    </div>
+                    <div class="ff">
+                        <label>气泡袋</label>
+                        <select name="bag_name" id="ppf-bag">
+                            <option value="">-- 不指定 --</option>
+                            {% for ps in packing_sizes %}{% if ps.size.count('×') == 1 %}
+                            <option value="{{ ps.pack_name }}">{{ ps.pack_name }} ({{ ps.size }})</option>
+                            {% endif %}{% endfor %}
+                        </select>
+                    </div>
+                    <div class="ff">
+                        <label>气泡袋数量</label>
+                        <input type="number" name="bag_qty" id="ppf-bag-qty" min="1" value="1">
+                    </div>
+                    <div class="ff"><label>备注</label><input type="text" name="note" id="ppf-note" placeholder="可选"></div>
+                    <button type="submit" class="btn-submit">提 交</button>
+                    <div class="form-hint">同组合编号→修改 / 新编号→新增</div>
+                </form>
+                <button class="btn-clear" onclick="document.getElementById('ppf-key').value='';document.getElementById('ppf-box').value='';document.getElementById('ppf-bag').value='';document.getElementById('ppf-bag-qty').value=1;clr('ppf-note');deselAll()">清空</button>
+            </div>
+            <div class="mgmt-table-wrap">
+                <p class="section-title">已有预设规则（点击填入表单）</p>
+                <table class="mgmt-table">
+                    <thead><tr><th>组合编号</th><th style="width:70px">推荐箱型</th><th style="width:70px">气泡袋</th><th style="width:48px">数量</th><th>备注</th><th style="width:44px">操作</th></tr></thead>
+                    <tbody>{% for p in pack_presets %}
+                    <tr onclick="document.getElementById('ppf-key').value={{ p.combo_key|tojson }};document.getElementById('ppf-box').value={{ p.box_name|tojson }};document.getElementById('ppf-bag').value={{ p.bag_name|tojson }};document.getElementById('ppf-bag-qty').value={{ p.bag_qty or 1 }};document.getElementById('ppf-note').value={{ p.note|tojson }};hlRow(this)">
+                        <td style="font-size:11px;word-break:break-all"><strong>{{ p.combo_key }}</strong></td>
+                        <td style="text-align:center">{{ p.box_name or '—' }}</td>
+                        <td style="text-align:center">{{ p.bag_name or '—' }}</td>
+                        <td style="text-align:center">{{ p.bag_qty if p.bag_name else '—' }}</td>
+                        <td style="color:#666;font-size:11px">{{ p.note }}</td>
+                        <td><form method="post" action="/label_print/pack_presets/{{ p.id }}/delete"
+                                  onsubmit="return confirm('删除此预设？')" onclick="event.stopPropagation()">
+                            <button type="submit" class="btn-del-sm">删</button></form></td>
+                    </tr>{% else %}<tr><td colspan="6" style="text-align:center;color:#999;padding:14px">暂无预设。在打印Tab录入货物后，推荐区会显示组合编号，点击复制到此处新增。</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {# ══════ 参数设置 ══════ #}
+    <div class="tab-panel {% if active_tab=='pack_settings' %}active{% endif %}" id="panel-pack_settings">
+        <div style="max-width:640px">
+            <p class="section-title">包装推荐算法参数</p>
+            <div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);padding:16px">
+                <form method="post" action="/label_print/pack_settings/update">
+                    {% for s in pack_settings %}
+                    <div class="ff">
+                        <label>{{ s.label }}</label>
+                        <input type="text" name="{{ s.key }}" value="{{ s.value }}" style="max-width:120px">
+                    </div>
+                    {% endfor %}
+                    <button type="submit" class="btn-submit" style="width:auto;padding:7px 24px;margin-top:6px">保存参数</button>
+                </form>
+            </div>
+            <div class="algo-desc">
+                <h4>推荐算法说明</h4>
+                <p><strong>1. 预设优先</strong>：将打印Tab中的货物组合（按编号排序，格式如 <code>113B×1+140×2</code>）在预设规则表中查找，命中则直接返回预设的箱型和气泡袋，不运行算法。</p>
+                <p><strong>2. 单品精确计算</strong>：只有一种货物时，枚举货物的6种摆放朝向（长宽高任意排列），对每种朝向计算箱内能装的件数 = floor(箱长/货长) × floor(箱宽/货宽) × floor(箱高/货高)。每个维度另加"每边缓冲"。异形货物（is_irregular=1）将件数需求乘以"异形体积系数"后再比较。取满足条件的体积最小箱型。</p>
+                <p><strong>3. 多品体积估算</strong>：有多种货物时，计算所有货物总体积（含异形系数），同时找出最大单件。要求：① 总体积 ≤ 箱容积 × 混装填充率；② 最大单件能以任意朝向放入箱中；③ 每一种货物按自身件数单独计算时也能放入该箱，避免加小件后推荐反而变小。取满足条件的最小箱型。</p>
+                <p><strong>4. 不预览阈值</strong>：货物种类数超过阈值时，混装情况过于复杂，不给出推荐，建议手动判断。</p>
+                <p><strong>5. 气泡袋估算</strong>：气泡袋是信封型，装货时两个面尺寸撑开袋子。算法先尝试 1 个小泡、1 个中泡、1 个大泡；如果装不下，再依次尝试 2 个中泡、2 个大泡、3 个中泡、3 个大泡。164、165 使用气泡柱，不参与气泡袋推荐。<strong>周长比例可大于 1.0</strong>（表示袋子可轻微撑开）。</p>
+                <p><strong>6. 箱型/气泡袋来源</strong>：仅来自"包材尺寸"页签中的数据。尺寸含两个 × 分隔符（如 290×170×190）的视为箱型；含一个 × 分隔符（如 180×200）的视为气泡袋，格式为 短边×长边（短边=开口深度，长边=包裹周长方向）。</p>
+                <p><strong>7. 单品填充率</strong>：当前版本单品使用精确件数计算，此参数暂不参与计算，保留供未来扩展。</p>
+            </div>
+        </div>
+    </div>
+
+    {# ══════ 打印历史 ══════ #}
+    <div class="tab-panel {% if active_tab=='history' %}active{% endif %}" id="panel-history">
+        <p class="section-title">打印历史（最近 100 条）</p>
+        <table class="hist-table">
+            <thead><tr>
+                <th style="width:140px">打印时间</th>
+                <th style="width:70px">总票数</th>
+                <th style="width:80px">总数量</th>
+                <th>打印内容</th>
+                <th style="width:44px">操作</th>
+            </tr></thead>
+            <tbody>{% for h in history %}
+            <tr>
+                <td>{{ h.printed_at }}</td>
+                <td style="text-align:center">{{ h.total_tickets }}</td>
+                <td style="text-align:center">{{ h.total_qty }}</td>
+                <td><div class="items-summary" id="hist-{{ h.id }}">{{ h.items_json }}</div></td>
+                <td><form method="post" action="/label_print/history/{{ h.id }}/delete"
+                          onsubmit="return confirm('删除此条记录？')">
+                    <button type="submit" class="btn-del-sm">删</button></form></td>
+            </tr>{% else %}<tr><td colspan="5" style="text-align:center;color:#999;padding:20px">暂无打印记录</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+</main>
+<footer>© 2026 包材管理系统 — 页头打印</footer>
+
+<script>
+// ══════════════════════════════════
+//  包装推荐 — 数据（服务端注入）
+// ══════════════════════════════════
+const GOODS_SIZES = {
+{% for s in sizes %}    {{ s.code|tojson }}:{d:[{{ s.length }},{{ s.width }},{{ s.height }}],ir:{{ s.is_irregular }}},
+{% endfor %}};
+
+const RAW_PACK = [
+{% for ps in packing_sizes %}    {n:{{ ps.pack_name|tojson }},s:{{ ps.size|tojson }}},
+{% endfor %}];
+
+const PACK_SETTINGS_JS = {
+{% for s in pack_settings %}    {{ s.key|tojson }}:{{ s.value|tojson }},
+{% endfor %}};
+
+const PACK_PRESETS_JS = {
+{% for p in pack_presets %}    {{ p.combo_key|tojson }}:{box:{{ p.box_name|tojson }},bag:{{ p.bag_name|tojson }},bagQty:{{ p.bag_qty or 0 }},note:{{ p.note|tojson }}},
+{% endfor %}};
+
+const GOODS_WEIGHTS = {
+{% for w in weights %}    {{ w.code|tojson }}:{{ w.weight }},
+{% endfor %}};
+
+const PACK_WEIGHTS = {
+{% for pw in packing_weights %}    {{ pw.pack_name|tojson }}:{{ pw.weight }},
+{% endfor %}};
+
+// 各包材最新库存快照：{pack_name: qty}，无记录的包材视为有货
+const PACK_STOCK_JS = {{ pack_stock|tojson }};
+
+// 解析尺寸字符串 "290×170×190" → [290,170,190]
+function parseDims(s){return(s||'').split('×').map(Number).filter(n=>n>0&&!isNaN(n));}
+
+// 准备箱型列表（3段）和气泡袋列表（2段），均按体积/面积升序
+// 库存快照中 qty<=0 的包材跳过（无快照记录的视为有货，不影响）
+const BOXES=[],BAGS=[];
+RAW_PACK.forEach(p=>{
+    const d=parseDims(p.s);p.dims=d;
+    if(PACK_STOCK_JS.hasOwnProperty(p.n)&&PACK_STOCK_JS[p.n]<=0)return;
+    if(d.length===3)BOXES.push(p);else if(d.length===2)BAGS.push(p);
+});
+BOXES.sort((a,b)=>a.dims[0]*a.dims[1]*a.dims[2]-b.dims[0]*b.dims[1]*b.dims[2]);
+BAGS.sort((a,b)=>a.dims[0]*a.dims[1]-b.dims[0]*b.dims[1]);
+
+// 6种摆放朝向
+function rots(d){const[l,w,h]=d;return[[l,w,h],[l,h,w],[w,l,h],[w,h,l],[h,l,w],[h,w,l]];}
+
+// 单品在箱中的最大容量（枚举6朝向）
+function boxCap(box,item,buf){
+    const[BL,BW,BH]=box;let best=0;
+    for(const[l,w,h]of rots(item)){
+        const c=Math.floor(BL/(l+buf))*Math.floor(BW/(w+buf))*Math.floor(BH/(h+buf));
+        if(c>best)best=c;
+    }return best;
+}
+
+// 货物能否以任意朝向放入箱中
+function fitsBox(box,item,buf){
+    const[BL,BW,BH]=box;
+    for(const[l,w,h]of rots(item)){if(l+buf<=BL&&w+buf<=BW&&h+buf<=BH)return true;}
+    return false;
+}
+
+function boxIndexByName(name){
+    return BOXES.findIndex(box=>box.n===name);
+}
+
+function singleItemBoxIndex(item,buf,irrFac){
+    const effQty=Math.ceil(item.qty*(item.ir?irrFac:1));
+    return BOXES.findIndex(box=>boxCap(box.dims,item.dims,buf)>=effQty);
+}
+
+// 气泡袋适配判断（信封型）：
+//   BW=袋短边（开口，限制插入深度）, BL=袋长边（截面展开方向）
+//   枚举3种插入方向：条件：截面周长 2*(a+b) ≤ BL×ratio  且  插入深度+缓冲 ≤ BW
+//   ratio 可 >1.0（允许袋子轻微撑开）；取满足条件的最小袋型
+function fitsBag(bag,item,buf,ratio){
+    const[BW,BL]=bag;const[l,w,h]=item;
+    return(2*(w+h)<=BL*ratio&&l+buf<=BW)||(2*(l+h)<=BL*ratio&&w+buf<=BW)||(2*(l+w)<=BL*ratio&&h+buf<=BW);
+}
+
+function formatBagName(name,qty){
+    if(!name)return null;
+    const q=parseInt(qty)||1;
+    return `${name}×${q}`;
+}
+
+function bagRole(bag){
+    if((bag.n||'').includes('小'))return'small';
+    if((bag.n||'').includes('中'))return'medium';
+    if((bag.n||'').includes('大'))return'large';
+    return'';
+}
+
+function findBagByRole(role){
+    return BAGS.find(b=>bagRole(b)===role)||null;
+}
+
+function bagPseudoVolume(bag,ratio){
+    const[BW,BL]=bag.dims;
+    const side=(BL*ratio)/4;
+    return side*side*BW;
+}
+
+function bagCapacityPiecesByVolume(bag,dims,ratio,fillRate){
+    const itemVol=dims[0]*dims[1]*dims[2];
+    if(itemVol<=0)return 0;
+    return Math.max(1,Math.floor((bagPseudoVolume(bag,ratio)*fillRate)/itemVol));
+}
+
+function requiredBagCountByVolume(bag,items,ratio,fillRate,irrFac){
+    let count=1;
+    for(const{dims,qty,ir}of items){
+        const cap=bagCapacityPiecesByVolume(bag,dims,ratio,fillRate)/(ir?irrFac:1);
+        if(cap<=0)return Infinity;
+        count=Math.max(count,Math.ceil(qty/cap));
+    }
+    const totalVol=items.reduce((s,{dims,qty,ir})=>s+dims[0]*dims[1]*dims[2]*qty*(ir?irrFac:1),0);
+    count=Math.max(count,Math.ceil(totalVol/(bagPseudoVolume(bag,ratio)*fillRate)));
+    return count;
+}
+
+function canUseBagCount(bag,items,buf,ratio,fillRate,irrFac,count){
+    if(!bag||!items.length)return false;
+    for(const{dims,qty,ir}of items){
+        if(!fitsBag(bag.dims,dims,buf,ratio))return false;
+    }
+    return requiredBagCountByVolume(bag,items,ratio,fillRate,irrFac)<=count;
+}
+
+function recommendBags(items,buf,ratio,fillRate,irrFac){
+    const bagItems=items.filter(i=>!['164','165'].includes(String(i.code).toUpperCase()));
+    if(!bagItems.length)return null;
+    const small=findBagByRole('small');
+    const medium=findBagByRole('medium');
+    const large=findBagByRole('large');
+    const oneBagSeq=[small,medium,large].filter(Boolean);
+    for(const bag of oneBagSeq){
+        if(canUseBagCount(bag,bagItems,buf,ratio,fillRate,irrFac,1))return formatBagName(bag.n,1);
+    }
+    for(let count=2;count<=20;count++){
+        for(const bag of [medium,large].filter(Boolean)){
+            if(canUseBagCount(bag,bagItems,buf,ratio,fillRate,irrFac,count))return formatBagName(bag.n,count);
+        }
+    }
+    return null;
+}
+
+// 构建组合编号（按货物编号字典序排序）
+function buildComboKey(rows){
+    return rows.filter(r=>r.code&&r.qty>0)
+               .sort((a,b)=>a.code.localeCompare(b.code))
+               .map(r=>`${r.code}×${r.qty}`)
+               .join('+');
+}
+
+function normalizePackRows(rawRows){
+    const byCode={};
+    rawRows.forEach(r=>{
+        const prod=findProduct(r.code);
+        const code=prod?prod.code:String(r.code||'').trim();
+        if(!code||r.qty<=0)return;
+        byCode[code]=(byCode[code]||0)+r.qty;
+    });
+    return Object.keys(byCode).sort((a,b)=>a.localeCompare(b)).map(code=>({code,qty:byCode[code]}));
+}
+
+function goodsSizeForCode(code){
+    if(GOODS_SIZES[code])return GOODS_SIZES[code];
+    const key=Object.keys(GOODS_SIZES).find(k=>k.toLowerCase()===String(code).toLowerCase());
+    return key?GOODS_SIZES[key]:null;
+}
+
+function goodsWeightForCode(code){
+    if(GOODS_WEIGHTS.hasOwnProperty(code))return Number(GOODS_WEIGHTS[code])||0;
+    const key=Object.keys(GOODS_WEIGHTS).find(k=>k.toLowerCase()===String(code).toLowerCase());
+    return key ? (Number(GOODS_WEIGHTS[key])||0) : null;
+}
+
+function packWeightForName(name){
+    if(!name)return null;
+    if(PACK_WEIGHTS.hasOwnProperty(name))return Number(PACK_WEIGHTS[name])||0;
+    const key=Object.keys(PACK_WEIGHTS).find(k=>k.toLowerCase()===String(name).toLowerCase());
+    return key ? (Number(PACK_WEIGHTS[key])||0) : null;
+}
+
+function parseBagText(text){
+    const m=String(text||'').match(/^(.+)×(\d+)$/);
+    if(m)return{name:m[1],qty:parseInt(m[2])||1};
+    return text?{name:String(text),qty:1}:null;
+}
+
+function fmtKg(value){
+    return (Math.round(value*1000)/1000).toFixed(3).replace(/\.?0+$/,'');
+}
+
+function getCurrentPackRows(){
+    const rawRows=[];
+    document.querySelectorAll('#input-tbody tr').forEach(tr=>{
+        const code=((tr.querySelector('.row-code')||{}).value||'').trim();
+        const pcs=parseInt((tr.querySelector('.row-pcs')||{}).value)||0;
+        if(code&&pcs>0)rawRows.push({code,qty:pcs});
+    });
+    return normalizePackRows(rawRows);
+}
+
+function computeEstimatedWeight(rec){
+    const rows=getCurrentPackRows();
+    if(!rows.length)return null;
+    const missing=[];
+    let goodsWeight=0;
+    rows.forEach(row=>{
+        const wt=goodsWeightForCode(row.code);
+        if(wt===null)missing.push(`货物${row.code}`);
+        else goodsWeight+=wt*row.qty;
+    });
+
+    let boxWeight=0;
+    if(rec&&rec.box&&rec.box!=='无匹配'&&!String(rec.box).startsWith('不预览')){
+        const wt=packWeightForName(rec.box);
+        if(wt===null)missing.push(`箱型${rec.box}`);
+        else boxWeight=wt;
+    }
+
+    let bagWeight=0;
+    const bag=parseBagText(rec&&rec.bag);
+    if(bag){
+        const wt=packWeightForName(bag.name);
+        if(wt===null)missing.push(`气泡袋${bag.name}`);
+        else bagWeight=wt*bag.qty;
+    }
+
+    return{total:goodsWeight+boxWeight+bagWeight,goodsWeight,boxWeight,bagWeight,missing};
+}
+
+function updateWeightDisplay(rec){
+    const el=document.getElementById('weight-display');
+    if(!el)return;
+    const estimate=computeEstimatedWeight(rec);
+    if(!estimate){
+        el.style.display='none';
+        el.innerHTML='';
+        return;
+    }
+    el.style.display='';
+    let html=`预估重量：<strong class="weight-total">${fmtKg(estimate.total)} kg</strong>`;
+    html+=`（货物 ${fmtKg(estimate.goodsWeight)} kg`;
+    html+=` + 箱型 ${fmtKg(estimate.boxWeight)} kg`;
+    html+=` + 气泡袋 ${fmtKg(estimate.bagWeight)} kg）`;
+    if(estimate.missing.length)html+=`<span class="weight-missing">缺少重量：${esc(estimate.missing.join('、'))}</span>`;
+    el.innerHTML=html;
+}
+
+// 主推荐函数
+function computeRecommendation(){
+    const rows=getCurrentPackRows();
+    if(!rows.length)return null;
+
+    const comboKey=buildComboKey(rows);
+    // 1. 预设优先
+    const preset=PACK_PRESETS_JS[comboKey];
+    if(preset)return{box:preset.box||null,bag:formatBagName(preset.bag,preset.bagQty),comboKey};
+
+    // 读参数
+    const buf      =parseFloat(PACK_SETTINGS_JS.buffer_mm)||0;
+    const fillM    =parseFloat(PACK_SETTINGS_JS.fill_rate_multi)||0.75;
+    const irrFac   =parseFloat(PACK_SETTINGS_JS.irregular_factor)||1.15;
+    const cplxThr  =parseInt(PACK_SETTINGS_JS.complex_threshold)||10;
+    const bagRatio =parseFloat(PACK_SETTINGS_JS.bag_girth_ratio)||1.05;
+
+    // 取有尺寸数据的货物
+    const items=rows.map(r=>{const g=goodsSizeForCode(r.code);return g?{code:r.code,qty:r.qty,dims:g.d,ir:g.ir}:null;}).filter(Boolean);
+    if(!items.length)return{box:null,bag:null,comboKey};
+
+    // 2. 超阈值不预览
+    if(items.length>cplxThr)return{box:`不预览（${items.length}种 > 阈值${cplxThr}）`,bag:null,comboKey};
+
+    // 找最大单件（用于箱型约束）
+    let largestItem=null,largestVol=0;
+    for(const{dims}of items){const v=dims[0]*dims[1]*dims[2];if(v>largestVol){largestVol=v;largestItem=dims;}}
+
+    let recBox=null;
+    if(items.length===1){
+        // 3a. 单品精确计算
+        const{dims,qty,ir}=items[0];
+        const effQty=Math.ceil(qty*(ir?irrFac:1));
+        for(const box of BOXES){if(boxCap(box.dims,dims,buf)>=effQty){recBox=box.n;break;}}
+    }else{
+        // 3b. 多品体积估算。每种货物按自身件数也必须能装进候选箱，
+        // 避免从单品转混装后反而推荐更小箱型。
+        let totalVol=0;
+        for(const{dims,qty,ir}of items)totalVol+=dims[0]*dims[1]*dims[2]*qty*(ir?irrFac:1);
+        const minBoxIndex=Math.max(...items.map(item=>singleItemBoxIndex(item,buf,irrFac)));
+        for(const box of BOXES){
+            const boxIndex=boxIndexByName(box.n);
+            if(minBoxIndex>=0&&boxIndex<minBoxIndex)continue;
+            const vol=box.dims[0]*box.dims[1]*box.dims[2];
+            const itemCapsOk=items.every(({dims,qty,ir})=>boxCap(box.dims,dims,buf)>=Math.ceil(qty*(ir?irrFac:1)));
+            if(itemCapsOk&&fitsBox(box.dims,largestItem,buf)&&totalVol<=vol*fillM){recBox=box.n;break;}
+        }
+    }
+    if(!recBox)recBox='无匹配';
+
+    // 4. 气泡袋推荐
+    const recBag=recommendBags(items,buf,bagRatio,fillM,irrFac);
+
+    return{box:recBox,bag:recBag,comboKey};
+}
+
+let _lastRec=null;
+
+function updateRecommendation(){
+    const rec=computeRecommendation();
+    _lastRec=rec;
+    const el=document.getElementById('rec-display');
+    if(!el)return;
+    if(!rec){
+        el.innerHTML='<span style="color:#aaa;font-size:12px">输入货物编号和件数后显示推荐包装</span>';
+        updateWeightDisplay(null);
+        return;
+    }
+    let html='';
+    if(rec.box)html+=` 推荐箱型：<strong class="rec-box">${esc(rec.box)}</strong>`;
+    if(rec.bag)html+=`　气泡袋：<strong class="rec-bag">${esc(rec.bag)}</strong>`;
+    if(rec.comboKey)html+=`　<span class="rec-key" onclick="(function(k){navigator.clipboard?navigator.clipboard.writeText(k).then(()=>alert('已复制：'+k)):prompt('请复制组合编号：',k)})(${JSON.stringify(rec.comboKey)})" title="点击复制，可粘贴到预设规则Tab的组合编号中">[${esc(rec.comboKey)}]</span>`;
+    el.innerHTML=html;
+    updateWeightDisplay(rec);
+}
+
+// ══════════════════════════════════
+//  产品字典
+// ══════════════════════════════════
+let PRODUCTS = [];
+fetch('/label_print/api/products')
+    .then(r => r.json())
+    .then(d => { PRODUCTS = d; })
+    .catch(() => {});
+
+// ── 模糊查询（只在 blur 时触发）──
+function findProduct(q) {
+    q = String(q).trim().toLowerCase();
+    if (!q) return null;
+    // 1. 精确
+    let p = PRODUCTS.find(x => x.code.toLowerCase() === q);
+    if (p) return p;
+    // 2. 末尾匹配（136 → P136），仅唯一命中
+    const e = PRODUCTS.filter(x => x.code.toLowerCase().endsWith(q));
+    if (e.length === 1) return e[0];
+    // 3. 包含匹配，仅唯一命中
+    const c = PRODUCTS.filter(x => x.code.toLowerCase().includes(q));
+    if (c.length === 1) return c[0];
+    return null;
+}
+// 精确匹配（输入过程中只做精确，不打扰用户）
+function findExact(q) {
+    q = String(q).trim().toLowerCase();
+    return q ? PRODUCTS.find(x => x.code.toLowerCase() === q) || null : null;
+}
+
+// ══════════════════════════════════
+//  Tab 切换
+// ══════════════════════════════════
+function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+    document.getElementById('tabBtn-' + name).classList.add('active');
+    if (name === 'print') recalc();
+    if (name === 'history') renderHistoryItems();
+}
+
+// ══════════════════════════════════
+//  箱数显示
+// ══════════════════════════════════
+function calcBoxesHtml(qty, bs) {
+    if (!bs || bs <= 0 || qty <= 0) return '—';
+    const f = Math.floor(qty / bs), r = qty % bs;
+    if (r === 0) return `<span class="boxes-exact">${f}箱</span>`;
+    return `${f}箱+${r}个 / ${f+1}箱-${bs-r}个`;
+}
+
+// ══════════════════════════════════
+//  动态行（打印 tab）
+// ══════════════════════════════════
+let rowId = 0;
+function addRow() {
+    const rid = ++rowId;
+    const tr  = document.createElement('tr');
+    tr.id = 'row-' + rid;
+    tr.innerHTML = `
+        <td><input class="row-code" type="text" placeholder="编号"
+             oninput="onCodeInput(this)"
+             onblur="onCodeBlur(this)"
+             data-rid="${rid}" style="width:88px"></td>
+        <td><input class="row-pcs" type="number" min="0" placeholder="件数"
+             oninput="recalc()" data-rid="${rid}" style="width:75px"></td>
+        <td class="td-short row-short" data-rid="${rid}" style="color:#aaa">—</td>
+        <td class="td-boxes row-boxes" data-rid="${rid}">—</td>
+        <td><button class="btn-del" onclick="delRow(${rid})">✕</button></td>`;
+    document.getElementById('input-tbody').appendChild(tr);
+    tr.querySelector('.row-code').focus();
+    recalc();
+}
+function delRow(rid) {
+    const el = document.getElementById('row-' + rid);
+    if (el) el.remove();
+    recalc();
+}
+
+// 输入过程中：只做精确匹配，不补全、不报未知
+function onCodeInput(inp) {
+    const rid     = inp.dataset.rid;
+    const shortEl = document.querySelector(`.row-short[data-rid="${rid}"]`);
+    const prod    = findExact(inp.value);
+    if (prod) {
+        shortEl.textContent = prod.short_name;
+        shortEl.style.color = '#2e7d32';
+    } else {
+        shortEl.textContent = '—';
+        shortEl.style.color = '#aaa';
+    }
+    recalcRow(rid, prod);
+}
+// 失焦时：做模糊查询 + 自动补全编号
+function onCodeBlur(inp) {
+    const rid     = inp.dataset.rid;
+    const shortEl = document.querySelector(`.row-short[data-rid="${rid}"]`);
+    const prod    = findProduct(inp.value);
+    if (prod) {
+        inp.value = prod.code;           // 补全为完整编号
+        inp.style.color = '';
+        shortEl.textContent = prod.short_name;
+        shortEl.style.color = '#2e7d32';
+    } else if (inp.value.trim()) {
+        shortEl.textContent = '未知';
+        shortEl.style.color = '#e53935';
+    } else {
+        shortEl.textContent = '—';
+        shortEl.style.color = '#aaa';
+    }
+    recalcRow(rid, prod);
+}
+
+function recalcRow(rid, prod) {
+    const pcsEl   = document.querySelector(`.row-pcs[data-rid="${rid}"]`);
+    const boxesEl = document.querySelector(`.row-boxes[data-rid="${rid}"]`);
+    const pcs     = parseInt(pcsEl ? pcsEl.value : 0) || 0;
+    const tickets = parseInt(document.getElementById('global-tickets').value) || 0;
+    boxesEl.innerHTML = (prod && prod.box_spec > 0) ? calcBoxesHtml(pcs * tickets, prod.box_spec) : '—';
+}
+function recalc() {
+    const tickets = parseInt(document.getElementById('global-tickets').value) || 0;
+    let sumPcs = 0;
+    document.querySelectorAll('#input-tbody tr').forEach(tr => {
+        const rid    = tr.id.replace('row-', '');
+        const pcsEl  = tr.querySelector('.row-pcs');
+        const codeEl = tr.querySelector('.row-code');
+        sumPcs += parseInt(pcsEl ? pcsEl.value : 0) || 0;
+        if (codeEl) recalcRow(rid, findExact(codeEl.value) || findProduct(codeEl.value));
+    });
+    document.getElementById('sum-tickets').textContent = tickets;
+    document.getElementById('sum-qty').textContent     = sumPcs * tickets;
+    updateRecommendation();
+}
+window.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('panel-print').classList.contains('active')) {
+        addRow();
+        document.getElementById('global-tickets').focus();
+    }
+    renderHistoryItems();
+});
+
+// ══════════════════════════════════
+//  金山文档当天文本解析
+// ══════════════════════════════════
+function parseKdocsToday() {
+    const textEl = document.getElementById('kdocs-parse-text');
+    const statusEl = document.getElementById('kdocs-parse-status');
+    const pasted = textEl.value.trim();
+    statusEl.textContent = '解析中...';
+    fetch('/label_print/api/kdocs_today_text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_text: (pasted.includes('\t') || pasted.includes('提交时间')) ? pasted : '' })
+    })
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw new Error(data.message || '解析失败');
+        textEl.value = data.text || '';
+        const src = data.source === 'txt' ? '解析txt' : '金山文档';
+        statusEl.textContent = `${src}：${data.date}，${data.column_name}，共 ${data.count} 条`;
+    })
+    .catch(err => {
+        statusEl.textContent = err.message || '解析失败';
+        alert(statusEl.textContent);
+    });
+}
+
+function saveKdocsCookie() {
+    const cookieEl = document.getElementById('kdocs-cookie');
+    const statusEl = document.getElementById('kdocs-parse-status');
+    const cookie = cookieEl.value.trim();
+    if (!cookie) {
+        alert('请先粘贴金山 Cookie');
+        cookieEl.focus();
+        return;
+    }
+    statusEl.textContent = '保存 Cookie 中...';
+    fetch('/label_print/api/kdocs_cookie', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookie })
+    })
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw new Error(data.message || '保存失败');
+        cookieEl.value = '';
+        statusEl.textContent = 'Cookie 已保存，可以点解析读取金山文档';
+    })
+    .catch(err => {
+        statusEl.textContent = err.message || '保存失败';
+        alert(statusEl.textContent);
+    });
+}
+
+// ══════════════════════════════════
+//  打印 + 保存历史
+// ══════════════════════════════════
+function doPrint() {
+    const tickets = parseInt(document.getElementById('global-tickets').value) || 0;
+    if (!tickets) { alert('请填写总票数'); document.getElementById('global-tickets').focus(); return; }
+    const rows = [];
+    document.querySelectorAll('#input-tbody tr').forEach(tr => {
+        const codeEl = tr.querySelector('.row-code');
+        const pcsEl  = tr.querySelector('.row-pcs');
+        const code   = codeEl.value.trim();
+        const pcs    = parseInt(pcsEl.value) || 0;
+        if (!code || !pcs) return;
+        const prod  = findProduct(code);
+        const total = pcs * tickets;
+        let boxStr  = '';
+        if (prod && prod.box_spec > 0 && total > 0) {
+            const f = Math.floor(total / prod.box_spec), r = total % prod.box_spec;
+            boxStr = r === 0 ? `${f}箱` : `${f}箱+${r}个 / ${f+1}箱-${prod.box_spec-r}个`;
+        }
+        const short = tr.querySelector('.row-short').textContent.trim();
+        rows.push({ code: prod ? prod.code : code,
+                    label: (short==='—'||short==='未知') ? code : short,
+                    pcs, boxStr });
+    });
+    if (!rows.length) { alert('请至少填写一行有效数据'); return; }
+    const totalQty = rows.reduce((s,r) => s + r.pcs * tickets, 0);
+
+    // 打印窗口
+    const items = rows.map(r => `
+        <div class="item-row">
+            <span class="sn">${esc(r.label)}</span>
+            <span class="pcs">*${r.pcs}</span>
+            ${r.boxStr ? `<span class="bx">${esc(r.boxStr)}</span>` : ''}
+        </div>`).join('');
+    // 推荐包装行（打印底部）
+    let recLine='';
+    if(_lastRec&&(_lastRec.box||_lastRec.bag)){
+        const parts=[];
+        if(_lastRec.box&&_lastRec.box!=='无匹配')parts.push('箱型：'+esc(_lastRec.box));
+        if(_lastRec.bag)parts.push('气泡袋：'+esc(_lastRec.bag));
+        if(parts.length)recLine=`<div class="rec">推荐包装：${parts.join('　')}</div>`;
+    }
+    const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>页头</title>
+<style>@page{size:76mm 130mm;margin:0}html,body{margin:0;padding:0;background:#fff;font-family:"Microsoft YaHei",Arial,sans-serif}
+.wrap{width:76mm;padding:6mm 5mm 5mm}.item-row{display:flex;align-items:baseline;gap:3mm;margin-bottom:4mm;flex-wrap:wrap}
+.sn{font-size:18px;font-weight:700}.pcs{font-size:17px;font-weight:700;white-space:nowrap}
+.bx{font-size:11px;color:#444;white-space:nowrap}hr{border:none;border-top:1px solid #999;margin:4mm 0}
+.sum{font-size:14px;font-weight:700;line-height:2}.rec{font-size:11px;color:#555;margin-top:2mm;padding-top:2mm;border-top:1px dashed #bbb}</style></head>
+<body><div class="wrap">${items}<hr>
+<div class="sum">共计：${tickets}&nbsp;单<br>总数量：${totalQty}&nbsp;个</div>${recLine}</div>
+<scr`+`ipt>window.onload=function(){window.print();setTimeout(window.close,500)}<\/scr`+`ipt></body></html>`;
+    const pw = window.open('', '_blank');
+    if (!pw) { alert('请允许弹出窗口'); return; }
+    pw.document.open(); pw.document.write(html); pw.document.close();
+
+    // 保存打印历史（静默，不影响打印）
+    const histItems = rows.map(r => ({ code: r.code, label: r.label, pcs: r.pcs }));
+    fetch('/label_print/api/save_print', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ total_tickets: tickets, total_qty: totalQty, items: histItems })
+    }).catch(() => {});
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+
+// ══════════════════════════════════
+//  历史记录 JSON 渲染
+// ══════════════════════════════════
+function renderHistoryItems() {
+    document.querySelectorAll('.items-summary').forEach(el => {
+        try {
+            const items = JSON.parse(el.textContent);
+            el.innerHTML = items.map(i => `<span style="margin-right:8px">${esc(i.label||i.code)} ×${i.pcs}</span>`).join('');
+        } catch(e) {}
+    });
+}
+
+// ══════════════════════════════════
+//  辅助：表单填值 / 高亮 / 清空
+// ══════════════════════════════════
+function hlRow(tr) {
+    const tbody = tr.closest('tbody');
+    if (tbody) tbody.querySelectorAll('tr').forEach(r => r.classList.remove('selected'));
+    tr.classList.add('selected');
+}
+function deselAll() {
+    document.querySelectorAll('.mgmt-table tbody tr').forEach(r => r.classList.remove('selected'));
+}
+function setVals(ids, vals) {
+    ids.forEach((id, i) => { const el = document.getElementById(id); if (el) el.value = vals[i]; });
+}
+function clr(...ids) {
+    ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+}
+function fillSizeForm(code, l, w, h, ir) {
+    setVals(['sf-code','sf-l','sf-w','sf-h'], [code, l, w, h]);
+    document.getElementById('sf-ir').checked = ir == 1;
+}
+</script>
+</body>
+</html>

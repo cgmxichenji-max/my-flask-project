@@ -15,6 +15,7 @@ from logs.routes import logs_bp             # 操作日志模块
 from vps_monitor import vps_monitor_bp       # VPS 监控模块
 from wechat_shop import wechat_shop_bp       # 微信小店模块
 from invoicing.routes import invoicing_bp     # 发票核对模块
+from label_print.routes import label_print_bp  # 页头打印模块
 
 # ===== 创建 Flask 应用 =====
 app = Flask(__name__)
@@ -74,6 +75,8 @@ app.register_blueprint(vps_monitor_bp)
 app.register_blueprint(wechat_shop_bp, url_prefix='/wechat_shop')
 # /invoicing -> 发票核对
 app.register_blueprint(invoicing_bp, url_prefix='/invoicing')
+# /label_print -> 页头打印
+app.register_blueprint(label_print_bp, url_prefix='/label_print')
 
 # ===== 总入口页面 =====
 @app.route('/')

@@ -8,7 +8,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-MODULE_KEYS = ('inventory', 'purchase', 'stockin', 'logs', 'wechat_shop', 'invoicing')
+MODULE_KEYS = ('inventory', 'purchase', 'stockin', 'logs', 'wechat_shop', 'invoicing', 'label_print')
 MODULE_LABELS = {
     'inventory': '库存盘点',
     'purchase': '采购入库',
@@ -16,6 +16,7 @@ MODULE_LABELS = {
     'logs': '操作日志',
     'wechat_shop': '微信小店',
     'invoicing': '发票核对',
+    'label_print': '页头打印',
 }
 
 

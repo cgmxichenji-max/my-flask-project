@@ -114,6 +114,9 @@
             {% if can_module(g.current_user, 'invoicing') %}
             <a href="/invoicing/" class="menu-card">发票核对</a>
             {% endif %}
+            {% if can_module(g.current_user, 'label_print') %}
+            <a href="/label_print/" class="menu-card">页头打印</a>
+            {% endif %}
             {% if g.current_user.is_admin %}
             <a href="/vps-monitor" class="menu-card">VPS 监控</a>
             {% endif %}

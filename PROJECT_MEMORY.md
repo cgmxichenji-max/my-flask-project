@@ -1,5 +1,151 @@
 # 项目记忆
 
+## [2026-05-25 23:30] 修改记录
+- 修改内容：页头打印新增金山文档当天文本解析与服务器端扫码获取 Cookie
+  - 打印 Tab 新增"解析txt"文本框与"解析"按钮：读取金山文档 `https://kdocs.cn/l/cnaogtuBWmXW`，按第 2 列"提交时间"筛选当天记录，提取第 6 列内容逐行填入解析文本框
+  - 后端新增 `/label_print/api/kdocs_today_text`：支持直接读取金山文档，也支持把表格复制到解析txt后按同一规则解析；返回匹配日期、列名、条数和文本
+  - 后端新增金山 Cookie 支持：优先读 `KDOCS_COOKIE`，其次读 `data/kdocs_cookie.txt`，页面可通过 `/label_print/api/kdocs_cookie` 保存登录态
+  - 按用户要求保留金山账号密码自动登录尝试：代码内默认账号 `香水梨`、密码 `chenxi98`；自动登录流程为 passkey → RSA 加密密码 → safe_verify → 保存 Cookie；实测金山当前会返回"无效的验证码"
+  - 新增服务器脚本 `scripts/kdocs_login_cookie.py`：Ubuntu 24 服务器无浏览器时可运行脚本生成金山登录二维码 URL/PNG，手机 WPS 扫码确认后服务器自动保存 `data/kdocs_cookie.txt`
+  - 自动登录遇到验证码时提示运行 `python3 scripts/kdocs_login_cookie.py` 通过扫码获取 Cookie
+- 修改文件：label_print/routes.py；templates/label_print.html；scripts/kdocs_login_cookie.py；PROJECT_MEMORY.md
+- 修改原因：用户需要页头打印界面从金山 WPS 网络文档自动读取当天提交内容，并且部署在无图形浏览器的 Ubuntu 24 服务器上仍可获取登录 Cookie
+- 影响范围：仅 label_print 模块；新增一个服务器维护脚本；`data/kdocs_cookie.txt` 和二维码 PNG 为本地运行文件，不应提交
+- 是否涉及数据库：否
+- 是否需要回滚：否
+
+## [2026-05-25 22:00] 修改记录
+- 修改内容：气泡袋推荐比例参数调整至 1.05，正确推荐 140→中泡、A140→小泡
+  - 问题：ratio=0.95 时，140（80×75×71）截面周长 310 > 中泡 BL=300×0.95=285，只有大泡（292≤367.5）才匹配；但实际 140 用中泡足够
+  - 根本认知：气泡袋是信封型（flat envelope），允许袋子轻微撑开，ratio 可 >1.0；之前错误套用"袖型"严格约束
+  - 修正：ratio=1.05 → 140 截面 310 ≤ 315 ✓ 进中泡；A140 截面 184 ≤ 210 ✓ 进小泡；ratio 值越大推荐越小袋型
+  - INIT_SETTINGS 默认值 '0.95' → '1.05'，描述更新说明 >1.0 含义
+  - seed 迁移：DB 中值为 '0.9' 或 '0.95'（旧默认未手动修改）的均自动升为 '1.05'
+  - 模板 JS fallback 从 0.9 改为 1.05；注释和参数设置面板算法说明同步更新
+- 修改文件：label_print/routes.py；templates/label_print.html
+- 修改原因：用户确认 140→中泡、A140→小泡 为正确期望；并希望推荐结果向较小袋型靠拢
+- 影响范围：仅 label_print 模块气泡袋推荐逻辑；重启服务器后生效
+- 是否涉及数据库：是（migration UPDATE bag_girth_ratio 旧值→1.05）
+- 是否需要回滚：否
+
+## [2026-05-25 21:30] 修改记录
+- 修改内容：修正 bag_girth_ratio 默认值，A140 归入小泡
+  - 问题：bag_girth_ratio=0.9 时，A140（57×57×35）截面周长 2×(57+35)=184，小泡 BL=200，184>200×0.9=180，差 4mm 卡在外面，错误推荐中泡
+  - 修正：比例改为 0.95，184 ≤ 200×0.95=190 ✓，A140 正确归入小泡；140（80×75×71）仍然只有大泡够用（截面周长 292 > 中泡 285）
+  - INIT_SETTINGS 中 bag_girth_ratio 默认值 '0.9' → '0.95'
+  - seed_aux_tables 新增迁移语句：若 DB 中 bag_girth_ratio=0.9（旧默认，用户未手动改过），重启时自动升为 0.95
+  - 背景：之前用户搞混了 A140 和 140 的尺寸，给出了错误的气泡袋参考案例，此前 fitsBag 修复基于该错误案例
+- 修改文件：label_print/routes.py
+- 修改原因：用户确认 A140 实际应使用小泡，旧比例参数导致判定过严
+- 影响范围：仅 label_print 模块气泡袋推荐逻辑；重启服务器后生效
+- 是否涉及数据库：是（migration UPDATE bag_girth_ratio 0.9→0.95，仅限未手动修改过的情况）
+- 是否需要回滚：否
+
+## [2026-05-25 21:00] 修改记录
+- 修改内容：包装推荐算法增加库存过滤——库存快照 qty≤0 的包材不参与匹配
+  - routes.py 新增 `_get_pack_stock()` 函数：查询 `pack_stock_snapshot` 中每个 spec 的最新 qty，返回 `{spec: qty}` 字典
+  - `_load_all()` 新增返回值 `pack_stock`，`_render()` 将其作为 `pack_stock` 传入模板
+  - 模板新增 JS 变量 `PACK_STOCK_JS`（由服务端 `pack_stock|tojson` 注入）
+  - `BOXES`/`BAGS` 构建循环中增加过滤：`if PACK_STOCK_JS.hasOwnProperty(p.n) && PACK_STOCK_JS[p.n]<=0 → return`
+  - 无快照记录的包材（如气泡袋）不受影响，仍正常参与匹配
+  - 验证：9号箱（qty=0）、12.5号箱（qty=0）不再出现在推荐候选列表中
+- 修改文件：label_print/routes.py；templates/label_print.html
+- 修改原因：库存为 0 的箱型不应被推荐，避免操作人员按推荐取货发现无货
+- 影响范围：仅 label_print 模块前端推荐逻辑；不影响数据库结构
+- 是否涉及数据库：否（只读 pack_stock_snapshot，不修改）
+- 是否需要回滚：否
+
+## [2026-05-25 20:30] 修改记录
+- 修改内容：修复气泡袋推荐算法 fitsBag 物理模型错误
+  - 原算法误用袋短边（BW）做周长约束，导致 A140（57×57×35）被错误推荐放入小泡（180×200）
+  - 修正物理模型：BW=袋短边（开口，限制插入深度），BL=袋长边（包裹截面，截面周长从此展开）
+  - 正确公式：截面周长 `2*(a+b) ≤ BL×ratio` 且 插入深度 `≤ BW`；枚举 3 种放入方向取最优
+  - 验证：A140 小泡 BL=200，`2*(57+57)=228 > 200×0.9=180` 不匹配 ✓；中泡 BL=300，`228 ≤ 270` 匹配 ✓
+  - 同步更新"参数设置" Tab 中算法说明文本，加入物理模型解释与 A140 验证示例
+  - 新参数 bag_girth_ratio 已在代码中定义，若 DB 中尚无此 key，重启服务器后 INSERT OR IGNORE 自动补入
+- 修改文件：templates/label_print.html
+- 修改原因：气泡袋推荐结果与实际操作不符，物理模型理解有误
+- 影响范围：仅 label_print 模块前端推荐逻辑；不影响数据库结构
+- 是否涉及数据库：否
+- 是否需要回滚：否
+
+## [2026-05-25 19:00] 修改记录
+- 修改内容：新增包装推荐功能（前端算法 + 预设规则 + 参数设置）
+  - 气泡袋尺寸全部改为 mm：大泡 250×350、中泡 200×300、小泡 180×200（原为 cm 录入错误）
+  - 新增 label_pack_presets 表：存已知货物组合（combo_key 格式 "113B×1+140×2"）→ 预设箱型 + 气泡袋 + 备注；CRUD 路由完整
+  - 新增 label_pack_settings 表：存 6 个可调参数（buffer_mm / fill_rate_single / fill_rate_multi / irregular_factor / complex_threshold / bag_girth_ratio），INSERT OR IGNORE 保证新参数自动补入且不覆盖用户修改
+  - 新增"预设规则" Tab：左侧表单（组合编号 + 箱型 select + 气泡袋 select + 备注），右侧横表，点击行填入表单
+  - 新增"参数设置" Tab：参数表单 + 内嵌算法说明文本（防止遗忘）
+  - 打印 Tab 汇总区下方新增推荐显示区（rec-display），实时随输入更新
+  - 前端 JS 推荐算法：① 查预设表 → ② 单品6朝向精确计算 → ③ 多品体积估算+最大单件约束 → ④ 超阈值不预览；气泡袋按截面周长约束（(a+b) ≤ 袋宽×比例）枚举方向选最小
+  - 推荐区显示组合编号小字，点击复制，方便添加预设
+  - doPrint() 在打印页底部追加一行推荐包装（多页仅末尾出现一次）
+- 修改文件：label_print/routes.py；templates/label_print.html
+- 修改原因：根据已有货物尺寸和包材尺寸数据，为打印操作提供包装推荐参考
+- 影响范围：仅 label_print 模块；新增 2 张表（label_pack_presets、label_pack_settings）在 data/main.db
+- 是否涉及数据库：是（新增 label_pack_presets、label_pack_settings；气泡袋尺寸数据通过 INSERT OR REPLACE 自动修正）
+- 是否需要回滚：否
+
+## [2026-05-25 17:50] 修改记录
+- 修改内容：包材尺寸规范化 + 补充初始数据
+  - INIT_PACKING_SIZES 改用 pack_item.name 规范名称（11号→11，半高11号→11.5，以此类推），剔掉 pack_item 中不存在的型号（1/2/3/4号及对应半高版本）
+  - 新增 3 条初始数据：大泡（25×35）、中泡（20×30）、小泡（18×20）
+  - seeding 逻辑从 INSERT OR IGNORE 改为 INSERT OR REPLACE，保证重启后旧名称数据自动被新规范名称覆盖同步
+  - 模板"包材尺寸" Tab 的表单输入改为下拉框（复用 pack_names，来源 pack_item.name），与"包材重量"一致
+  - 横表点击行填入表单也改为操作 select 控件
+- 修改文件：label_print/routes.py；templates/label_print.html
+- 修改原因：包材名称需与 pack_item.name 保持一致（半高用 .5 表示），且需支持大泡/中泡/小泡的尺寸记录
+- 影响范围：仅 label_print 模块 label_packing_sizes 表及对应页面；不影响其他模块
+- 是否涉及数据库：是（label_packing_sizes 数据更新，重启后 INSERT OR REPLACE 自动同步）
+- 是否需要回滚：否
+
+## [2026-05-25 17:30] 修改记录
+- 修改内容：新增"包材尺寸"辅助表与管理页面
+  - 新增 label_packing_sizes 表：pack_name（TEXT UNIQUE）、size（TEXT，存"长×宽×高"文本）、updated_at
+  - 写入 22 条初始数据（12号～1号 + 半高11号～半高2号，尺寸数据来自截图）；seeding 逻辑与其他辅助表一致（表为空时才插入）
+  - _load_all() 增加 packing_sizes 返回值，_render() 透传给模板
+  - 新增路由：GET /packing_sizes（页面）、POST /packing_sizes/upsert、POST /packing_sizes/<id>/delete
+  - 模板 Tab 栏在"包材重量"和"打印历史"之间插入"包材尺寸"按钮（id=tabBtn-packing_sizes）
+  - 模板 Panel：左侧表单（包材名称文本框 + 尺寸文本框 + 提交），右侧横表（点击行填入表单，同名→更新，新名→新增）
+- 修改文件：label_print/routes.py；templates/label_print.html
+- 修改原因：用户需要按包材型号（11号、半高11号等）维护外箱尺寸参考数据，为后续体积估算提供数据基础
+- 影响范围：仅 label_print 模块；新增 1 张表（label_packing_sizes）在 data/main.db；不影响其他模块
+- 是否涉及数据库：是（新增 label_packing_sizes 表，CREATE IF NOT EXISTS，首次启动自动建表并插入初始数据）
+- 是否需要回滚：否（新增表，不修改已有表结构）
+
+## [2026-05-25 16:00] 修改记录
+- 修改内容：页头打印模块 Round 4 - 功能完善
+  - 修复模糊查询 Bug：oninput 阶段只做精确匹配（不自动补全、不跳转），onblur 阶段才执行三级模糊查询（精确→唯一 endsWith→唯一 includes）并自动补全完整编号，解决输入"1"尚未完成时直接跳到"114"的问题
+  - 新增 label_packing_weights 表：包材名称来源 pack_item.name（前端下拉框受限），另有重量列；初始无数据，等待手工录入；CRUD 路由与其他辅助表一致
+  - 新增 label_print_history 表：每次执行打印时自动 AJAX 保存 total_tickets、total_qty、items_json、printed_at；新增"打印历史"Tab 展示最近 100 条记录，支持逐条删除
+  - 前端新增"包材重量"和"打印历史"两个 Tab，共 6 个 Tab
+  - _load_all() 增加 pack_names 参数（从 pack_item 查取）；_render() 透传 pack_names 给模板
+  - 新增 API /api/save_print（POST），接收 JSON 写入 label_print_history
+- 修改文件：label_print/routes.py；templates/label_print.html
+- 修改原因：用户反馈模糊查询过早触发影响输入体验；需要包材重量和打印历史两张管理表
+- 影响范围：仅 label_print 模块；新增 2 张表（label_packing_weights、label_print_history）；pack_item 表只读查询，不修改
+- 是否涉及数据库：是（新增 label_packing_weights、label_print_history 两张表；表在 data/main.db 中按需 CREATE IF NOT EXISTS 创建）
+- 是否需要回滚：否（新增表，不影响已有表结构）
+
+## [2026-05-25 14:30] 修改记录
+- 修改内容：新增页头打印模块（label_print）完整实现
+  - 新建 label_print/ 蓝图（__init__.py + routes.py），注册到 app.py url_prefix=/label_print
+  - 新增 auth/services.py MODULE_KEYS/MODULE_LABELS 加入 label_print / 页头打印
+  - 新增 templates/label_print.html，含 4 个管理 Tab（产品管理、货物重量、尺寸管理）及打印 Tab
+  - 新增 templates/index.html 首页卡片"页头打印"（权限守卫 can_module）
+  - 新增 label_products 表：code/short_name/product_name/spec/box_spec，初始数据从 temp/打印页头.xlsx Sheet2 导入
+  - 新增 label_weights 表：22 条初始货物重量数据
+  - 新增 label_sizes 表：22 条初始尺寸数据（长/宽/高/is_irregular）；编号 184 标记 is_irregular=1（两端高度不同）
+  - 打印功能：全局总票数输入 + 动态多行（货物编号/每票件数/箱数/总件数）；箱数同时显示"N箱+M个"和"N+1箱-K个"两种形式；打印尺寸 76mm×130mm，自动分页
+  - 产品管理：横表展示现有数据，点击行填入表单，同编号提交→更新，新编号→新增
+  - 货物重量 / 尺寸管理：同上 upsert 交互
+  - 修复：index() 路由未传 products 导致产品管理 Tab 数据为空；改为通过统一 _render() 传全量数据
+- 修改文件：新增 label_print/__init__.py；新增 label_print/routes.py；新增 templates/label_print.html；修改 auth/services.py；修改 app.py；修改 templates/index.html
+- 修改原因：用户需要内部打印页头标签的管理工具，替代原手工 Excel 操作
+- 影响范围：新增模块，不影响其他模块；新增 3 张表（label_products、label_weights、label_sizes）在 data/main.db
+- 是否涉及数据库：是（新增 label_products、label_weights、label_sizes 三张表）
+- 是否需要回滚：否（新增模块与表，不改动已有表结构）
+
 ## [2026-05-02 13:21] 修改记录
 - 修改内容：修正微信小店原始数据导出默认日期，改为按当前数据状态表中的最早/最晚日期自动填充，避免写死未来日期导致导出空白；新增 common/download_utils.py 统一下载响应，微信小店 Excel 导出与发票批量 ZIP 下载改用标准下载函数；移除微信小店导出调试 print。
 - 修改文件：common/download_utils.py；wechat_shop/routes.py；wechat_shop/services.py；templates/wechat_shop.html；invoicing/routes.py；PROJECT_MEMORY.md；PROJECT_MEMORY_FILE_STORAGE.md
@@ -941,9 +1087,24 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 是否涉及数据库：是
 - 是否需要回滚：否
 ## [2026-05-15 21:34] 修改记录
-- 修改内容：发票复核页与单张发票匹配页的候选下拉新增“已开”金额展示，已开按当前候选账期对应的 `invoice_expected_match` 已匹配金额汇总；“匹配后”改为 `应开 - 已开 - 当前发票金额`；候选排序改为按 `abs(匹配后)` 从小到大，匹配后为 0 的候选优先显示。修改已有发票时，候选已开金额会排除当前发票自身，避免重复扣减。
+- 修改内容：发票复核页与单张发票匹配页的候选下拉新增”已开”金额展示，已开按当前候选账期对应的 `invoice_expected_match` 已匹配金额汇总；”匹配后”改为 `应开 - 已开 - 当前发票金额`；候选排序改为按 `abs(匹配后)` 从小到大，匹配后为 0 的候选优先显示。修改已有发票时，候选已开金额会排除当前发票自身，避免重复扣减。
 - 修改文件：invoicing/routes.py；templates/invoicing_invoice_match.html；templates/invoicing_invoices_review.html；PROJECT_MEMORY.md
 - 修改原因：匹配时需要直接看到该账期已经被发票占用的金额，并优先展示最接近完全匹配的候选。
 - 影响范围：仅发票复核/匹配候选展示与排序；不改变已保存的发票匹配关系、核对页汇总口径和达人/团长昵称管理汇总。
 - 是否涉及数据库：否
 - 是否需要回滚：否
+
+## [2026-05-25 14:30] 修改记录
+- 修改内容：新增页头打印模块（label_print）
+  - 新建 label_products 表（字段：code/short_name/product_name/spec/box_spec），首次访问自动从 temp/打印页头.xlsx Sheet2 导入 25 条产品数据
+  - 打印页面：动态添加货物行（货物编号 / 每票件数 / 总票数），输入编号后自动填充仓库简称，自动计算箱数（整箱显示”N箱”，不足整箱显示”N箱-M个”），实时汇总总票数/总数量
+  - 打印格式同操作入库（76mm×130mm 快递单贴纸），每行显示”简称 * 件数 箱数”，最后显示一次总票数和总数量，超出自动分页
+  - 产品管理页：支持新增/行内编辑/删除产品，维护 label_products 表
+  - 接入授权体系（module_key=label_print），首页加「页头打印」卡片
+- 修改文件：
+  - 新增：label_print/__init__.py、label_print/routes.py、templates/label_print.html
+  - 修改：auth/services.py、app.py、templates/index.html、PROJECT_MEMORY.md
+- 修改原因：用户需要 Web 化替代手工 Excel 打印页头，并加入箱数自动计算辅助配货
+- 影响范围：新增独立模块；现有模块路由与逻辑不动；普通用户默认无 label_print 权限，需管理员授权
+- 是否涉及数据库：是（新增 label_products 表，首次访问自动建表并从 xlsx 导入）
+- 是否需要回滚：否（git revert 相关文件 + 删除 label_print/ 目录即可）
