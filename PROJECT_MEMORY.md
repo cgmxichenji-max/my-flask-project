@@ -1,5 +1,17 @@
 # 项目记忆
 
+## [2026-05-26 12:45] 修改记录
+- 修改内容：继续修复金山 WPS 扫码后"非法访问（错误码：0x00018）"
+  - 进一步排查金山官方登录页，确认官方 WPS 扫码流程会先生成 PKCE 参数，并把 `code_challenge` 传入 `/api/v3/login_qrcode`
+  - 后端新增 `_generate_kdocs_pkce()`，按官方 SDK 算法生成 `code_verifier` 与 `base64url(sha256(verifier))` 格式的 `code_challenge`
+  - 页面二维码登录接口现在带 `code_challenge` 创建 loginid，并在扫码会话内保存 `code_verifier`
+  - 同步更新 `scripts/kdocs_login_cookie.py` 的二维码创建流程
+- 修改文件：label_print/routes.py；scripts/kdocs_login_cookie.py；PROJECT_MEMORY.md
+- 修改原因：仅去掉空 `data={}` 后仍报非法访问，说明金山确认登录阶段还校验 PKCE 创建参数
+- 影响范围：仅金山 WPS 扫码登录创建 loginid 流程
+- 是否涉及数据库：否
+- 是否需要回滚：否
+
 ## [2026-05-26 12:25] 修改记录
 - 修改内容：修复页头打印金山页面扫码后手机端提示"非法访问（错误码：0x00018）"
   - 原因：网页二维码登录接口传了 `data={}`，手机 WPS 可扫码但确认登录页会被金山判为非法访问

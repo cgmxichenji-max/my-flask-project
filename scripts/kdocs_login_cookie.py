@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import http.cookiejar
+import base64
+import hashlib
 import json
 import os
 import re
@@ -69,6 +71,14 @@ def _save_cookie(cookie):
         pass
 
 
+def _generate_pkce():
+    alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
+    verifier = ''.join(alphabet[b % len(alphabet)] for b in os.urandom(64))
+    digest = hashlib.sha256(verifier.encode('utf-8')).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode('ascii').rstrip('=')
+    return verifier, challenge
+
+
 def _download_qr(opener, url):
     req = urllib.request.Request(url, headers=HEADERS)
     with opener.open(req, timeout=20) as resp:
@@ -94,7 +104,14 @@ def _exchange_authcode(opener, authcode):
 
 def main():
     opener, cookie_jar = _make_opener()
-    login = _read_jsonp(opener, QR_BASE + '/api/v3/login_qrcode?_jsonp=cb')
+    code_verifier, code_challenge = _generate_pkce()
+    login = _read_jsonp(
+        opener,
+        QR_BASE + '/api/v3/login_qrcode?' + urllib.parse.urlencode({
+            '_jsonp': 'cb',
+            'code_challenge': code_challenge,
+        }),
+    )
     loginid = login.get('loginid')
     if not loginid:
         raise RuntimeError('没有拿到金山登录二维码 ID：' + json.dumps(login, ensure_ascii=False))

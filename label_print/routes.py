@@ -3,6 +3,7 @@ import json
 import math
 import base64
 import csv
+import hashlib
 import http.cookiejar
 import io
 import re
@@ -496,6 +497,15 @@ def _message_needs_kdocs_login(message):
     return any(key in message for key in ('登录', '验证码', 'Cookie', '扫码', 'InvalidCaptcha', 'ErrNeedCaptcha'))
 
 
+def _generate_kdocs_pkce():
+    alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
+    verifier_len = 64
+    verifier = ''.join(secrets.choice(alphabet) for _ in range(verifier_len))
+    digest = hashlib.sha256(verifier.encode('utf-8')).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode('ascii').rstrip('=')
+    return verifier, challenge
+
+
 def _login_kdocs_with_password():
     opener, cookie_jar = _make_kdocs_opener()
     headers = {
@@ -966,11 +976,13 @@ def api_kdocs_qr_start():
             'Accept': 'application/json, text/javascript, */*; q=0.01',
             'Referer': 'https://account.wps.cn/wpspersonallogin',
         }
+        code_verifier, code_challenge = _generate_kdocs_pkce()
         _open_text(opener, headers['Referer'], headers=headers, timeout=18)
         login = _open_jsonp(
             opener,
             f'{KDOCS_QR_BASE}/api/v3/login_qrcode?' + urllib.parse.urlencode({
                 '_jsonp': 'quickGetQrcodeJsonpCallback',
+                'code_challenge': code_challenge,
             }),
         )
         loginid = login.get('loginid')
@@ -988,6 +1000,7 @@ def api_kdocs_qr_start():
         KDOCS_QR_SESSIONS[loginid] = {
             'opener': opener,
             'cookie_jar': cookie_jar,
+            'code_verifier': code_verifier,
             'state': 'scan',
             'expires_at': datetime.now().timestamp() + 300,
         }
