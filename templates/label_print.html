@@ -51,6 +51,11 @@
         .btn-cookie{padding:6px 12px;background:#f5f5f5;color:#555;border:1px solid #ddd;
                     border-radius:6px;font-size:12px;font-weight:bold;cursor:pointer;white-space:nowrap}
         .btn-cookie:hover{background:#eee}
+        .qr-panel{display:none;align-items:center;gap:12px;margin-top:9px;padding:10px;
+                  border:1px solid #d7e8ff;background:#f8fbff;border-radius:6px}
+        .qr-img{width:132px;height:132px;border:1px solid #ddd;background:white;border-radius:4px}
+        .qr-info{display:flex;flex-direction:column;gap:8px;font-size:12px;color:#555}
+        .qr-status{font-weight:bold;color:#1976d2}
         .btn-parse{padding:6px 14px;background:#1976d2;color:white;border:none;border-radius:6px;
                    font-size:13px;font-weight:bold;cursor:pointer}
         .btn-parse:hover{background:#0d47a1}
@@ -200,6 +205,13 @@
             <div class="cookie-row">
                 <textarea id="kdocs-cookie" placeholder="金山已登录 Cookie（可选，保存后解析按钮会带登录态读取）"></textarea>
                 <button class="btn-cookie" type="button" onclick="saveKdocsCookie()">保存Cookie</button>
+            </div>
+            <div class="qr-panel" id="kdocs-qr-panel">
+                <img class="qr-img" id="kdocs-qr-img" alt="金山登录二维码">
+                <div class="qr-info">
+                    <span class="qr-status" id="kdocs-qr-status">等待生成二维码</span>
+                    <button class="btn-cookie" type="button" onclick="cancelKdocsQrLogin()">关闭二维码</button>
+                </div>
             </div>
         </div>
         <p class="section-title">货物录入</p>
@@ -1001,7 +1013,11 @@ window.addEventListener('DOMContentLoaded', () => {
 // ══════════════════════════════════
 //  金山文档当天文本解析
 // ══════════════════════════════════
-function parseKdocsToday() {
+let kdocsQrLoginId = '';
+let kdocsQrState = 'scan';
+let kdocsQrPolling = false;
+
+function parseKdocsToday(skipQrLogin = false) {
     const textEl = document.getElementById('kdocs-parse-text');
     const statusEl = document.getElementById('kdocs-parse-status');
     const pasted = textEl.value.trim();
@@ -1013,15 +1029,90 @@ function parseKdocsToday() {
     })
     .then(async r => {
         const data = await r.json().catch(() => ({}));
-        if (!r.ok || !data.ok) throw new Error(data.message || '解析失败');
+        if (!r.ok || !data.ok) throw data;
         textEl.value = data.text || '';
         const src = data.source === 'txt' ? '解析txt' : '金山文档';
         statusEl.textContent = `${src}：${data.date}，${data.column_name}，共 ${data.count} 条`;
     })
     .catch(err => {
-        statusEl.textContent = err.message || '解析失败';
+        if (err && err.need_login && !skipQrLogin && !(pasted.includes('\t') || pasted.includes('提交时间'))) {
+            statusEl.textContent = '金山需要扫码验证';
+            startKdocsQrLogin();
+            return;
+        }
+        statusEl.textContent = (err && err.message) || '解析失败';
         alert(statusEl.textContent);
     });
+}
+
+function startKdocsQrLogin() {
+    const panel = document.getElementById('kdocs-qr-panel');
+    const img = document.getElementById('kdocs-qr-img');
+    const qrStatus = document.getElementById('kdocs-qr-status');
+    const statusEl = document.getElementById('kdocs-parse-status');
+    panel.style.display = 'flex';
+    img.removeAttribute('src');
+    qrStatus.textContent = '正在生成二维码...';
+    kdocsQrPolling = false;
+    fetch('/label_print/api/kdocs_qr/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+    })
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw data;
+        kdocsQrLoginId = data.loginid;
+        kdocsQrState = data.state || 'scan';
+        kdocsQrPolling = true;
+        img.src = data.qr_url;
+        qrStatus.textContent = '请用手机 WPS 扫码';
+        statusEl.textContent = '等待手机扫码验证...';
+        pollKdocsQrLogin();
+    })
+    .catch(err => {
+        qrStatus.textContent = (err && err.message) || '生成二维码失败';
+        statusEl.textContent = qrStatus.textContent;
+        alert(statusEl.textContent);
+    });
+}
+
+function pollKdocsQrLogin() {
+    if (!kdocsQrPolling || !kdocsQrLoginId) return;
+    const qrStatus = document.getElementById('kdocs-qr-status');
+    const statusEl = document.getElementById('kdocs-parse-status');
+    fetch('/label_print/api/kdocs_qr/poll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loginid: kdocsQrLoginId, state: kdocsQrState })
+    })
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw data;
+        qrStatus.textContent = data.message || '等待验证';
+        statusEl.textContent = qrStatus.textContent;
+        if (data.state === 'logined') {
+            kdocsQrPolling = false;
+            document.getElementById('kdocs-qr-panel').style.display = 'none';
+            parseKdocsToday(true);
+            return;
+        }
+        kdocsQrState = data.next_state || kdocsQrState || 'scan';
+        setTimeout(pollKdocsQrLogin, 800);
+    })
+    .catch(err => {
+        kdocsQrPolling = false;
+        qrStatus.textContent = (err && err.message) || '扫码验证失败';
+        statusEl.textContent = qrStatus.textContent;
+        alert(statusEl.textContent);
+    });
+}
+
+function cancelKdocsQrLogin() {
+    kdocsQrPolling = false;
+    kdocsQrLoginId = '';
+    document.getElementById('kdocs-qr-panel').style.display = 'none';
+    document.getElementById('kdocs-parse-status').textContent = '已关闭二维码';
 }
 
 function saveKdocsCookie() {

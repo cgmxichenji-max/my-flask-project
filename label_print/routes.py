@@ -25,6 +25,9 @@ KDOCS_SOURCE_URL = 'https://kdocs.cn/l/cnaogtuBWmXW'
 KDOCS_COOKIE_PATH = os.path.join(BASE_DIR, 'data', 'kdocs_cookie.txt')
 KDOCS_LOGIN_ACCOUNT = '香水梨'
 KDOCS_LOGIN_PASSWORD = 'chenxi98'
+KDOCS_QR_BASE = 'https://qr.wps.cn'
+KDOCS_ACCOUNT_BASE = 'https://account.wps.cn'
+KDOCS_QR_SESSIONS = {}
 
 # ─────────────────────────────── 数据库工具 ───────────────────────────────
 
@@ -436,7 +439,7 @@ def _open_json(opener, url, data=None, headers=None, method=None):
             raise ValueError(f'金山登录请求失败：HTTP {exc.code}')
 
 
-def _login_kdocs_with_password():
+def _make_kdocs_opener():
     ssl_context = ssl._create_unverified_context()
     cookie_jar = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(
@@ -444,6 +447,57 @@ def _login_kdocs_with_password():
         urllib.request.HTTPSHandler(context=ssl_context),
         urllib.request.HTTPCookieProcessor(cookie_jar),
     )
+    return opener, cookie_jar
+
+
+def _open_text(opener, url, data=None, headers=None, method=None, timeout=18):
+    body = None
+    if data is not None:
+        body = urllib.parse.urlencode(data).encode('utf-8')
+    req = urllib.request.Request(url, data=body, headers=headers or {}, method=method)
+    with opener.open(req, timeout=timeout) as resp:
+        return resp.read().decode('utf-8', errors='ignore')
+
+
+def _open_jsonp(opener, url, timeout=18):
+    text = _open_text(opener, url, timeout=timeout)
+    match = re.search(r'^[^(]*\((.*)\)\s*;?\s*$', text.strip(), re.S)
+    payload = match.group(1) if match else text
+    return json.loads(payload or '{}')
+
+
+def _cleanup_kdocs_qr_sessions():
+    now = datetime.now().timestamp()
+    expired = [loginid for loginid, item in KDOCS_QR_SESSIONS.items() if item.get('expires_at', 0) < now]
+    for loginid in expired:
+        KDOCS_QR_SESSIONS.pop(loginid, None)
+
+
+def _exchange_kdocs_authcode(opener, authcode):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Referer': 'https://account.wps.cn/',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+    }
+    result = _open_json(
+        opener,
+        f'{KDOCS_ACCOUNT_BASE}/api/session/exchange/login',
+        data={'authcode': authcode},
+        headers=headers,
+        method='POST',
+    )
+    if result.get('result') not in (None, 'ok') and not result.get('userid'):
+        raise ValueError(result.get('msg') or result.get('result') or '扫码登录换取 Cookie 失败')
+    return result
+
+
+def _message_needs_kdocs_login(message):
+    return any(key in message for key in ('登录', '验证码', 'Cookie', '扫码', 'InvalidCaptcha', 'ErrNeedCaptcha'))
+
+
+def _login_kdocs_with_password():
+    opener, cookie_jar = _make_kdocs_opener()
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Referer': 'https://account.wps.cn/v1/accountlogin?keeponline=true&loginpageiframe=true',
@@ -484,7 +538,7 @@ def _login_kdocs_with_password():
     if result.get('result') != 'ok':
         msg = result.get('msg') or result.get('result') or '未知错误'
         if '验证码' in msg or result.get('result') in ('InvalidCaptcha', 'ErrNeedCaptcha'):
-            msg += '；请在服务器运行 python3 scripts/kdocs_login_cookie.py 扫码获取 Cookie'
+            msg += '；请在页面二维码扫码验证'
         raise ValueError(f'金山账号密码自动登录失败：{msg}')
 
     ssid = result.get('ssid') or passkey.get('ssid')
@@ -894,10 +948,101 @@ def api_kdocs_today_text():
         result['source'] = 'txt' if raw_text else 'kdocs'
         return jsonify(result)
     except ValueError as exc:
-        return jsonify({'ok': False, 'message': str(exc)}), 400
+        message = str(exc)
+        return jsonify({'ok': False, 'message': message, 'need_login': _message_needs_kdocs_login(message)}), 400
     except Exception as exc:
         current_app.logger.exception('[label_print] kdocs parse failed')
         return jsonify({'ok': False, 'message': f'解析失败：{exc}'}), 500
+
+
+@label_print_bp.route('/api/kdocs_qr/start', methods=['POST'])
+@module_required('label_print')
+def api_kdocs_qr_start():
+    try:
+        _cleanup_kdocs_qr_sessions()
+        opener, cookie_jar = _make_kdocs_opener()
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Referer': 'https://account.wps.cn/',
+        }
+        login = _open_jsonp(
+            opener,
+            f'{KDOCS_QR_BASE}/api/v3/login_qrcode?_jsonp=callback',
+        )
+        loginid = login.get('loginid')
+        if not loginid:
+            raise ValueError(login.get('msg') or login.get('result') or '生成二维码登录 ID 失败')
+
+        qr_url = f'{KDOCS_QR_BASE}/api/v3/login_qrcode/url?' + urllib.parse.urlencode({
+            'loginid': loginid,
+            'data': '{}',
+        })
+        qr_info = _open_json(opener, qr_url, headers=headers)
+        image_url = qr_info.get('url')
+        if qr_info.get('result') not in (None, 'ok') or not image_url:
+            raise ValueError(qr_info.get('msg') or qr_info.get('result') or '生成二维码失败')
+
+        KDOCS_QR_SESSIONS[loginid] = {
+            'opener': opener,
+            'cookie_jar': cookie_jar,
+            'state': 'scan',
+            'expires_at': datetime.now().timestamp() + 300,
+        }
+        return jsonify({'ok': True, 'loginid': loginid, 'qr_url': image_url, 'state': 'scan', 'expires_in': 300})
+    except Exception as exc:
+        current_app.logger.exception('[label_print] start kdocs qr login failed')
+        return jsonify({'ok': False, 'message': f'生成金山登录二维码失败：{exc}'}), 500
+
+
+@label_print_bp.route('/api/kdocs_qr/poll', methods=['POST'])
+@module_required('label_print')
+def api_kdocs_qr_poll():
+    data = request.get_json(silent=True) or {}
+    loginid = (data.get('loginid') or '').strip()
+    state = (data.get('state') or 'scan').strip() or 'scan'
+    try:
+        _cleanup_kdocs_qr_sessions()
+        item = KDOCS_QR_SESSIONS.get(loginid)
+        if not item:
+            raise ValueError('二维码已过期，请重新点击解析生成')
+
+        poll_url = f'{KDOCS_QR_BASE}/api/v3/login_qrcode/login?' + urllib.parse.urlencode({
+            'loginid': loginid,
+            'state': state,
+            '_jsonp': 'callback',
+        })
+        result = _open_jsonp(item['opener'], poll_url, timeout=35)
+        result_code = result.get('result')
+        qr_state = result.get('state') or result_code
+
+        if result_code not in (None, 'ok') and qr_state not in ('pending', 'scan', 'logined'):
+            KDOCS_QR_SESSIONS.pop(loginid, None)
+            raise ValueError(result.get('msg') or result_code or '二维码登录失败')
+
+        if qr_state == 'pending':
+            return jsonify({'ok': True, 'state': 'pending', 'next_state': state, 'message': '等待手机扫码'})
+        if qr_state == 'scan':
+            item['state'] = 'confirm'
+            return jsonify({'ok': True, 'state': 'scan', 'next_state': 'confirm', 'message': '已扫码，请在手机上确认登录'})
+        if qr_state == 'logined':
+            authcode = result.get('authcode')
+            if not authcode:
+                raise ValueError('扫码已确认，但金山未返回 authcode')
+            _exchange_kdocs_authcode(item['opener'], authcode)
+            cookie = _cookie_header_from_jar(item['cookie_jar'])
+            if not cookie:
+                raise ValueError('扫码登录成功但未获得 Cookie')
+            _save_kdocs_cookie(cookie)
+            KDOCS_QR_SESSIONS.pop(loginid, None)
+            return jsonify({'ok': True, 'state': 'logined', 'saved': True, 'message': '登录验证完成，正在继续解析'})
+
+        return jsonify({'ok': True, 'state': qr_state or 'pending', 'next_state': state, 'message': '等待验证'})
+    except ValueError as exc:
+        return jsonify({'ok': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        current_app.logger.exception('[label_print] poll kdocs qr login failed')
+        return jsonify({'ok': False, 'message': f'扫码验证失败：{exc}'}), 500
 
 
 @label_print_bp.route('/api/kdocs_cookie', methods=['POST'])

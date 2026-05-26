@@ -1,5 +1,18 @@
 # 项目记忆
 
+## [2026-05-26 00:20] 修改记录
+- 修改内容：页头打印金山验证改为页面内扫码登录
+  - 后端新增 `/label_print/api/kdocs_qr/start`：生成金山 WPS 登录二维码并在 Flask 进程内短暂保存扫码会话
+  - 后端新增 `/label_print/api/kdocs_qr/poll`：轮询扫码状态，手机确认后用 authcode 换取登录 Cookie，并保存到 `data/kdocs_cookie.txt`
+  - `/label_print/api/kdocs_today_text` 登录/验证码类失败时返回 `need_login=true`，前端据此自动弹出二维码
+  - 页头打印界面点击"解析"后，如金山账号密码自动登录触发验证码，页面显示二维码；扫码确认成功后自动继续解析金山当天第 6 列内容
+  - 保留手工粘贴 Cookie 功能作为备用
+- 修改文件：label_print/routes.py；templates/label_print.html；PROJECT_MEMORY.md
+- 修改原因：服务器无浏览器时，不能靠命令行脚本本地打开验证；需要在网页里生成二维码，由手机扫码完成验证后继续解析
+- 影响范围：仅 label_print 模块；二维码会话保存在当前 Flask 进程内，适合当前单进程 `app.run` 部署方式
+- 是否涉及数据库：否
+- 是否需要回滚：否
+
 ## [2026-05-25 23:30] 修改记录
 - 修改内容：页头打印新增金山文档当天文本解析与服务器端扫码获取 Cookie
   - 打印 Tab 新增"解析txt"文本框与"解析"按钮：读取金山文档 `https://kdocs.cn/l/cnaogtuBWmXW`，按第 2 列"提交时间"筛选当天记录，提取第 6 列内容逐行填入解析文本框
