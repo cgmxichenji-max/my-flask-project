@@ -1,5 +1,16 @@
 # 项目记忆
 
+## [2026-05-26 12:25] 修改记录
+- 修改内容：修复页头打印金山页面扫码后手机端提示"非法访问（错误码：0x00018）"
+  - 原因：网页二维码登录接口传了 `data={}`，手机 WPS 可扫码但确认登录页会被金山判为非法访问
+  - 修正：生成二维码前先访问 `https://account.wps.cn/wpspersonallogin` 建立同源会话；二维码 URL 改为官方 WPS 扫码页一致的参数，不再传空 JSON `data`
+  - 同步修正 `scripts/kdocs_login_cookie.py`，避免命令行二维码也生成非法访问二维码
+- 修改文件：label_print/routes.py；scripts/kdocs_login_cookie.py；PROJECT_MEMORY.md
+- 修改原因：用户手机扫码后无法确认登录，页面弹出非法访问错误
+- 影响范围：仅金山 WPS 扫码登录生成二维码流程
+- 是否涉及数据库：否
+- 是否需要回滚：否
+
 ## [2026-05-26 00:20] 修改记录
 - 修改内容：页头打印金山验证改为页面内扫码登录
   - 后端新增 `/label_print/api/kdocs_qr/start`：生成金山 WPS 登录二维码并在 Flask 进程内短暂保存扫码会话

@@ -964,11 +964,14 @@ def api_kdocs_qr_start():
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
             'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'Referer': 'https://account.wps.cn/',
+            'Referer': 'https://account.wps.cn/wpspersonallogin',
         }
+        _open_text(opener, headers['Referer'], headers=headers, timeout=18)
         login = _open_jsonp(
             opener,
-            f'{KDOCS_QR_BASE}/api/v3/login_qrcode?_jsonp=callback',
+            f'{KDOCS_QR_BASE}/api/v3/login_qrcode?' + urllib.parse.urlencode({
+                '_jsonp': 'quickGetQrcodeJsonpCallback',
+            }),
         )
         loginid = login.get('loginid')
         if not loginid:
@@ -976,7 +979,6 @@ def api_kdocs_qr_start():
 
         qr_url = f'{KDOCS_QR_BASE}/api/v3/login_qrcode/url?' + urllib.parse.urlencode({
             'loginid': loginid,
-            'data': '{}',
         })
         qr_info = _open_json(opener, qr_url, headers=headers)
         image_url = qr_info.get('url')

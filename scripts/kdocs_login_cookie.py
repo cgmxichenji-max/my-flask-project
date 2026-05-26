@@ -103,7 +103,6 @@ def main():
         opener,
         QR_BASE + '/api/v3/login_qrcode/url?' + urllib.parse.urlencode({
             'loginid': loginid,
-            'data': '{}',
         }),
         timeout=20,
     )
