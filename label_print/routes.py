@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
-from flask import Blueprint, render_template, jsonify, request, redirect, url_for, current_app
+from flask import Blueprint, render_template, jsonify, request, redirect, url_for, current_app, g
 import sqlite3
 from dateutil import parser as date_parser
 from cryptography.hazmat.primitives.asymmetric import ec, utils as ec_utils
@@ -31,6 +31,7 @@ KDOCS_LOGIN_PASSWORD = 'chenxi98'
 KDOCS_QR_BASE = 'https://qr.wps.cn'
 KDOCS_ACCOUNT_BASE = 'https://account.wps.cn'
 KDOCS_QR_SESSIONS = {}
+KDOCS_SOURCE_KEY = 'kdocs_main'
 
 # ─────────────────────────────── 数据库工具 ───────────────────────────────
 
@@ -93,6 +94,24 @@ def ensure_tables(conn):
             items_json     TEXT    NOT NULL DEFAULT '[]',
             printed_at     TEXT    NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS label_wps_records (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_key              TEXT    NOT NULL DEFAULT '',
+            submit_date             TEXT    NOT NULL DEFAULT '',
+            submit_time_text        TEXT    NOT NULL DEFAULT '',
+            row_hash                TEXT    NOT NULL DEFAULT '',
+            row_json                TEXT    NOT NULL DEFAULT '{}',
+            content_text            TEXT    NOT NULL DEFAULT '',
+            parsed_items_json       TEXT    NOT NULL DEFAULT '[]',
+            parse_status            TEXT    NOT NULL DEFAULT 'unparsed',
+            printed_count           INTEGER NOT NULL DEFAULT 0,
+            last_printed_at         TEXT    NOT NULL DEFAULT '',
+            last_printed_by_user_id INTEGER,
+            last_printed_by_username TEXT   NOT NULL DEFAULT '',
+            created_at              TEXT    NOT NULL,
+            updated_at              TEXT    NOT NULL,
+            UNIQUE(source_key, row_hash)
+        );
         CREATE TABLE IF NOT EXISTS label_pack_presets (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             combo_key  TEXT    NOT NULL UNIQUE,
@@ -110,6 +129,11 @@ def ensure_tables(conn):
         );
     ''')
     _ensure_column(conn, 'label_pack_presets', 'bag_qty', 'INTEGER NOT NULL DEFAULT 1')
+    _ensure_column(conn, 'label_print_history', 'wps_record_id', 'INTEGER')
+    _ensure_column(conn, 'label_print_history', 'printed_by_user_id', 'INTEGER')
+    _ensure_column(conn, 'label_print_history', 'printed_by_username', "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, 'label_print_history', 'is_forced_reprint', 'INTEGER NOT NULL DEFAULT 0')
+    _ensure_column(conn, 'label_print_history', 'parsed_items_json', "TEXT NOT NULL DEFAULT '[]'")
     conn.commit()
 
 
@@ -703,6 +727,161 @@ def _extract_today_submit_text(rows, target_date=None):
     }
 
 
+def _find_kdocs_header(rows):
+    header_idx = 0
+    submit_idx = 1
+    for idx, row in enumerate(rows[:20]):
+        if len(row) > 1 and '提交时间' in row[1]:
+            return idx, 1
+        found = next((i for i, cell in enumerate(row) if '提交时间' in cell), None)
+        if found is not None:
+            return idx, found
+    return header_idx, submit_idx
+
+
+def _today_kdocs_record_rows(rows, target_date=None):
+    target_date = target_date or datetime.now().date()
+    header_idx, submit_idx = _find_kdocs_header(rows)
+    header = rows[header_idx] if header_idx < len(rows) else []
+    target_idx = 5
+    records = []
+    for idx, row in enumerate(rows[header_idx + 1:], start=header_idx + 2):
+        if len(row) <= max(submit_idx, target_idx):
+            continue
+        submitted_on = _parse_date_cell(row[submit_idx])
+        if submitted_on != target_date:
+            continue
+        row_payload = {'header': header, 'row': row, 'row_number': idx}
+        row_json = json.dumps(row_payload, ensure_ascii=False, sort_keys=True)
+        records.append({
+            'source_key': KDOCS_SOURCE_KEY,
+            'submit_date': target_date.isoformat(),
+            'submit_time_text': _clean_cell(row[submit_idx]),
+            'row_hash': hashlib.sha256(row_json.encode('utf-8')).hexdigest(),
+            'row_json': json.dumps(row_payload, ensure_ascii=False),
+            'content_text': _clean_cell(row[target_idx]),
+        })
+    return records
+
+
+def _record_row_to_dict(row):
+    data = dict(row)
+    try:
+        data['row_data'] = json.loads(data.get('row_json') or '{}')
+    except Exception:
+        data['row_data'] = {}
+    try:
+        data['parsed_items'] = json.loads(data.get('parsed_items_json') or '[]')
+    except Exception:
+        data['parsed_items'] = []
+    data['is_printed'] = int(data.get('printed_count') or 0) > 0
+    return data
+
+
+def _list_today_wps_records(conn, target_date=None):
+    target_date = target_date or datetime.now().date()
+    rows = conn.execute(
+        '''
+        SELECT * FROM label_wps_records
+        WHERE source_key=? AND submit_date=?
+        ORDER BY submit_time_text, id
+        ''',
+        (KDOCS_SOURCE_KEY, target_date.isoformat()),
+    ).fetchall()
+    return [_record_row_to_dict(row) for row in rows]
+
+
+def _upsert_today_wps_records(conn, records):
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    inserted = 0
+    updated = 0
+    for record in records:
+        existing = conn.execute(
+            'SELECT id FROM label_wps_records WHERE source_key=? AND row_hash=?',
+            (record['source_key'], record['row_hash']),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                '''
+                UPDATE label_wps_records
+                SET submit_date=?, submit_time_text=?, row_json=?, content_text=?, updated_at=?
+                WHERE id=?
+                ''',
+                (
+                    record['submit_date'], record['submit_time_text'], record['row_json'],
+                    record['content_text'], now, existing['id']
+                ),
+            )
+            updated += 1
+        else:
+            conn.execute(
+                '''
+                INSERT INTO label_wps_records (
+                    source_key, submit_date, submit_time_text, row_hash, row_json, content_text,
+                    parsed_items_json, parse_status, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?)
+                ''',
+                (
+                    record['source_key'], record['submit_date'], record['submit_time_text'],
+                    record['row_hash'], record['row_json'], record['content_text'],
+                    '[]', 'unparsed', now, now
+                ),
+            )
+            inserted += 1
+    return inserted, updated
+
+
+def _parse_qty_near_code(line, code):
+    escaped = re.escape(code)
+    patterns = [
+        rf'{escaped}\s*(?:[xX×*：: ]\s*)?(\d+)',
+        rf'(\d+)\s*(?:个|件|只|条)?\s*{escaped}',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, line, re.I)
+        if match:
+            try:
+                return max(1, int(match.group(1)))
+            except Exception:
+                return 1
+    nums = re.findall(r'\d+', line)
+    return max(1, int(nums[-1])) if nums else 1
+
+
+def _parse_wps_content_items(conn, content_text):
+    products = conn.execute(
+        'SELECT code,short_name,box_spec FROM label_products ORDER BY LENGTH(code) DESC'
+    ).fetchall()
+    items = []
+    for line in [part.strip() for part in re.split(r'[\r\n]+', content_text or '') if part.strip()]:
+        product = None
+        for prod in products:
+            code = str(prod['code'])
+            if re.search(rf'(?<![A-Za-z0-9]){re.escape(code)}(?![A-Za-z0-9])', line, re.I):
+                product = prod
+                break
+        if product:
+            qty = _parse_qty_near_code(line, product['code'])
+            items.append({
+                'kind': 'product',
+                'code': product['code'],
+                'label': product['short_name'] or product['code'],
+                'pcs': qty,
+                'raw': line,
+                'status': 'matched',
+            })
+        else:
+            items.append({
+                'kind': 'text',
+                'code': '',
+                'label': line,
+                'pcs': 0,
+                'raw': line,
+                'status': 'text',
+            })
+    return items
+
+
 # ─────────────────────────────── 通用渲染 ───────────────────────────────
 
 def _render(active_tab, conn=None):
@@ -1037,6 +1216,89 @@ def api_kdocs_today_text():
         return jsonify({'ok': False, 'message': f'解析失败：{exc}'}), 500
 
 
+@label_print_bp.route('/api/wps_records/import_today', methods=['POST'])
+@module_required('label_print')
+def api_wps_records_import_today():
+    try:
+        rows = _fetch_kdocs_rows()
+        records = _today_kdocs_record_rows(rows)
+        conn = get_db_connection()
+        ensure_tables(conn)
+        inserted, updated = _upsert_today_wps_records(conn, records)
+        conn.commit()
+        result_records = _list_today_wps_records(conn)
+        conn.close()
+        return jsonify({
+            'ok': True,
+            'inserted': inserted,
+            'updated': updated,
+            'count': len(result_records),
+            'records': result_records,
+        })
+    except ValueError as exc:
+        message = str(exc)
+        return jsonify({'ok': False, 'message': message, 'need_login': _message_needs_kdocs_login(message)}), 400
+    except Exception as exc:
+        current_app.logger.exception('[label_print] import wps records failed')
+        return jsonify({'ok': False, 'message': f'读取WPS今日记录失败：{exc}'}), 500
+
+
+@label_print_bp.route('/api/wps_records/today')
+@module_required('label_print')
+def api_wps_records_today():
+    conn = get_db_connection()
+    ensure_tables(conn)
+    records = _list_today_wps_records(conn)
+    conn.close()
+    return jsonify({'ok': True, 'records': records, 'count': len(records)})
+
+
+@label_print_bp.route('/api/wps_records/<int:record_id>/parse', methods=['POST'])
+@module_required('label_print')
+def api_wps_record_parse(record_id):
+    conn = get_db_connection()
+    ensure_tables(conn)
+    record = conn.execute('SELECT * FROM label_wps_records WHERE id=?', (record_id,)).fetchone()
+    if not record:
+        conn.close()
+        return jsonify({'ok': False, 'message': 'WPS记录不存在'}), 404
+    items = _parse_wps_content_items(conn, record['content_text'])
+    status = 'parsed' if items else 'needs_review'
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn.execute(
+        'UPDATE label_wps_records SET parsed_items_json=?, parse_status=?, updated_at=? WHERE id=?',
+        (json.dumps(items, ensure_ascii=False), status, now, record_id),
+    )
+    conn.commit()
+    updated = conn.execute('SELECT * FROM label_wps_records WHERE id=?', (record_id,)).fetchone()
+    conn.close()
+    return jsonify({'ok': True, 'record': _record_row_to_dict(updated), 'items': items})
+
+
+@label_print_bp.route('/api/wps_records/<int:record_id>/save_parse', methods=['POST'])
+@module_required('label_print')
+def api_wps_record_save_parse(record_id):
+    data = request.get_json(silent=True) or {}
+    items = data.get('items') or []
+    if not isinstance(items, list):
+        return jsonify({'ok': False, 'message': '解析结果格式不正确'}), 400
+    conn = get_db_connection()
+    ensure_tables(conn)
+    record = conn.execute('SELECT * FROM label_wps_records WHERE id=?', (record_id,)).fetchone()
+    if not record:
+        conn.close()
+        return jsonify({'ok': False, 'message': 'WPS记录不存在'}), 404
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn.execute(
+        'UPDATE label_wps_records SET parsed_items_json=?, parse_status=?, updated_at=? WHERE id=?',
+        (json.dumps(items, ensure_ascii=False), 'parsed', now, record_id),
+    )
+    conn.commit()
+    updated = conn.execute('SELECT * FROM label_wps_records WHERE id=?', (record_id,)).fetchone()
+    conn.close()
+    return jsonify({'ok': True, 'record': _record_row_to_dict(updated)})
+
+
 @label_print_bp.route('/api/kdocs_qr/start', methods=['POST'])
 @module_required('label_print')
 def api_kdocs_qr_start():
@@ -1166,12 +1428,44 @@ def api_save_print():
     total_tickets = int(data.get('total_tickets', 0))
     total_qty     = int(data.get('total_qty', 0))
     items         = data.get('items', [])
+    parsed_items  = data.get('parsed_items') or items
+    wps_record_id = data.get('wps_record_id')
+    is_forced     = 1 if data.get('is_forced_reprint') else 0
     printed_at    = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    current_user  = getattr(g, 'current_user', None) or {}
+    user_id       = current_user.get('id')
+    username      = current_user.get('username') or ''
     conn = get_db_connection()
     ensure_tables(conn)
     conn.execute(
-        'INSERT INTO label_print_history (total_tickets,total_qty,items_json,printed_at) VALUES (?,?,?,?)',
-        (total_tickets, total_qty, json.dumps(items, ensure_ascii=False), printed_at)
+        '''
+        INSERT INTO label_print_history (
+            total_tickets,total_qty,items_json,printed_at,
+            wps_record_id,printed_by_user_id,printed_by_username,is_forced_reprint,parsed_items_json
+        ) VALUES (?,?,?,?,?,?,?,?,?)
+        ''',
+        (
+            total_tickets, total_qty, json.dumps(items, ensure_ascii=False), printed_at,
+            wps_record_id, user_id, username, is_forced, json.dumps(parsed_items, ensure_ascii=False)
+        )
     )
+    if wps_record_id:
+        conn.execute(
+            '''
+            UPDATE label_wps_records
+            SET printed_count=printed_count+1,
+                last_printed_at=?,
+                last_printed_by_user_id=?,
+                last_printed_by_username=?,
+                parsed_items_json=?,
+                parse_status='parsed',
+                updated_at=?
+            WHERE id=?
+            ''',
+            (
+                printed_at, user_id, username, json.dumps(parsed_items, ensure_ascii=False),
+                printed_at, wps_record_id
+            ),
+        )
     conn.commit(); conn.close()
     return jsonify({'ok': True})

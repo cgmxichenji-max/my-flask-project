@@ -56,6 +56,23 @@
         .qr-img{width:132px;height:132px;border:1px solid #ddd;background:white;border-radius:4px}
         .qr-info{display:flex;flex-direction:column;gap:8px;font-size:12px;color:#555}
         .qr-status{font-weight:bold;color:#1976d2}
+        .wps-record-table{width:100%;border-collapse:collapse;margin-top:9px;font-size:12px}
+        .wps-record-table th{background:#eef6ff;color:#25506f;padding:6px;border:1px solid #d8e8f5;text-align:left}
+        .wps-record-table td{padding:6px;border:1px solid #e4edf4;vertical-align:top}
+        .wps-record-table tr.selected{background:#fff8e1}
+        .wps-content-cell{max-width:440px;white-space:pre-wrap;line-height:1.45}
+        .status-pill{display:inline-block;padding:2px 6px;border-radius:4px;font-size:12px;border:1px solid #ddd;background:#f8f8f8}
+        .status-printed{background:#e8f5e9;color:#2e7d32;border-color:#b7dfba}
+        .status-pending{background:#fff3e0;color:#a55b00;border-color:#ffd59a}
+        .wps-detail{display:none;grid-template-columns:minmax(260px,1fr) minmax(340px,1.25fr);gap:12px;margin-top:12px}
+        .wps-panel{border:1px solid #e1e6ea;border-radius:6px;background:#fff;padding:10px}
+        .wps-panel h4{margin:0 0 8px;font-size:13px;color:#333}
+        .wps-original{white-space:pre-wrap;line-height:1.55;min-height:180px;max-height:360px;overflow:auto;
+                      background:#fafafa;border:1px solid #eee;border-radius:5px;padding:8px}
+        .wps-items-table{width:100%;border-collapse:collapse;font-size:12px}
+        .wps-items-table th,.wps-items-table td{border:1px solid #e4e4e4;padding:5px;vertical-align:middle}
+        .wps-items-table input,.wps-items-table select{width:100%;box-sizing:border-box;padding:4px;border:1px solid #ccc;border-radius:4px}
+        .wps-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
         .btn-parse{padding:6px 14px;background:#1976d2;color:white;border:none;border-radius:6px;
                    font-size:13px;font-weight:bold;cursor:pointer}
         .btn-parse:hover{background:#0d47a1}
@@ -197,14 +214,46 @@
         </div>
         <div class="parse-box">
             <div class="parse-head">
-                <label for="kdocs-parse-text">解析txt</label>
-                <button class="btn-parse" type="button" onclick="parseKdocsToday()">解析</button>
-                <span class="parse-status" id="kdocs-parse-status">读取金山文档当天提交时间，填入第6列内容</span>
+                <label>WPS今日记录</label>
+                <button class="btn-parse" type="button" onclick="importWpsToday()">读取WPS今日记录</button>
+                <span class="parse-status" id="kdocs-parse-status">只读取第2列提交时间为今天的记录，不修改WPS</span>
             </div>
-            <textarea id="kdocs-parse-text" placeholder="解析结果会显示在这里；如果金山需要登录，也可以把表格复制到这里后再点解析"></textarea>
-            <div class="cookie-row">
-                <textarea id="kdocs-cookie" placeholder="金山已登录 Cookie（可选，保存后解析按钮会带登录态读取）"></textarea>
-                <button class="btn-cookie" type="button" onclick="saveKdocsCookie()">保存Cookie</button>
+            <table class="wps-record-table">
+                <thead><tr>
+                    <th style="width:135px">提交时间</th>
+                    <th>第6列内容</th>
+                    <th style="width:86px">解析</th>
+                    <th style="width:130px">打印状态</th>
+                    <th style="width:160px">操作</th>
+                </tr></thead>
+                <tbody id="wps-record-tbody">
+                    <tr><td colspan="5" style="text-align:center;color:#999;padding:14px">点击读取WPS今日记录</td></tr>
+                </tbody>
+            </table>
+            <div class="wps-detail" id="wps-detail">
+                <div class="wps-panel">
+                    <h4>第6列原文</h4>
+                    <div class="wps-original" id="wps-original"></div>
+                </div>
+                <div class="wps-panel">
+                    <h4>解析结果（可人工修改）</h4>
+                    <table class="wps-items-table">
+                        <thead><tr>
+                            <th style="width:86px">类型</th>
+                            <th>编号/文本</th>
+                            <th style="width:70px">数量</th>
+                            <th style="width:90px">状态</th>
+                            <th style="width:42px">删</th>
+                        </tr></thead>
+                        <tbody id="wps-items-tbody"></tbody>
+                    </table>
+                    <div class="wps-actions">
+                        <button class="btn-cookie" type="button" onclick="addWpsItemRow('product')">加编号行</button>
+                        <button class="btn-cookie" type="button" onclick="addWpsItemRow('text')">加自由文本</button>
+                        <button class="btn-cookie" type="button" onclick="saveWpsParsedItems()">保存解析结果</button>
+                        <button class="btn-parse" type="button" onclick="printSelectedWpsRecord()" id="wps-print-btn">打印</button>
+                    </div>
+                </div>
             </div>
             <div class="qr-panel" id="kdocs-qr-panel">
                 <img class="qr-img" id="kdocs-qr-img" alt="金山登录二维码">
@@ -515,6 +564,8 @@
         <table class="hist-table">
             <thead><tr>
                 <th style="width:140px">打印时间</th>
+                <th style="width:82px">操作人</th>
+                <th style="width:74px">来源</th>
                 <th style="width:70px">总票数</th>
                 <th style="width:80px">总数量</th>
                 <th>打印内容</th>
@@ -523,13 +574,15 @@
             <tbody>{% for h in history %}
             <tr>
                 <td>{{ h.printed_at }}</td>
+                <td style="text-align:center">{{ h.printed_by_username or '-' }}</td>
+                <td style="text-align:center">{% if h.wps_record_id %}{% if h.is_forced_reprint %}强制重打{% else %}WPS{% endif %}{% else %}手工{% endif %}</td>
                 <td style="text-align:center">{{ h.total_tickets }}</td>
                 <td style="text-align:center">{{ h.total_qty }}</td>
                 <td><div class="items-summary" id="hist-{{ h.id }}">{{ h.items_json }}</div></td>
                 <td><form method="post" action="/label_print/history/{{ h.id }}/delete"
                           onsubmit="return confirm('删除此条记录？')">
                     <button type="submit" class="btn-del-sm">删</button></form></td>
-            </tr>{% else %}<tr><td colspan="5" style="text-align:center;color:#999;padding:20px">暂无打印记录</td></tr>{% endfor %}
+            </tr>{% else %}<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">暂无打印记录</td></tr>{% endfor %}
             </tbody>
         </table>
     </div>
@@ -1007,42 +1060,225 @@ window.addEventListener('DOMContentLoaded', () => {
         addRow();
         document.getElementById('global-tickets').focus();
     }
+    loadWpsTodayRecords();
     renderHistoryItems();
 });
 
 // ══════════════════════════════════
-//  金山文档当天文本解析
+//  WPS 今日记录读取 / 核对 / 解析
 // ══════════════════════════════════
 let kdocsQrLoginId = '';
 let kdocsQrState = 'scan';
 let kdocsQrPolling = false;
+let wpsRecords = [];
+let selectedWpsRecordId = null;
 
-function parseKdocsToday(skipQrLogin = false) {
-    const textEl = document.getElementById('kdocs-parse-text');
+function importWpsToday(skipQrLogin = false) {
     const statusEl = document.getElementById('kdocs-parse-status');
-    const pasted = textEl.value.trim();
-    statusEl.textContent = '解析中...';
-    fetch('/label_print/api/kdocs_today_text', {
+    statusEl.textContent = '读取WPS今日记录中...';
+    fetch('/label_print/api/wps_records/import_today', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw_text: (pasted.includes('\t') || pasted.includes('提交时间')) ? pasted : '' })
+        body: JSON.stringify({})
     })
     .then(async r => {
         const data = await r.json().catch(() => ({}));
         if (!r.ok || !data.ok) throw data;
-        textEl.value = data.text || '';
-        const src = data.source === 'txt' ? '解析txt' : '金山文档';
-        statusEl.textContent = `${src}：${data.date}，${data.column_name}，共 ${data.count} 条`;
+        wpsRecords = data.records || [];
+        renderWpsRecords();
+        statusEl.textContent = `已读取今日记录 ${data.count || 0} 条，新增 ${data.inserted || 0} 条`;
     })
     .catch(err => {
-        if (err && err.need_login && !skipQrLogin && !(pasted.includes('\t') || pasted.includes('提交时间'))) {
+        if (err && err.need_login && !skipQrLogin) {
             statusEl.textContent = '金山需要扫码验证';
             startKdocsQrLogin();
             return;
         }
-        statusEl.textContent = (err && err.message) || '解析失败';
+        statusEl.textContent = (err && err.message) || '读取失败';
         alert(statusEl.textContent);
     });
+}
+
+function loadWpsTodayRecords() {
+    fetch('/label_print/api/wps_records/today')
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) return;
+        wpsRecords = data.records || [];
+        renderWpsRecords();
+    })
+    .catch(() => {});
+}
+
+function renderWpsRecords() {
+    const tbody = document.getElementById('wps-record-tbody');
+    if (!wpsRecords.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:14px">今天暂无记录</td></tr>';
+        return;
+    }
+    tbody.innerHTML = wpsRecords.map(r => {
+        const printed = r.printed_count > 0;
+        const parseText = r.parse_status === 'parsed' ? '已解析' : '未解析';
+        const printText = printed ? `已打印 ${r.printed_count} 次<br>${esc(r.last_printed_at || '')} ${esc(r.last_printed_by_username || '')}` : '未打印';
+        return `<tr data-id="${r.id}" onclick="selectWpsRecord(${r.id})" class="${r.id === selectedWpsRecordId ? 'selected' : ''}">
+            <td>${esc(r.submit_time_text || '')}</td>
+            <td><div class="wps-content-cell">${esc(shortText(r.content_text || '', 260))}</div></td>
+            <td><span class="status-pill ${r.parse_status === 'parsed' ? 'status-printed' : 'status-pending'}">${parseText}</span></td>
+            <td><span class="status-pill ${printed ? 'status-printed' : 'status-pending'}">${printText}</span></td>
+            <td>
+                <button class="btn-cookie" type="button" onclick="event.stopPropagation();selectWpsRecord(${r.id}, true)">查看/解析</button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function shortText(text, len) {
+    text = String(text || '');
+    return text.length > len ? text.slice(0, len) + '...' : text;
+}
+
+function getSelectedWpsRecord() {
+    return wpsRecords.find(r => r.id === selectedWpsRecordId) || null;
+}
+
+function selectWpsRecord(id, forceParse = false) {
+    selectedWpsRecordId = id;
+    renderWpsRecords();
+    const record = getSelectedWpsRecord();
+    if (!record) return;
+    document.getElementById('wps-detail').style.display = 'grid';
+    document.getElementById('wps-original').textContent = record.content_text || '';
+    const btn = document.getElementById('wps-print-btn');
+    btn.textContent = record.printed_count > 0 ? '强制重打' : '打印';
+    if (forceParse || record.parse_status !== 'parsed' || !(record.parsed_items || []).length) {
+        parseSelectedWpsRecord();
+    } else {
+        renderWpsParsedItems(record.parsed_items || []);
+        applyWpsItemsToPrintRows(record.parsed_items || []);
+    }
+}
+
+function parseSelectedWpsRecord() {
+    const record = getSelectedWpsRecord();
+    if (!record) return;
+    document.getElementById('kdocs-parse-status').textContent = '解析第6列中...';
+    fetch(`/label_print/api/wps_records/${record.id}/parse`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw data;
+        updateWpsRecord(data.record);
+        renderWpsParsedItems(data.items || []);
+        applyWpsItemsToPrintRows(data.items || []);
+        document.getElementById('kdocs-parse-status').textContent = '已解析，请人工核对右侧结果';
+    })
+    .catch(err => {
+        document.getElementById('kdocs-parse-status').textContent = (err && err.message) || '解析失败';
+        alert(document.getElementById('kdocs-parse-status').textContent);
+    });
+}
+
+function updateWpsRecord(record) {
+    const idx = wpsRecords.findIndex(r => r.id === record.id);
+    if (idx >= 0) wpsRecords[idx] = record;
+}
+
+function renderWpsParsedItems(items) {
+    const tbody = document.getElementById('wps-items-tbody');
+    tbody.innerHTML = '';
+    (items || []).forEach(item => addWpsItemRow(item.kind || 'product', item));
+}
+
+function addWpsItemRow(kind = 'product', item = null) {
+    const tbody = document.getElementById('wps-items-tbody');
+    const tr = document.createElement('tr');
+    const value = item ? (item.kind === 'text' ? (item.label || item.raw || '') : (item.code || '')) : '';
+    const pcs = item ? (item.pcs || '') : '';
+    tr.innerHTML = `<td><select class="wps-kind" onchange="onWpsItemKindChange(this)">
+            <option value="product" ${kind === 'product' ? 'selected' : ''}>编号</option>
+            <option value="text" ${kind === 'text' ? 'selected' : ''}>自由文本</option>
+        </select></td>
+        <td><input class="wps-value" value="${esc(value)}" oninput="syncWpsItemsToPrintRows()"></td>
+        <td><input class="wps-pcs" type="number" min="0" value="${esc(pcs)}" oninput="syncWpsItemsToPrintRows()"></td>
+        <td class="wps-row-status">${esc((item && item.status) || (kind === 'text' ? 'text' : 'manual'))}</td>
+        <td><button type="button" class="btn-del-sm" onclick="this.closest('tr').remove();syncWpsItemsToPrintRows()">删</button></td>`;
+    tbody.appendChild(tr);
+}
+
+function onWpsItemKindChange(sel) {
+    const tr = sel.closest('tr');
+    tr.querySelector('.wps-row-status').textContent = sel.value === 'text' ? 'text' : 'manual';
+    syncWpsItemsToPrintRows();
+}
+
+function collectWpsParsedItems() {
+    const items = [];
+    document.querySelectorAll('#wps-items-tbody tr').forEach(tr => {
+        const kind = tr.querySelector('.wps-kind').value;
+        const value = tr.querySelector('.wps-value').value.trim();
+        const pcs = parseInt(tr.querySelector('.wps-pcs').value) || 0;
+        if (!value) return;
+        if (kind === 'text') {
+            items.push({ kind: 'text', code: '', label: value, pcs: 0, raw: value, status: 'text' });
+        } else {
+            const prod = findProduct(value);
+            items.push({ kind: 'product', code: prod ? prod.code : value, label: prod ? prod.short_name : value, pcs: pcs || 1, raw: value, status: prod ? 'matched' : 'manual' });
+        }
+    });
+    return items;
+}
+
+function saveWpsParsedItems() {
+    const record = getSelectedWpsRecord();
+    if (!record) { alert('请先选择一条WPS记录'); return Promise.reject(); }
+    const items = collectWpsParsedItems();
+    return fetch(`/label_print/api/wps_records/${record.id}/save_parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items })
+    })
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw data;
+        updateWpsRecord(data.record);
+        renderWpsRecords();
+        applyWpsItemsToPrintRows(items);
+        document.getElementById('kdocs-parse-status').textContent = '解析结果已保存';
+        return items;
+    })
+    .catch(err => {
+        document.getElementById('kdocs-parse-status').textContent = (err && err.message) || '保存解析结果失败';
+        alert(document.getElementById('kdocs-parse-status').textContent);
+        throw err;
+    });
+}
+
+function syncWpsItemsToPrintRows() {
+    applyWpsItemsToPrintRows(collectWpsParsedItems());
+}
+
+function applyWpsItemsToPrintRows(items) {
+    const productItems = (items || []).filter(i => i.kind === 'product');
+    const tbody = document.getElementById('input-tbody');
+    tbody.innerHTML = '';
+    rowId = 0;
+    if (!productItems.length) {
+        addRow();
+        return;
+    }
+    productItems.forEach(item => {
+        addRow();
+        const tr = tbody.lastElementChild;
+        tr.querySelector('.row-code').value = item.code || '';
+        tr.querySelector('.row-pcs').value = item.pcs || 1;
+        onCodeBlur(tr.querySelector('.row-code'));
+    });
+    recalc();
+}
+
+function printSelectedWpsRecord() {
+    const record = getSelectedWpsRecord();
+    if (!record) { alert('请先选择一条WPS记录'); return; }
+    saveWpsParsedItems().then(() => doPrint());
 }
 
 function startKdocsQrLogin() {
@@ -1094,7 +1330,7 @@ function pollKdocsQrLogin() {
         if (data.state === 'logined') {
             kdocsQrPolling = false;
             document.getElementById('kdocs-qr-panel').style.display = 'none';
-            parseKdocsToday(true);
+            importWpsToday(true);
             return;
         }
         kdocsQrState = data.next_state || kdocsQrState || 'scan';
@@ -1115,33 +1351,6 @@ function cancelKdocsQrLogin() {
     document.getElementById('kdocs-parse-status').textContent = '已关闭二维码';
 }
 
-function saveKdocsCookie() {
-    const cookieEl = document.getElementById('kdocs-cookie');
-    const statusEl = document.getElementById('kdocs-parse-status');
-    const cookie = cookieEl.value.trim();
-    if (!cookie) {
-        alert('请先粘贴金山 Cookie');
-        cookieEl.focus();
-        return;
-    }
-    statusEl.textContent = '保存 Cookie 中...';
-    fetch('/label_print/api/kdocs_cookie', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cookie })
-    })
-    .then(async r => {
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok || !data.ok) throw new Error(data.message || '保存失败');
-        cookieEl.value = '';
-        statusEl.textContent = 'Cookie 已保存，可以点解析读取金山文档';
-    })
-    .catch(err => {
-        statusEl.textContent = err.message || '保存失败';
-        alert(statusEl.textContent);
-    });
-}
-
 // ══════════════════════════════════
 //  打印 + 保存历史
 // ══════════════════════════════════
@@ -1149,29 +1358,53 @@ function doPrint() {
     const tickets = parseInt(document.getElementById('global-tickets').value) || 0;
     if (!tickets) { alert('请填写总票数'); document.getElementById('global-tickets').focus(); return; }
     const rows = [];
-    document.querySelectorAll('#input-tbody tr').forEach(tr => {
-        const codeEl = tr.querySelector('.row-code');
-        const pcsEl  = tr.querySelector('.row-pcs');
-        const code   = codeEl.value.trim();
-        const pcs    = parseInt(pcsEl.value) || 0;
-        if (!code || !pcs) return;
-        const prod  = findProduct(code);
-        const total = pcs * tickets;
-        let boxStr  = '';
-        if (prod && prod.box_spec > 0 && total > 0) {
-            const f = Math.floor(total / prod.box_spec), r = total % prod.box_spec;
-            boxStr = r === 0 ? `${f}箱` : `${f}箱+${r}个 / ${f+1}箱-${prod.box_spec-r}个`;
-        }
-        const short = tr.querySelector('.row-short').textContent.trim();
-        rows.push({ code: prod ? prod.code : code,
-                    label: (short==='—'||short==='未知') ? code : short,
-                    pcs, boxStr });
-    });
+    const wpsRecord = getSelectedWpsRecord();
+    const wpsItems = wpsRecord ? collectWpsParsedItems() : [];
+    if (wpsRecord && wpsItems.length) {
+        wpsItems.forEach(item => {
+            if (item.kind === 'text') {
+                rows.push({ kind: 'text', code: '', label: item.label || item.raw || '', pcs: 0, boxStr: '' });
+                return;
+            }
+            const prod = findProduct(item.code);
+            const pcs = parseInt(item.pcs) || 0;
+            if (!item.code || !pcs) return;
+            const total = pcs * tickets;
+            let boxStr = '';
+            if (prod && prod.box_spec > 0 && total > 0) {
+                const f = Math.floor(total / prod.box_spec), r = total % prod.box_spec;
+                boxStr = r === 0 ? `${f}箱` : `${f}箱+${r}个 / ${f+1}箱-${prod.box_spec-r}个`;
+            }
+            rows.push({ kind: 'product', code: prod ? prod.code : item.code, label: prod ? prod.short_name : (item.label || item.code), pcs, boxStr });
+        });
+    } else {
+        document.querySelectorAll('#input-tbody tr').forEach(tr => {
+            const codeEl = tr.querySelector('.row-code');
+            const pcsEl  = tr.querySelector('.row-pcs');
+            const code   = codeEl.value.trim();
+            const pcs    = parseInt(pcsEl.value) || 0;
+            if (!code || !pcs) return;
+            const prod  = findProduct(code);
+            const total = pcs * tickets;
+            let boxStr  = '';
+            if (prod && prod.box_spec > 0 && total > 0) {
+                const f = Math.floor(total / prod.box_spec), r = total % prod.box_spec;
+                boxStr = r === 0 ? `${f}箱` : `${f}箱+${r}个 / ${f+1}箱-${prod.box_spec-r}个`;
+            }
+            const short = tr.querySelector('.row-short').textContent.trim();
+            rows.push({ kind: 'product', code: prod ? prod.code : code,
+                        label: (short==='—'||short==='未知') ? code : short,
+                        pcs, boxStr });
+        });
+    }
     if (!rows.length) { alert('请至少填写一行有效数据'); return; }
-    const totalQty = rows.reduce((s,r) => s + r.pcs * tickets, 0);
+    const totalQty = rows.reduce((s,r) => s + ((parseInt(r.pcs) || 0) * tickets), 0);
 
     // 打印窗口
-    const items = rows.map(r => `
+    const items = rows.map(r => r.kind === 'text' ? `
+        <div class="item-row">
+            <span class="sn">${esc(r.label)}</span>
+        </div>` : `
         <div class="item-row">
             <span class="sn">${esc(r.label)}</span>
             <span class="pcs">*${r.pcs}</span>
@@ -1199,12 +1432,21 @@ function doPrint() {
     pw.document.open(); pw.document.write(html); pw.document.close();
 
     // 保存打印历史（静默，不影响打印）
-    const histItems = rows.map(r => ({ code: r.code, label: r.label, pcs: r.pcs }));
+    const histItems = rows.map(r => ({ kind: r.kind || 'product', code: r.code, label: r.label, pcs: r.pcs }));
     fetch('/label_print/api/save_print', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ total_tickets: tickets, total_qty: totalQty, items: histItems })
-    }).catch(() => {});
+        body: JSON.stringify({
+            total_tickets: tickets,
+            total_qty: totalQty,
+            items: histItems,
+            parsed_items: wpsRecord ? wpsItems : histItems,
+            wps_record_id: wpsRecord ? wpsRecord.id : null,
+            is_forced_reprint: wpsRecord ? (wpsRecord.printed_count > 0) : false
+        })
+    })
+    .then(() => { if (wpsRecord) importWpsToday(true); })
+    .catch(() => {});
 }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
 
@@ -1215,7 +1457,9 @@ function renderHistoryItems() {
     document.querySelectorAll('.items-summary').forEach(el => {
         try {
             const items = JSON.parse(el.textContent);
-            el.innerHTML = items.map(i => `<span style="margin-right:8px">${esc(i.label||i.code)} ×${i.pcs}</span>`).join('');
+            el.innerHTML = items.map(i => i.kind === 'text'
+                ? `<span style="margin-right:8px">${esc(i.label||i.code)}</span>`
+                : `<span style="margin-right:8px">${esc(i.label||i.code)} ×${i.pcs}</span>`).join('');
         } catch(e) {}
     });
 }
