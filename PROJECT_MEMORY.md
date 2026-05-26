@@ -1,5 +1,18 @@
 # 项目记忆
 
+## [2026-05-26 13:15] 修改记录
+- 修改内容：修复金山扫码确认后网页仍提示"非法访问（错误码：0x00018）"
+  - 重新核对金山官方扫码登录代码：扫码确认返回 `kso_authcode` 时，官方网页不走旧的 `/api/session/exchange/login`，而是走 `/passport/secure/api/grant_token`
+  - 后端新增 P-256 ECDSA 密钥生成、公钥 JWK base64url 编码、`kso_authcode` 签名，并用 `kso_authcode + code_verifier + code_sign + public_key + slv=ecdsa_itk` 换取登录 Cookie
+  - `api_kdocs_qr_poll` 优先使用 `kso_authcode` 的官方授权流程；只有没有 `kso_authcode` 时才回退旧 `authcode` 流程
+  - 同步更新服务器脚本 `scripts/kdocs_login_cookie.py`
+  - `requirements.txt` 补充 `cryptography==46.0.7`，保障后续部署有 ECDSA 签名依赖
+- 修改文件：label_print/routes.py；scripts/kdocs_login_cookie.py；requirements.txt；PROJECT_MEMORY.md
+- 修改原因：前两次只修正二维码创建参数，但扫码确认后的授权换 Cookie 接口仍不匹配金山官方流程
+- 影响范围：仅金山 WPS 扫码登录换 Cookie 流程
+- 是否涉及数据库：否
+- 是否需要回滚：否
+
 ## [2026-05-26 12:45] 修改记录
 - 修改内容：继续修复金山 WPS 扫码后"非法访问（错误码：0x00018）"
   - 进一步排查金山官方登录页，确认官方 WPS 扫码流程会先生成 PKCE 参数，并把 `code_challenge` 传入 `/api/v3/login_qrcode`

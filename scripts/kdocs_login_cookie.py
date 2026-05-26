@@ -10,6 +10,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from cryptography.hazmat.primitives.asymmetric import ec, utils as ec_utils
+from cryptography.hazmat.primitives import hashes
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -49,6 +51,17 @@ def _read_json(opener, url, data=None, headers=None, timeout=35):
     return json.loads(text or '{}')
 
 
+def _post_json(opener, url, payload, headers=None, timeout=35):
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload, separators=(',', ':')).encode('utf-8'),
+        headers=headers or HEADERS,
+        method='POST',
+    )
+    with opener.open(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode('utf-8', errors='ignore') or '{}')
+
+
 def _read_jsonp(opener, url, callback='cb', timeout=35):
     text = _read_text(opener, url, timeout=timeout)
     match = re.search(r'^[^(]+\((.*)\)\s*;?\s*$', text, re.S)
@@ -79,6 +92,31 @@ def _generate_pkce():
     return verifier, challenge
 
 
+def _b64url(data):
+    return base64.urlsafe_b64encode(data).decode('ascii').rstrip('=')
+
+
+def _make_ec_key():
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_numbers = private_key.public_key().public_numbers()
+    jwk = {
+        'key_ops': ['verify'],
+        'ext': True,
+        'kty': 'EC',
+        'x': _b64url(public_numbers.x.to_bytes(32, 'big')),
+        'y': _b64url(public_numbers.y.to_bytes(32, 'big')),
+        'crv': 'P-256',
+    }
+    public_key = _b64url(json.dumps(jwk, separators=(',', ':')).encode('utf-8'))
+    return private_key, public_key
+
+
+def _sign_login_data(private_key, text):
+    signature_der = private_key.sign(text.encode('utf-8'), ec.ECDSA(hashes.SHA256()))
+    r, s = ec_utils.decode_dss_signature(signature_der)
+    return _b64url(r.to_bytes(32, 'big') + s.to_bytes(32, 'big'))
+
+
 def _download_qr(opener, url):
     req = urllib.request.Request(url, headers=HEADERS)
     with opener.open(req, timeout=20) as resp:
@@ -102,9 +140,31 @@ def _exchange_authcode(opener, authcode):
     )
 
 
+def _grant_token(opener, kso_authcode, code_verifier, private_key, public_key):
+    return _post_json(
+        opener,
+        ACCOUNT_BASE + '/passport/secure/api/grant_token',
+        {
+            'grant_type': 'authorization_code',
+            'code': kso_authcode,
+            'code_verifier': code_verifier,
+            'code_sign': _sign_login_data(private_key, kso_authcode),
+            'public_key': public_key,
+            'is_append': False,
+            'slv': 'ecdsa_itk',
+        },
+        headers={
+            **HEADERS,
+            'Content-Type': 'application/json',
+        },
+        timeout=20,
+    )
+
+
 def main():
     opener, cookie_jar = _make_opener()
     code_verifier, code_challenge = _generate_pkce()
+    private_key, public_key = _make_ec_key()
     login = _read_jsonp(
         opener,
         QR_BASE + '/api/v3/login_qrcode?' + urllib.parse.urlencode({
@@ -165,10 +225,17 @@ def main():
             continue
         if next_state == 'logined':
             authcode = result.get('authcode')
-            if authcode:
+            kso_authcode = result.get('kso_authcode')
+            if kso_authcode:
+                granted = _grant_token(opener, kso_authcode, code_verifier, private_key, public_key)
+                if granted.get('result') not in (None, 'ok') and not granted.get('data'):
+                    raise RuntimeError('金山登录授权失败：' + json.dumps(granted, ensure_ascii=False))
+            elif authcode:
                 exchanged = _exchange_authcode(opener, authcode)
                 if exchanged.get('result') not in (None, 'ok'):
                     raise RuntimeError('金山登录换取 Cookie 失败：' + json.dumps(exchanged, ensure_ascii=False))
+            else:
+                raise RuntimeError('已扫码登录，但没有拿到 authcode。')
             cookie = _cookie_header(cookie_jar)
             if not cookie:
                 raise RuntimeError('已扫码登录，但没有拿到 Cookie。')

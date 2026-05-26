@@ -17,6 +17,8 @@ from datetime import datetime
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for, current_app
 import sqlite3
 from dateutil import parser as date_parser
+from cryptography.hazmat.primitives.asymmetric import ec, utils as ec_utils
+from cryptography.hazmat.primitives import hashes
 
 from auth.decorators import module_required
 
@@ -490,6 +492,76 @@ def _exchange_kdocs_authcode(opener, authcode):
     )
     if result.get('result') not in (None, 'ok') and not result.get('userid'):
         raise ValueError(result.get('msg') or result.get('result') or '扫码登录换取 Cookie 失败')
+    return result
+
+
+def _open_json_body(opener, url, payload, headers=None, timeout=18):
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload, separators=(',', ':')).encode('utf-8'),
+        headers=headers or {},
+        method='POST',
+    )
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode('utf-8', errors='ignore') or '{}')
+    except urllib.error.HTTPError as exc:
+        text = exc.read().decode('utf-8', errors='ignore')
+        try:
+            return json.loads(text or '{}')
+        except Exception:
+            raise ValueError(f'金山授权请求失败：HTTP {exc.code}')
+
+
+def _b64url(data):
+    return base64.urlsafe_b64encode(data).decode('ascii').rstrip('=')
+
+
+def _make_kdocs_ec_key():
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_numbers = private_key.public_key().public_numbers()
+    jwk = {
+        'key_ops': ['verify'],
+        'ext': True,
+        'kty': 'EC',
+        'x': _b64url(public_numbers.x.to_bytes(32, 'big')),
+        'y': _b64url(public_numbers.y.to_bytes(32, 'big')),
+        'crv': 'P-256',
+    }
+    public_key = _b64url(json.dumps(jwk, separators=(',', ':')).encode('utf-8'))
+    return private_key, public_key
+
+
+def _sign_kdocs_login_data(private_key, text):
+    signature_der = private_key.sign(text.encode('utf-8'), ec.ECDSA(hashes.SHA256()))
+    r, s = ec_utils.decode_dss_signature(signature_der)
+    return _b64url(r.to_bytes(32, 'big') + s.to_bytes(32, 'big'))
+
+
+def _grant_kdocs_token(opener, kso_authcode, code_verifier, private_key, public_key):
+    payload = {
+        'grant_type': 'authorization_code',
+        'code': kso_authcode,
+        'code_verifier': code_verifier,
+        'code_sign': _sign_kdocs_login_data(private_key, kso_authcode),
+        'public_key': public_key,
+        'is_append': False,
+        'slv': 'ecdsa_itk',
+    }
+    result = _open_json_body(
+        opener,
+        f'{KDOCS_ACCOUNT_BASE}/passport/secure/api/grant_token',
+        payload,
+        headers={
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Referer': 'https://account.wps.cn/wpspersonallogin',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+        },
+        timeout=20,
+    )
+    if result.get('result') not in (None, 'ok') and not result.get('data'):
+        raise ValueError(result.get('msg') or result.get('result') or '金山扫码授权失败')
     return result
 
 
@@ -977,6 +1049,7 @@ def api_kdocs_qr_start():
             'Referer': 'https://account.wps.cn/wpspersonallogin',
         }
         code_verifier, code_challenge = _generate_kdocs_pkce()
+        private_key, public_key = _make_kdocs_ec_key()
         _open_text(opener, headers['Referer'], headers=headers, timeout=18)
         login = _open_jsonp(
             opener,
@@ -1001,6 +1074,8 @@ def api_kdocs_qr_start():
             'opener': opener,
             'cookie_jar': cookie_jar,
             'code_verifier': code_verifier,
+            'private_key': private_key,
+            'public_key': public_key,
             'state': 'scan',
             'expires_at': datetime.now().timestamp() + 300,
         }
@@ -1042,9 +1117,19 @@ def api_kdocs_qr_poll():
             return jsonify({'ok': True, 'state': 'scan', 'next_state': 'confirm', 'message': '已扫码，请在手机上确认登录'})
         if qr_state == 'logined':
             authcode = result.get('authcode')
-            if not authcode:
+            kso_authcode = result.get('kso_authcode')
+            if kso_authcode:
+                _grant_kdocs_token(
+                    item['opener'],
+                    kso_authcode,
+                    item.get('code_verifier') or '',
+                    item.get('private_key'),
+                    item.get('public_key') or '',
+                )
+            elif authcode:
+                _exchange_kdocs_authcode(item['opener'], authcode)
+            else:
                 raise ValueError('扫码已确认，但金山未返回 authcode')
-            _exchange_kdocs_authcode(item['opener'], authcode)
             cookie = _cookie_header_from_jar(item['cookie_jar'])
             if not cookie:
                 raise ValueError('扫码登录成功但未获得 Cookie')
