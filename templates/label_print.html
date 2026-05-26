@@ -216,12 +216,12 @@
             <div class="parse-head">
                 <label>WPS今日记录</label>
                 <button class="btn-parse" type="button" onclick="importWpsToday()">读取WPS今日记录</button>
-                <span class="parse-status" id="kdocs-parse-status">只读取第2列提交时间为今天的记录，不修改WPS</span>
+                <span class="parse-status" id="kdocs-parse-status">只读取提交时间为今天的记录，不修改WPS</span>
             </div>
             <table class="wps-record-table">
                 <thead><tr>
                     <th style="width:135px">提交时间</th>
-                    <th>第6列内容</th>
+                    <th>货物清单</th>
                     <th style="width:86px">解析</th>
                     <th style="width:130px">打印状态</th>
                     <th style="width:160px">操作</th>
@@ -232,7 +232,7 @@
             </table>
             <div class="wps-detail" id="wps-detail">
                 <div class="wps-panel">
-                    <h4>第6列原文</h4>
+                    <h4>货物清单原文</h4>
                     <div class="wps-original" id="wps-original"></div>
                 </div>
                 <div class="wps-panel">
@@ -1161,7 +1161,7 @@ function selectWpsRecord(id, forceParse = false) {
 function parseSelectedWpsRecord() {
     const record = getSelectedWpsRecord();
     if (!record) return;
-    document.getElementById('kdocs-parse-status').textContent = '解析第6列中...';
+    document.getElementById('kdocs-parse-status').textContent = '解析货物清单中...';
     fetch(`/label_print/api/wps_records/${record.id}/parse`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
     .then(async r => {
         const data = await r.json().catch(() => ({}));

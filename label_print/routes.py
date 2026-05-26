@@ -32,6 +32,8 @@ KDOCS_QR_BASE = 'https://qr.wps.cn'
 KDOCS_ACCOUNT_BASE = 'https://account.wps.cn'
 KDOCS_QR_SESSIONS = {}
 KDOCS_SOURCE_KEY = 'kdocs_main'
+KDOCS_DBT_PAGE_SIZE = 500
+KDOCS_CONTENT_FIELD_HINTS = ('箱唛', '规格*数量', '规格', '数量')
 
 # ─────────────────────────────── 数据库工具 ───────────────────────────────
 
@@ -353,7 +355,132 @@ def _rows_from_xlsx(content):
     return [row for row in rows if any(c for c in row)]
 
 
+def _kdocs_link_id():
+    parsed = urllib.parse.urlparse(KDOCS_SOURCE_URL)
+    return parsed.path.rstrip('/').split('/')[-1]
+
+
+def _kdocs_json_request(url, payload):
+    cookie = _get_kdocs_cookie()
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Content-Type': 'application/json',
+        'Origin': 'https://www.kdocs.cn',
+        'Referer': KDOCS_SOURCE_URL,
+    }
+    if cookie:
+        headers['Cookie'] = cookie
+    body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+    req = urllib.request.Request(url, data=body, headers=headers, method='POST')
+    try:
+        ssl_context = ssl._create_unverified_context()
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=ssl_context),
+        )
+        with opener.open(req, timeout=30) as resp:
+            text = resp.read().decode('utf-8', errors='ignore')
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode('utf-8', errors='ignore')[:300]
+        raise ValueError(f'读取金山轻维表失败：HTTP {exc.code} {detail}')
+    except urllib.error.URLError as exc:
+        raise ValueError(f'读取金山轻维表失败：{exc}')
+    try:
+        data = json.loads(text or '{}')
+    except Exception:
+        raise ValueError('读取金山轻维表失败：接口返回格式不是JSON')
+    result = str(data.get('result') or '').lower()
+    if result and result not in ('ok', 'success'):
+        message = data.get('msg') or data.get('message') or data.get('error') or result
+        raise ValueError(f'读取金山轻维表失败：{message}')
+    return data
+
+
+def _kdocs_core_execute(command, param):
+    url = f'https://www.kdocs.cn/api/v3/office/file/{_kdocs_link_id()}/core/execute'
+    return _kdocs_json_request(url, {'command': command, 'param': param})
+
+
+def _kdocs_value_to_text(value):
+    if value is None:
+        return ''
+    if isinstance(value, str):
+        return _clean_cell(value)
+    if isinstance(value, (int, float)):
+        return _clean_cell(value)
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            text = _kdocs_value_to_text(item)
+            if text:
+                parts.append(text)
+        return '，'.join(parts)
+    if isinstance(value, dict):
+        for key in ('value', 'text', 'name', 'nickName', 'fileName', 'id'):
+            if value.get(key):
+                return _clean_cell(value.get(key))
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return _clean_cell(value)
+
+
+def _fetch_kdocs_dbt_rows():
+    sheets_data = _kdocs_core_execute('http.db.listSheets', {'showVeryhidden': False})
+    sheets = (sheets_data.get('detail') or {}).get('sheets') or []
+    if not sheets:
+        raise ValueError('读取金山轻维表失败：没有找到数据表')
+
+    sheet = next(
+        (
+            item for item in sheets
+            if any(field.get('name') == '提交时间' for field in item.get('fields') or [])
+            and any('箱唛' in str(field.get('name') or '') for field in item.get('fields') or [])
+        ),
+        sheets[0],
+    )
+    fields = sheet.get('fields') or []
+    if not fields:
+        raise ValueError('读取金山轻维表失败：没有找到字段')
+
+    header = [_clean_cell(field.get('name') or field.get('id')) for field in fields]
+    field_ids = [field.get('id') for field in fields]
+    rows = [header]
+    offset = '0'
+    seen_offsets = set()
+
+    while True:
+        payload = {
+            'sheetId': sheet.get('id'),
+            'offset': offset,
+            'pageSize': KDOCS_DBT_PAGE_SIZE,
+            'preferId': True,
+            'showRecordExtraInfo': False,
+            'showFieldsInfo': False,
+            'textValue': 'true',
+        }
+        records_data = _kdocs_core_execute('http.db.listRecords', payload)
+        detail = records_data.get('detail') or {}
+        records = detail.get('records') or []
+        for record in records:
+            values = record.get('fields') or {}
+            rows.append([_kdocs_value_to_text(values.get(field_id)) for field_id in field_ids])
+
+        next_offset = str(detail.get('offset') or '')
+        if not records or not next_offset or next_offset == offset or next_offset in seen_offsets:
+            break
+        seen_offsets.add(offset)
+        offset = next_offset
+
+    return [row for row in rows if any(row)]
+
+
 def _fetch_kdocs_rows():
+    try:
+        return _fetch_kdocs_dbt_rows()
+    except ValueError as exc:
+        if '登录' in str(exc) or 'permission' in str(exc).lower():
+            raise
+
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,*/*',
@@ -694,20 +821,10 @@ def _extract_today_submit_text(rows, target_date=None):
     if not rows:
         raise ValueError('没有可解析的数据')
 
-    header_idx = 0
-    submit_idx = 1
-    for idx, row in enumerate(rows[:20]):
-        if len(row) > 1 and '提交时间' in row[1]:
-            header_idx, submit_idx = idx, 1
-            break
-        found = next((i for i, cell in enumerate(row) if '提交时间' in cell), None)
-        if found is not None:
-            header_idx, submit_idx = idx, found
-            break
-
+    header_idx, submit_idx = _find_kdocs_header(rows)
     header = rows[header_idx] if header_idx < len(rows) else []
-    target_idx = 5
-    column_name = header[target_idx] if len(header) > target_idx and header[target_idx] else '第6列'
+    target_idx = _find_kdocs_content_column(header)
+    column_name = header[target_idx] if len(header) > target_idx and header[target_idx] else '货物清单列'
     values = []
     for row in rows[header_idx + 1:]:
         if len(row) <= max(submit_idx, target_idx):
@@ -739,11 +856,23 @@ def _find_kdocs_header(rows):
     return header_idx, submit_idx
 
 
+def _find_kdocs_content_column(header):
+    for idx, cell in enumerate(header):
+        text = _clean_cell(cell)
+        if '箱唛' in text or ('规格' in text and '数量' in text):
+            return idx
+    for idx, cell in enumerate(header):
+        text = _clean_cell(cell)
+        if any(hint in text for hint in KDOCS_CONTENT_FIELD_HINTS):
+            return idx
+    return 5
+
+
 def _today_kdocs_record_rows(rows, target_date=None):
     target_date = target_date or datetime.now().date()
     header_idx, submit_idx = _find_kdocs_header(rows)
     header = rows[header_idx] if header_idx < len(rows) else []
-    target_idx = 5
+    target_idx = _find_kdocs_content_column(header)
     records = []
     for idx, row in enumerate(rows[header_idx + 1:], start=header_idx + 2):
         if len(row) <= max(submit_idx, target_idx):
