@@ -1,4 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, current_app
+from copy import copy
+from datetime import datetime
 import json
 import io
 import os
@@ -10,7 +12,7 @@ import zipfile
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from flask import send_file
 from werkzeug.utils import secure_filename
 
@@ -1044,6 +1046,85 @@ def invoices_download_selected():
     if skipped_count:
         response.headers['X-Skipped-Invoices'] = str(skipped_count)
     return response
+
+
+@invoicing_bp.route('/invoices/export-selected', methods=['POST'])
+@module_required('invoicing')
+def invoices_export_selected():
+    selected_ids = []
+    for raw_id in request.form.getlist('invoice_ids'):
+        raw_id = (raw_id or '').strip()
+        if raw_id.isdigit():
+            selected_ids.append(int(raw_id))
+
+    next_url = (request.form.get('next') or '').strip() or url_for('invoicing.invoices_list')
+    if not selected_ids:
+        return redirect(_with_query_params(next_url, download_error='请选择至少一张发票'))
+
+    placeholders = ','.join('?' for _ in selected_ids)
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT id, invoice_number, invoice_date, invoice_type, tax_rate,
+                   amount, seller_name, buyer_name
+            FROM invoice
+            WHERE id IN ({placeholders})
+            """,
+            selected_ids,
+        ).fetchall()
+
+    row_map = {row['id']: row for row in rows}
+    ordered_rows = [row_map[invoice_id] for invoice_id in selected_ids if invoice_id in row_map]
+    if not ordered_rows:
+        return redirect(_with_query_params(next_url, download_error='未找到可导出的发票'))
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = '发票导出'
+    headers = ['发票号', '日期', '类型', '税率', '金额', '销售方', '购买方']
+    worksheet.append(headers)
+
+    for row_index, row in enumerate(ordered_rows, start=2):
+        worksheet.cell(row=row_index, column=1, value=str(row['invoice_number'] or ''))
+        worksheet.cell(row=row_index, column=2, value=row['invoice_date'] or '')
+        worksheet.cell(row=row_index, column=3, value=row['invoice_type'] or '')
+        worksheet.cell(row=row_index, column=4, value=row['tax_rate'] or '')
+        amount_cell = worksheet.cell(row=row_index, column=5, value=row['amount'])
+        amount_cell.number_format = '0.00'
+        worksheet.cell(row=row_index, column=6, value=row['seller_name'] or '')
+        worksheet.cell(row=row_index, column=7, value=row['buyer_name'] or '')
+        worksheet.cell(row=row_index, column=1).number_format = '@'
+
+    for cell in worksheet[1]:
+        font = copy(cell.font)
+        font.bold = True
+        cell.font = font
+    worksheet.freeze_panes = 'A2'
+    column_widths = {
+        'A': 24,
+        'B': 14,
+        'C': 22,
+        'D': 10,
+        'E': 14,
+        'F': 36,
+        'G': 36,
+    }
+    for column, width in column_widths.items():
+        worksheet.column_dimensions[column].width = width
+
+    desktop_dir = Path.home() / 'Desktop'
+    desktop_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"selected_invoices_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    output_path = desktop_dir / filename
+    workbook.save(output_path)
+    workbook.close()
+
+    return send_file(
+        output_path,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
 
 
 @invoicing_bp.route('/invoices/upload', methods=['GET'])

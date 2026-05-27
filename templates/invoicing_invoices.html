@@ -59,6 +59,7 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 </form>
 <a href="{{ url_for('invoicing.invoices_upload_form') }}" class="btn-upload">+ 上传新发票</a>
 <button type="submit" form="download-form" class="btn-download" id="download-selected-btn" disabled>下载选中发票</button>
+<button type="submit" form="download-form" formaction="{{ url_for('invoicing.invoices_export_selected') }}" class="btn-download" id="export-selected-btn" disabled>导出选中 Excel</button>
 <input type="text" id="filter-input" placeholder="筛选：发票号/类型/税率/销售方/购买方/达人团长/别名/项目（任一含关键字）">
 <span>共 <span id="total">{{ rows|length }}</span> 张，显示 <span id="visible">{{ rows|length }}</span> 张</span>
 </div>
@@ -146,11 +147,13 @@ var rows=Array.from(tbody.querySelectorAll('tr'));
 var visible=document.getElementById('visible');
 var selectAll=document.getElementById('select-all');
 var downloadBtn=document.getElementById('download-selected-btn');
+var exportBtn=document.getElementById('export-selected-btn');
 var currentSort={key:null,dir:'asc'};
 
 function updateDownloadButton(){
   var checked=tbody.querySelectorAll('.row-check:checked').length;
   downloadBtn.disabled=checked===0;
+  exportBtn.disabled=checked===0;
 }
 
 function applyFilter(){

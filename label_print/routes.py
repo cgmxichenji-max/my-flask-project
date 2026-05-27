@@ -25,6 +25,11 @@ from auth.decorators import module_required
 label_print_bp = Blueprint('label_print', __name__)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KDOCS_SOURCE_URL = 'https://kdocs.cn/l/cnaogtuBWmXW'
+KDOCS_SOURCES = [
+    {'key': 'kdocs_main', 'name': 'WPS主表', 'url': 'https://kdocs.cn/l/cnaogtuBWmXW'},
+    {'key': 'kdocs_extra', 'name': 'WPS补充表', 'url': 'https://kdocs.cn/l/cqUIdRBp3yCl'},
+]
+KDOCS_SOURCE_BY_KEY = {item['key']: item for item in KDOCS_SOURCES}
 KDOCS_COOKIE_PATH = os.path.join(BASE_DIR, 'data', 'kdocs_cookie.txt')
 KDOCS_LOGIN_ACCOUNT = '香水梨'
 KDOCS_LOGIN_PASSWORD = 'chenxi98'
@@ -355,19 +360,21 @@ def _rows_from_xlsx(content):
     return [row for row in rows if any(c for c in row)]
 
 
-def _kdocs_link_id():
-    parsed = urllib.parse.urlparse(KDOCS_SOURCE_URL)
+def _kdocs_link_id(source=None):
+    source = source or KDOCS_SOURCES[0]
+    parsed = urllib.parse.urlparse(source.get('url') or KDOCS_SOURCE_URL)
     return parsed.path.rstrip('/').split('/')[-1]
 
 
-def _kdocs_json_request(url, payload):
+def _kdocs_json_request(url, payload, source=None):
+    source = source or KDOCS_SOURCES[0]
     cookie = _get_kdocs_cookie()
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Content-Type': 'application/json',
         'Origin': 'https://www.kdocs.cn',
-        'Referer': KDOCS_SOURCE_URL,
+        'Referer': source.get('url') or KDOCS_SOURCE_URL,
     }
     if cookie:
         headers['Cookie'] = cookie
@@ -397,9 +404,9 @@ def _kdocs_json_request(url, payload):
     return data
 
 
-def _kdocs_core_execute(command, param):
-    url = f'https://www.kdocs.cn/api/v3/office/file/{_kdocs_link_id()}/core/execute'
-    return _kdocs_json_request(url, {'command': command, 'param': param})
+def _kdocs_core_execute(command, param, source=None):
+    url = f'https://www.kdocs.cn/api/v3/office/file/{_kdocs_link_id(source)}/core/execute'
+    return _kdocs_json_request(url, {'command': command, 'param': param}, source=source)
 
 
 def _kdocs_value_to_text(value):
@@ -424,8 +431,9 @@ def _kdocs_value_to_text(value):
     return _clean_cell(value)
 
 
-def _fetch_kdocs_dbt_rows():
-    sheets_data = _kdocs_core_execute('http.db.listSheets', {'showVeryhidden': False})
+def _fetch_kdocs_dbt_rows(source=None):
+    source = source or KDOCS_SOURCES[0]
+    sheets_data = _kdocs_core_execute('http.db.listSheets', {'showVeryhidden': False}, source=source)
     sheets = (sheets_data.get('detail') or {}).get('sheets') or []
     if not sheets:
         raise ValueError('读取金山轻维表失败：没有找到数据表')
@@ -458,7 +466,7 @@ def _fetch_kdocs_dbt_rows():
             'showFieldsInfo': False,
             'textValue': 'true',
         }
-        records_data = _kdocs_core_execute('http.db.listRecords', payload)
+        records_data = _kdocs_core_execute('http.db.listRecords', payload, source=source)
         detail = records_data.get('detail') or {}
         records = detail.get('records') or []
         for record in records:
@@ -474,9 +482,10 @@ def _fetch_kdocs_dbt_rows():
     return [row for row in rows if any(row)]
 
 
-def _fetch_kdocs_rows():
+def _fetch_kdocs_rows(source=None):
+    source = source or KDOCS_SOURCES[0]
     try:
-        return _fetch_kdocs_dbt_rows()
+        return _fetch_kdocs_dbt_rows(source=source)
     except ValueError as exc:
         if '登录' in str(exc) or 'permission' in str(exc).lower():
             raise
@@ -488,7 +497,7 @@ def _fetch_kdocs_rows():
     cookie = _get_kdocs_cookie()
     if cookie:
         headers['Cookie'] = cookie
-    req = urllib.request.Request(KDOCS_SOURCE_URL, headers=headers)
+    req = urllib.request.Request(source.get('url') or KDOCS_SOURCE_URL, headers=headers)
     try:
         ssl_context = ssl._create_unverified_context()
         opener = urllib.request.build_opener(
@@ -868,7 +877,8 @@ def _find_kdocs_content_column(header):
     return 5
 
 
-def _today_kdocs_record_rows(rows, target_date=None):
+def _today_kdocs_record_rows(rows, target_date=None, source=None):
+    source = source or KDOCS_SOURCES[0]
     target_date = target_date or datetime.now().date()
     header_idx, submit_idx = _find_kdocs_header(rows)
     header = rows[header_idx] if header_idx < len(rows) else []
@@ -883,7 +893,7 @@ def _today_kdocs_record_rows(rows, target_date=None):
         row_payload = {'header': header, 'row': row, 'row_number': idx}
         row_json = json.dumps(row_payload, ensure_ascii=False, sort_keys=True)
         records.append({
-            'source_key': KDOCS_SOURCE_KEY,
+            'source_key': source.get('key') or KDOCS_SOURCE_KEY,
             'submit_date': target_date.isoformat(),
             'submit_time_text': _clean_cell(row[submit_idx]),
             'row_hash': hashlib.sha256(row_json.encode('utf-8')).hexdigest(),
@@ -895,6 +905,8 @@ def _today_kdocs_record_rows(rows, target_date=None):
 
 def _record_row_to_dict(row):
     data = dict(row)
+    source = KDOCS_SOURCE_BY_KEY.get(data.get('source_key') or '')
+    data['source_name'] = (source or {}).get('name') or data.get('source_key') or 'WPS'
     try:
         data['row_data'] = json.loads(data.get('row_json') or '{}')
     except Exception:
@@ -909,13 +921,15 @@ def _record_row_to_dict(row):
 
 def _list_today_wps_records(conn, target_date=None):
     target_date = target_date or datetime.now().date()
+    source_keys = [source['key'] for source in KDOCS_SOURCES]
+    placeholders = ','.join('?' for _ in source_keys)
     rows = conn.execute(
-        '''
+        f'''
         SELECT * FROM label_wps_records
-        WHERE source_key=? AND submit_date=?
-        ORDER BY submit_time_text, id
+        WHERE source_key IN ({placeholders}) AND submit_date=?
+        ORDER BY submit_time_text, source_key, id
         ''',
-        (KDOCS_SOURCE_KEY, target_date.isoformat()),
+        (*source_keys, target_date.isoformat()),
     ).fetchall()
     return [_record_row_to_dict(row) for row in rows]
 
@@ -960,44 +974,102 @@ def _upsert_today_wps_records(conn, records):
     return inserted, updated
 
 
-def _parse_qty_near_code(line, code):
-    escaped = re.escape(code)
+CHINESE_NUMERAL_MAP = {
+    '零': 0, '〇': 0, '一': 1, '二': 2, '两': 2, '俩': 2, '三': 3, '四': 4,
+    '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+}
+
+
+def _parse_chinese_int(text):
+    text = _clean_cell(text)
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    if text in CHINESE_NUMERAL_MAP:
+        return CHINESE_NUMERAL_MAP[text]
+    if '十' in text:
+        left, _, right = text.partition('十')
+        tens = CHINESE_NUMERAL_MAP.get(left, 1) if left else 1
+        ones = CHINESE_NUMERAL_MAP.get(right, 0) if right else 0
+        return tens * 10 + ones
+    return None
+
+
+def _qty_from_match_text(text):
+    value = _parse_chinese_int(text)
+    return max(1, value) if value is not None else None
+
+
+def _parse_qty_near_token(line, token, allow_line_fallback=False):
+    escaped = re.escape(token)
+    number_pattern = r'(\d+|[零〇一二两俩三四五六七八九十]{1,3})'
     patterns = [
-        rf'{escaped}\s*(?:[xX×*：: ]\s*)?(\d+)',
-        rf'(\d+)\s*(?:个|件|只|条)?\s*{escaped}',
+        rf'{escaped}\s*(?:[xX×*：: ]\s*)?{number_pattern}\s*(?:个|件|只|条|瓶|支|盒|套|包)?',
+        rf'{number_pattern}\s*(?:个|件|只|条|瓶|支|盒|套|包)?\s*{escaped}',
     ]
     for pattern in patterns:
         match = re.search(pattern, line, re.I)
         if match:
-            try:
-                return max(1, int(match.group(1)))
-            except Exception:
-                return 1
-    nums = re.findall(r'\d+', line)
-    return max(1, int(nums[-1])) if nums else 1
+            qty = _qty_from_match_text(match.group(1))
+            if qty is not None:
+                return qty
+    if allow_line_fallback:
+        nums = re.findall(r'\d+', line)
+        if nums:
+            return max(1, int(nums[-1]))
+    return 1
+
+
+def _parse_qty_near_code(line, code):
+    return _parse_qty_near_token(line, code, allow_line_fallback=True)
+
+
+def _product_keyword_candidates(product):
+    candidates = []
+    text = _clean_cell(product['short_name'])
+    if text:
+        candidates.append(text)
+    return sorted(set(candidates), key=len, reverse=True)
+
+
+def _match_product_by_keyword(line, products):
+    for product in products:
+        for keyword in _product_keyword_candidates(product):
+            if keyword and keyword.lower() in line.lower():
+                return product, keyword
+    return None, ''
 
 
 def _parse_wps_content_items(conn, content_text):
     products = conn.execute(
-        'SELECT code,short_name,box_spec FROM label_products ORDER BY LENGTH(code) DESC'
+        '''
+        SELECT code,short_name,box_spec
+        FROM label_products
+        ORDER BY LENGTH(short_name) DESC, LENGTH(code) DESC
+        '''
     ).fetchall()
     items = []
     for line in [part.strip() for part in re.split(r'[\r\n]+', content_text or '') if part.strip()]:
         product = None
+        matched_keyword = ''
         for prod in products:
             code = str(prod['code'])
             if re.search(rf'(?<![A-Za-z0-9]){re.escape(code)}(?![A-Za-z0-9])', line, re.I):
                 product = prod
+                matched_keyword = code
                 break
+        if not product:
+            product, matched_keyword = _match_product_by_keyword(line, products)
         if product:
-            qty = _parse_qty_near_code(line, product['code'])
+            qty = _parse_qty_near_code(line, product['code']) if matched_keyword == str(product['code']) else _parse_qty_near_token(line, matched_keyword)
             items.append({
                 'kind': 'product',
                 'code': product['code'],
                 'label': product['short_name'] or product['code'],
                 'pcs': qty,
                 'raw': line,
-                'status': 'matched',
+                'status': 'matched' if matched_keyword == str(product['code']) else f'keyword:{matched_keyword}',
             })
         else:
             items.append({
@@ -1349,8 +1421,18 @@ def api_kdocs_today_text():
 @module_required('label_print')
 def api_wps_records_import_today():
     try:
-        rows = _fetch_kdocs_rows()
-        records = _today_kdocs_record_rows(rows)
+        records = []
+        errors = []
+        for source in KDOCS_SOURCES:
+            try:
+                rows = _fetch_kdocs_rows(source=source)
+                records.extend(_today_kdocs_record_rows(rows, source=source))
+            except ValueError as exc:
+                errors.append({'source_key': source['key'], 'source_name': source['name'], 'message': str(exc)})
+        if errors and not records:
+            message = '；'.join(f"{item['source_name']}：{item['message']}" for item in errors)
+            need_login = any(_message_needs_kdocs_login(item['message']) for item in errors)
+            return jsonify({'ok': False, 'message': message, 'need_login': need_login}), 400
         conn = get_db_connection()
         ensure_tables(conn)
         inserted, updated = _upsert_today_wps_records(conn, records)
@@ -1363,6 +1445,7 @@ def api_wps_records_import_today():
             'updated': updated,
             'count': len(result_records),
             'records': result_records,
+            'errors': errors,
         })
     except ValueError as exc:
         message = str(exc)

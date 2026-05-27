@@ -216,10 +216,11 @@
             <div class="parse-head">
                 <label>WPS今日记录</label>
                 <button class="btn-parse" type="button" onclick="importWpsToday()">读取WPS今日记录</button>
-                <span class="parse-status" id="kdocs-parse-status">只读取提交时间为今天的记录，不修改WPS</span>
+                <span class="parse-status" id="kdocs-parse-status">读取两个WPS链接中提交时间为今天的记录，不修改WPS</span>
             </div>
             <table class="wps-record-table">
                 <thead><tr>
+                    <th style="width:86px">来源</th>
                     <th style="width:135px">提交时间</th>
                     <th>货物清单</th>
                     <th style="width:86px">解析</th>
@@ -227,7 +228,7 @@
                     <th style="width:160px">操作</th>
                 </tr></thead>
                 <tbody id="wps-record-tbody">
-                    <tr><td colspan="5" style="text-align:center;color:#999;padding:14px">点击读取WPS今日记录</td></tr>
+                    <tr><td colspan="6" style="text-align:center;color:#999;padding:14px">点击读取WPS今日记录</td></tr>
                 </tbody>
             </table>
             <div class="wps-detail" id="wps-detail">
@@ -610,6 +611,28 @@ const PACK_PRESETS_JS = {
 {% for p in pack_presets %}    {{ p.combo_key|tojson }}:{box:{{ p.box_name|tojson }},bag:{{ p.bag_name|tojson }},bagQty:{{ p.bag_qty or 0 }},note:{{ p.note|tojson }}},
 {% endfor %}};
 
+const WAREHOUSE_BOX_SAMPLES = {
+    "140×1+702×2":"8",
+    "702×2":"7.5",
+    "155×1":"11",
+    "155×2":"10",
+    "155×3":"8",
+    "139×1":"11",
+    "139×2":"11",
+    "140×3":"7.5",
+    "A113×6":"11",
+    "A160×1":"10.5",
+    "140×1+184×1":"7.5",
+    "139×1+140×1":"11",
+    "164×2+165×1":"6",
+    "163×1":"11",
+    "164×1+184×1":"6.5",
+    "112×1":"6.5",
+    "A113×2":"11.5"
+};
+const INTEGER_BOX_PREFERENCE = ["11","10"];
+const INTEGER_BOX_VOLUME_LIMIT = 1.35;
+
 const GOODS_WEIGHTS = {
 {% for w in weights %}    {{ w.code|tojson }}:{{ w.weight }},
 {% endfor %}};
@@ -658,9 +681,54 @@ function boxIndexByName(name){
     return BOXES.findIndex(box=>box.n===name);
 }
 
+function boxByName(name){
+    return BOXES.find(box=>box.n===name)||null;
+}
+
+function boxVolume(box){
+    return box ? box.dims[0]*box.dims[1]*box.dims[2] : Infinity;
+}
+
+function effectiveBoxItem(item,irrFac){
+    if(!item.ir||item.qty<=1)return{dims:item.dims,qty:item.qty,volume:item.dims[0]*item.dims[1]*item.dims[2]*item.qty};
+    const sorted=item.dims.slice().sort((a,b)=>b-a);
+    const long=sorted[0], mid=sorted[1], high=sorted[2];
+    const step=Math.max(5,Math.ceil(high*(irrFac-1)));
+    const stackedHigh=high+step*(item.qty-1);
+    const compactDims=[long,mid,stackedHigh];
+    const rawVol=item.dims[0]*item.dims[1]*item.dims[2]*item.qty;
+    const compactVol=long*mid*stackedHigh;
+    return{dims:compactDims,qty:1,volume:Math.max(rawVol*0.55,compactVol)};
+}
+
 function singleItemBoxIndex(item,buf,irrFac){
-    const effQty=Math.ceil(item.qty*(item.ir?irrFac:1));
-    return BOXES.findIndex(box=>boxCap(box.dims,item.dims,buf)>=effQty);
+    const eff=effectiveBoxItem(item,irrFac);
+    return BOXES.findIndex(box=>boxCap(box.dims,eff.dims,buf)>=eff.qty);
+}
+
+function canUseBoxForItems(box,items,buf,fillRate,irrFac){
+    if(!box||!items.length)return false;
+    let totalVol=0;
+    for(const item of items){
+        const eff=effectiveBoxItem(item,irrFac);
+        if(boxCap(box.dims,eff.dims,buf)<eff.qty)return false;
+        totalVol+=eff.volume;
+    }
+    return items.length===1 || totalVol<=boxVolume(box)*fillRate;
+}
+
+function preferIntegerBox(recBox,items,buf,fillRate,irrFac){
+    if(!recBox||recBox==='无匹配'||!String(recBox).includes('.'))return recBox;
+    const current=boxByName(recBox);
+    if(!current)return recBox;
+    const maxVolume=boxVolume(current)*INTEGER_BOX_VOLUME_LIMIT;
+    for(const name of INTEGER_BOX_PREFERENCE){
+        const candidate=boxByName(name);
+        if(candidate&&boxVolume(candidate)<=maxVolume&&canUseBoxForItems(candidate,items,buf,fillRate,irrFac)){
+            return name;
+        }
+    }
+    return recBox;
 }
 
 // 气泡袋适配判断（信封型）：
@@ -853,6 +921,7 @@ function computeRecommendation(){
     // 1. 预设优先
     const preset=PACK_PRESETS_JS[comboKey];
     if(preset)return{box:preset.box||null,bag:formatBagName(preset.bag,preset.bagQty),comboKey};
+    const warehouseBox=WAREHOUSE_BOX_SAMPLES[comboKey]||null;
 
     // 读参数
     const buf      =parseFloat(PACK_SETTINGS_JS.buffer_mm)||0;
@@ -875,24 +944,28 @@ function computeRecommendation(){
     let recBox=null;
     if(items.length===1){
         // 3a. 单品精确计算
-        const{dims,qty,ir}=items[0];
-        const effQty=Math.ceil(qty*(ir?irrFac:1));
-        for(const box of BOXES){if(boxCap(box.dims,dims,buf)>=effQty){recBox=box.n;break;}}
+        const eff=effectiveBoxItem(items[0],irrFac);
+        for(const box of BOXES){if(boxCap(box.dims,eff.dims,buf)>=eff.qty){recBox=box.n;break;}}
     }else{
         // 3b. 多品体积估算。每种货物按自身件数也必须能装进候选箱，
         // 避免从单品转混装后反而推荐更小箱型。
         let totalVol=0;
-        for(const{dims,qty,ir}of items)totalVol+=dims[0]*dims[1]*dims[2]*qty*(ir?irrFac:1);
+        for(const item of items)totalVol+=effectiveBoxItem(item,irrFac).volume;
         const minBoxIndex=Math.max(...items.map(item=>singleItemBoxIndex(item,buf,irrFac)));
         for(const box of BOXES){
             const boxIndex=boxIndexByName(box.n);
             if(minBoxIndex>=0&&boxIndex<minBoxIndex)continue;
             const vol=box.dims[0]*box.dims[1]*box.dims[2];
-            const itemCapsOk=items.every(({dims,qty,ir})=>boxCap(box.dims,dims,buf)>=Math.ceil(qty*(ir?irrFac:1)));
+            const itemCapsOk=items.every(item=>{
+                const eff=effectiveBoxItem(item,irrFac);
+                return boxCap(box.dims,eff.dims,buf)>=eff.qty;
+            });
             if(itemCapsOk&&fitsBox(box.dims,largestItem,buf)&&totalVol<=vol*fillM){recBox=box.n;break;}
         }
     }
     if(!recBox)recBox='无匹配';
+    if(warehouseBox)recBox=warehouseBox;
+    else recBox=preferIntegerBox(recBox,items,buf,fillM,irrFac);
 
     // 4. 气泡袋推荐
     const recBag=recommendBags(items,buf,bagRatio,fillM,irrFac);
@@ -1086,7 +1159,9 @@ function importWpsToday(skipQrLogin = false) {
         if (!r.ok || !data.ok) throw data;
         wpsRecords = data.records || [];
         renderWpsRecords();
-        statusEl.textContent = `已读取今日记录 ${data.count || 0} 条，新增 ${data.inserted || 0} 条`;
+        const errors = data.errors || [];
+        statusEl.textContent = `已读取今日记录 ${data.count || 0} 条，新增 ${data.inserted || 0} 条` +
+            (errors.length ? `；部分来源失败：${errors.map(e => e.source_name || e.source_key || 'WPS').join('、')}` : '');
     })
     .catch(err => {
         if (err && err.need_login && !skipQrLogin) {
@@ -1113,7 +1188,7 @@ function loadWpsTodayRecords() {
 function renderWpsRecords() {
     const tbody = document.getElementById('wps-record-tbody');
     if (!wpsRecords.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:14px">今天暂无记录</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:14px">今天暂无记录</td></tr>';
         return;
     }
     tbody.innerHTML = wpsRecords.map(r => {
@@ -1121,6 +1196,7 @@ function renderWpsRecords() {
         const parseText = r.parse_status === 'parsed' ? '已解析' : '未解析';
         const printText = printed ? `已打印 ${r.printed_count} 次<br>${esc(r.last_printed_at || '')} ${esc(r.last_printed_by_username || '')}` : '未打印';
         return `<tr data-id="${r.id}" onclick="selectWpsRecord(${r.id})" class="${r.id === selectedWpsRecordId ? 'selected' : ''}">
+            <td>${esc(r.source_name || r.source_key || 'WPS')}</td>
             <td>${esc(r.submit_time_text || '')}</td>
             <td><div class="wps-content-cell">${esc(shortText(r.content_text || '', 260))}</div></td>
             <td><span class="status-pill ${r.parse_status === 'parsed' ? 'status-printed' : 'status-pending'}">${parseText}</span></td>
