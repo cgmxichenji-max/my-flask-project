@@ -17,6 +17,11 @@
         input[type=file] { width: 360px; }
         button { padding: 7px 18px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 14px; }
         .form-grid { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: flex-end; }
+        .filter-panel { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-end; }
+        .filter-actions { display: flex; gap: 10px; align-items: center; }
+        .filter-actions a { color: #2e7d32; text-decoration: none; font-size: 14px; }
+        .summary-bar { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; margin: 10px 0 14px; color: #333; }
+        .summary-bar strong { color: #1b5e20; }
         .result { padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; white-space: pre-wrap; }
         .result-ok { background: #e8f5e9; color: #1b5e20; }
         .result-error { background: #ffebee; color: #b71c1c; }
@@ -226,7 +231,28 @@
         </form>
     </div>
 
+    <div class="panel">
+        <h2 style="margin-top:0;">应开金额查询</h2>
+        <form method="get" action="{{ url_for('invoicing.expected_amounts') }}" class="filter-panel">
+            <div>
+                <label>通用查询</label>
+                <input type="text" name="q" value="{{ search_query or '' }}" placeholder="店铺/平台、期间、归属、起止日期">
+            </div>
+            <div>
+                <label>客户</label>
+                <input type="text" name="customer" value="{{ customer_query or '' }}" placeholder="客户简称或别名">
+            </div>
+            <div class="filter-actions">
+                <button type="submit">查询</button>
+                <a href="{{ url_for('invoicing.expected_amounts') }}">显示全部</a>
+            </div>
+        </form>
+    </div>
+
     <h2>应开金额记录（共 {{ rows|length }} 条）</h2>
+    <div class="summary-bar">
+        <div>当前查询应开金额合计：<strong>¥{{ '%.2f'|format(total_amount or 0) }}</strong></div>
+    </div>
     <table>
         <thead>
             <tr>

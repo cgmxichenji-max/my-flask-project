@@ -348,28 +348,74 @@ def index():
 
 # ===== 应开金额导入与查看 =====
 
+def _expected_amount_query_data(conn):
+    search_query = (request.values.get('q') or '').strip()
+    customer_query = (request.values.get('customer') or '').strip()
+    where_parts = []
+    params = []
+
+    if search_query:
+        like_query = f"%{search_query}%"
+        where_parts.append(
+            """
+            (
+                e.platform LIKE ?
+                OR e.period LIKE ?
+                OR b.name LIKE ?
+                OR e.period_start LIKE ?
+                OR e.period_end LIKE ?
+            )
+            """
+        )
+        params.extend([like_query, like_query, like_query, like_query, like_query])
+
+    if customer_query:
+        like_customer = f"%{customer_query}%"
+        where_parts.append(
+            """
+            (
+                c.short_name LIKE ?
+                OR EXISTS (
+                    SELECT 1
+                    FROM customer_alias ca
+                    WHERE ca.customer_id = e.customer_id
+                      AND ca.alias LIKE ?
+                )
+            )
+            """
+        )
+        params.extend([like_customer, like_customer])
+
+    where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+    rows = conn.execute(
+        f"""
+        SELECT
+            e.id,
+            c.short_name AS customer_name,
+            b.name AS entity_name,
+            e.platform,
+            e.period,
+            e.period_start,
+            e.period_end,
+            e.amount,
+            e.created_at
+        FROM expected_amount e
+        LEFT JOIN customer c ON c.id = e.customer_id
+        LEFT JOIN billing_entity b ON b.id = e.entity_id
+        {where_sql}
+        ORDER BY e.id DESC
+        """,
+        params,
+    ).fetchall()
+    total_amount = sum((row['amount'] or 0) for row in rows)
+    return rows, total_amount, search_query, customer_query
+
+
 @invoicing_bp.route('/expected-amounts')
 @module_required('invoicing')
 def expected_amounts():
     with get_db_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT
-                e.id,
-                c.short_name AS customer_name,
-                b.name AS entity_name,
-                e.platform,
-                e.period,
-                e.period_start,
-                e.period_end,
-                e.amount,
-                e.created_at
-            FROM expected_amount e
-            LEFT JOIN customer c ON c.id = e.customer_id
-            LEFT JOIN billing_entity b ON b.id = e.entity_id
-            ORDER BY e.id DESC
-            """
-        ).fetchall()
+        rows, total_amount, search_query, customer_query = _expected_amount_query_data(conn)
         entities = conn.execute(
             "SELECT id, name FROM billing_entity ORDER BY id"
         ).fetchall()
@@ -377,6 +423,9 @@ def expected_amounts():
         'invoicing_expected_amounts.html',
         rows=rows,
         entities=entities,
+        total_amount=total_amount,
+        search_query=search_query,
+        customer_query=customer_query,
         result=None,
     )
 
@@ -550,24 +599,7 @@ def import_expected_amounts():
             finish_staged_upload(staged_batch, 'failed', str(exc))
 
     with get_db_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT
-                e.id,
-                c.short_name AS customer_name,
-                b.name AS entity_name,
-                e.platform,
-                e.period,
-                e.period_start,
-                e.period_end,
-                e.amount,
-                e.created_at
-            FROM expected_amount e
-            LEFT JOIN customer c ON c.id = e.customer_id
-            LEFT JOIN billing_entity b ON b.id = e.entity_id
-            ORDER BY e.id DESC
-            """
-        ).fetchall()
+        rows, total_amount, search_query, customer_query = _expected_amount_query_data(conn)
         entities = conn.execute(
             "SELECT id, name FROM billing_entity ORDER BY id"
         ).fetchall()
@@ -576,6 +608,9 @@ def import_expected_amounts():
         'invoicing_expected_amounts.html',
         rows=rows,
         entities=entities,
+        total_amount=total_amount,
+        search_query=search_query,
+        customer_query=customer_query,
         result=result,
     )
 
