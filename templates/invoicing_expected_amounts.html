@@ -236,7 +236,7 @@
         <form method="get" action="{{ url_for('invoicing.expected_amounts') }}" class="filter-panel">
             <div>
                 <label>通用查询</label>
-                <input type="text" name="q" value="{{ search_query or '' }}" placeholder="店铺/平台、期间、归属、起止日期">
+                <input type="text" name="q" value="{{ search_query or '' }}" placeholder="多个条件用空格/逗号分隔">
             </div>
             <div>
                 <label>客户</label>

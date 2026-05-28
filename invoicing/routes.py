@@ -355,19 +355,20 @@ def _expected_amount_query_data(conn):
     params = []
 
     if search_query:
-        like_query = f"%{search_query}%"
-        where_parts.append(
-            """
-            (
-                e.platform LIKE ?
-                OR e.period LIKE ?
-                OR b.name LIKE ?
-                OR e.period_start LIKE ?
-                OR e.period_end LIKE ?
+        for keyword in [part for part in re.split(r'[\s,，、;；]+', search_query) if part]:
+            like_query = f"%{keyword}%"
+            where_parts.append(
+                """
+                (
+                    e.platform LIKE ?
+                    OR e.period LIKE ?
+                    OR b.name LIKE ?
+                    OR e.period_start LIKE ?
+                    OR e.period_end LIKE ?
+                )
+                """
             )
-            """
-        )
-        params.extend([like_query, like_query, like_query, like_query, like_query])
+            params.extend([like_query, like_query, like_query, like_query, like_query])
 
     if customer_query:
         like_customer = f"%{customer_query}%"
