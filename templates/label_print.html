@@ -1503,9 +1503,9 @@ function doPrint() {
 .wrap{width:76mm;padding:14mm 5mm 5mm}.item-row{display:flex;align-items:baseline;gap:3mm;margin-bottom:4mm;flex-wrap:wrap}
 .sn{font-size:27px;font-weight:700}.pcs{font-size:25.5px;font-weight:700;white-space:nowrap}
 .bx{font-size:11px;color:#444;white-space:nowrap}hr{border:none;border-top:1px solid #999;margin:4mm 0}
-.sum{font-size:28px;font-weight:700;line-height:1.45}.weight{font-size:12px;font-weight:700;color:#333;margin-top:2mm}.rec{font-size:11px;color:#555;margin-top:2mm;padding-top:2mm;border-top:1px dashed #bbb}</style></head>
+.sum{font-size:14px;font-weight:700;line-height:1.6}.weight{font-size:12px;font-weight:400;color:#333;margin-left:3mm}.rec{font-size:11px;color:#555;margin-top:1mm;padding-top:1mm;border-top:1px dashed #bbb}</style></head>
 <body><div class="wrap">${items}<hr>
-<div class="sum">共计：${tickets}&nbsp;单<br>总数量：${totalQty}&nbsp;个</div>${weightLine}${recLine}</div>
+<div class="sum">共计：${tickets}&nbsp;单　总数量：${totalQty}&nbsp;个${weightLine}</div>${recLine}</div>
 <scr`+`ipt>window.onload=function(){window.print();setTimeout(window.close,500)}<\/scr`+`ipt></body></html>`;
     const pw = window.open('', '_blank');
     if (!pw) { alert('请允许弹出窗口'); return; }
