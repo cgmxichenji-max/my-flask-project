@@ -1016,6 +1016,8 @@ def _parse_qty_near_token(line, token, allow_line_fallback=False):
                 return qty
     if allow_line_fallback:
         nums = re.findall(r'\d+', line)
+        if len(nums) == 1 and nums[0].lower() == str(token).lower():
+            return 1
         if nums:
             return max(1, int(nums[-1]))
     return 1
@@ -1025,18 +1027,51 @@ def _parse_qty_near_code(line, code):
     return _parse_qty_near_token(line, code, allow_line_fallback=True)
 
 
+def _split_wps_content_segments(content_text):
+    segments = []
+    for line in re.split(r'[\r\n]+', content_text or ''):
+        line = line.strip()
+        if not line:
+            continue
+        for part in re.split(r'\t+| {2,}|\u3000{2,}', line):
+            part = part.strip()
+            if part in ('黑', '白'):
+                continue
+            if part and not re.fullmatch(r'[.\-—_·…。．、，,;；:：\s]+', part):
+                segments.append(part)
+    return segments
+
+
+def _text_keywords(text):
+    text = _clean_cell(text)
+    if not text:
+        return []
+    keywords = [text]
+    keywords.extend(re.findall(r'[\u4e00-\u9fff]{2,}', text))
+    return keywords
+
+
 def _product_keyword_candidates(product):
     candidates = []
-    text = _clean_cell(product['short_name'])
-    if text:
-        candidates.append(text)
-    return sorted(set(candidates), key=len, reverse=True)
+    short_name = _clean_cell(product['short_name'])
+    product_name = _clean_cell(product['product_name'])
+    spec = _clean_cell(product['spec'])
+    for text in (short_name, product_name):
+        candidates.extend(_text_keywords(text))
+    if short_name and spec:
+        candidates.append(f'{short_name}{spec}')
+    return sorted({item for item in candidates if len(item) >= 2}, key=len, reverse=True)
 
 
 def _match_product_by_keyword(line, products):
+    line_lower = line.lower()
+    line_phrases = [item for item in _text_keywords(line) if len(item) >= 4]
     for product in products:
         for keyword in _product_keyword_candidates(product):
-            if keyword and keyword.lower() in line.lower():
+            keyword_lower = keyword.lower()
+            if keyword and keyword_lower in line_lower:
+                return product, keyword
+            if any(phrase in keyword for phrase in line_phrases):
                 return product, keyword
     return None, ''
 
@@ -1044,13 +1079,13 @@ def _match_product_by_keyword(line, products):
 def _parse_wps_content_items(conn, content_text):
     products = conn.execute(
         '''
-        SELECT code,short_name,box_spec
+        SELECT code,short_name,product_name,spec,box_spec
         FROM label_products
-        ORDER BY LENGTH(short_name) DESC, LENGTH(code) DESC
+        ORDER BY LENGTH(short_name) DESC, LENGTH(product_name) DESC, LENGTH(code) DESC
         '''
     ).fetchall()
     items = []
-    for line in [part.strip() for part in re.split(r'[\r\n]+', content_text or '') if part.strip()]:
+    for line in _split_wps_content_segments(content_text):
         product = None
         matched_keyword = ''
         for prod in products:
