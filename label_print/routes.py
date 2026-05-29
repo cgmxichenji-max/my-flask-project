@@ -1005,8 +1005,10 @@ def _parse_qty_near_token(line, token, allow_line_fallback=False):
     escaped = re.escape(token)
     number_pattern = r'(\d+|[零〇一二两俩三四五六七八九十]{1,3})'
     patterns = [
-        rf'{escaped}\s*(?:[xX×*：: ]\s*)?{number_pattern}\s*(?:个|件|只|条|瓶|支|盒|套|包)?',
+        rf'{escaped}.*?[xX×*]\s*{number_pattern}',
         rf'{number_pattern}\s*(?:个|件|只|条|瓶|支|盒|套|包)?\s*{escaped}',
+        rf'{escaped}\s*(?:[：:]\s*){number_pattern}\s*(?:个|件|只|条|瓶|支|盒|套|包)?',
+        rf'{escaped}\s+{number_pattern}\s*(?:个|件|只|条|瓶|支|盒|套|包)?',
     ]
     for pattern in patterns:
         match = re.search(pattern, line, re.I)
@@ -1015,7 +1017,7 @@ def _parse_qty_near_token(line, token, allow_line_fallback=False):
             if qty is not None:
                 return qty
     if allow_line_fallback:
-        nums = re.findall(r'\d+', line)
+        nums = re.findall(r'(?<![A-Za-z])\d+(?!\s*(?:ml|g|kg|克|毫升|升))', line, re.I)
         if len(nums) == 1 and nums[0].lower() == str(token).lower():
             return 1
         if nums:
@@ -1063,15 +1065,22 @@ def _product_keyword_candidates(product):
     return sorted({item for item in candidates if len(item) >= 2}, key=len, reverse=True)
 
 
+def _has_conflicting_spec(line, product):
+    product_spec = _clean_cell(product['spec']).lower().replace(' ', '')
+    if not product_spec:
+        return False
+    specs = [item.lower().replace(' ', '') for item in re.findall(r'\d+(?:\.\d+)?\s*(?:ml|g|kg|克|毫升|升)', line, re.I)]
+    return bool(specs) and product_spec not in specs
+
+
 def _match_product_by_keyword(line, products):
     line_lower = line.lower()
-    line_phrases = [item for item in _text_keywords(line) if len(item) >= 4]
     for product in products:
+        if _has_conflicting_spec(line, product):
+            continue
         for keyword in _product_keyword_candidates(product):
             keyword_lower = keyword.lower()
             if keyword and keyword_lower in line_lower:
-                return product, keyword
-            if any(phrase in keyword for phrase in line_phrases):
                 return product, keyword
     return None, ''
 

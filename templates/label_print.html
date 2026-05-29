@@ -1198,7 +1198,7 @@ function renderWpsRecords() {
         return `<tr data-id="${r.id}" onclick="selectWpsRecord(${r.id})" class="${r.id === selectedWpsRecordId ? 'selected' : ''}">
             <td>${esc(r.source_name || r.source_key || 'WPS')}</td>
             <td>${esc(r.submit_time_text || '')}</td>
-            <td><div class="wps-content-cell">${esc(shortText(r.content_text || '', 260))}</div></td>
+            <td><div class="wps-content-cell">${esc(shortText(formatWpsTextLines(r.content_text || ''), 260))}</div></td>
             <td><span class="status-pill ${r.parse_status === 'parsed' ? 'status-printed' : 'status-pending'}">${parseText}</span></td>
             <td><span class="status-pill ${printed ? 'status-printed' : 'status-pending'}">${printText}</span></td>
             <td>
@@ -1213,6 +1213,15 @@ function shortText(text, len) {
     return text.length > len ? text.slice(0, len) + '...' : text;
 }
 
+function formatWpsTextLines(text) {
+    return String(text || '')
+        .split(/\r?\n/)
+        .flatMap(line => line.split(/\t+| {2,}|\u3000{2,}/))
+        .map(line => line.trim())
+        .filter(line => line && !/^[.\-—_·…。．、，,;；:：\s]+$/.test(line) && !['黑','白'].includes(line))
+        .join('\n');
+}
+
 function getSelectedWpsRecord() {
     return wpsRecords.find(r => r.id === selectedWpsRecordId) || null;
 }
@@ -1223,7 +1232,7 @@ function selectWpsRecord(id, forceParse = false) {
     const record = getSelectedWpsRecord();
     if (!record) return;
     document.getElementById('wps-detail').style.display = 'grid';
-    document.getElementById('wps-original').textContent = record.content_text || '';
+    document.getElementById('wps-original').textContent = formatWpsTextLines(record.content_text || '');
     const btn = document.getElementById('wps-print-btn');
     btn.textContent = record.printed_count > 0 ? '强制重打' : '打印';
     if (forceParse || record.parse_status !== 'parsed' || !(record.parsed_items || []).length) {
