@@ -1029,6 +1029,20 @@ def _parse_qty_near_code(line, code):
     return _parse_qty_near_token(line, code, allow_line_fallback=True)
 
 
+def _parse_qty_from_text(line):
+    patterns = [
+        r'[xX×*]\s*(\d+|[零〇一二两俩三四五六七八九十]{1,3})',
+        r'(\d+|[零〇一二两俩三四五六七八九十]{1,3})\s*(?:个|件|只|条|瓶|支|盒|套|包)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, line, re.I)
+        if match:
+            qty = _qty_from_match_text(match.group(1))
+            if qty is not None:
+                return qty
+    return 0
+
+
 def _split_wps_content_segments(content_text):
     segments = []
     for line in re.split(r'[\r\n]+', content_text or ''):
@@ -1116,11 +1130,12 @@ def _parse_wps_content_items(conn, content_text):
                 'status': 'matched' if matched_keyword == str(product['code']) else f'keyword:{matched_keyword}',
             })
         else:
+            text_qty = _parse_qty_from_text(line)
             items.append({
                 'kind': 'text',
                 'code': '',
                 'label': line,
-                'pcs': 0,
+                'pcs': text_qty,
                 'raw': line,
                 'status': 'text',
             })

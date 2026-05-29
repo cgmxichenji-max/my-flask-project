@@ -1303,7 +1303,7 @@ function collectWpsParsedItems() {
         const pcs = parseInt(tr.querySelector('.wps-pcs').value) || 0;
         if (!value) return;
         if (kind === 'text') {
-            items.push({ kind: 'text', code: '', label: value, pcs: 0, raw: value, status: 'text' });
+            items.push({ kind: 'text', code: '', label: value, pcs, raw: value, status: 'text' });
         } else {
             const prod = findProduct(value);
             items.push({ kind: 'product', code: prod ? prod.code : value, label: prod ? prod.short_name : value, pcs: pcs || 1, raw: value, status: prod ? 'matched' : 'manual' });
@@ -1448,7 +1448,7 @@ function doPrint() {
     if (wpsRecord && wpsItems.length) {
         wpsItems.forEach(item => {
             if (item.kind === 'text') {
-                rows.push({ kind: 'text', code: '', label: item.label || item.raw || '', pcs: 0, boxStr: '' });
+                rows.push({ kind: 'text', code: '', label: item.label || item.raw || '', pcs: parseInt(item.pcs) || 0, boxStr: '' });
                 return;
             }
             const prod = findProduct(item.code);
@@ -1489,6 +1489,7 @@ function doPrint() {
     const items = rows.map(r => r.kind === 'text' ? `
         <div class="item-row">
             <span class="sn">${esc(r.label)}</span>
+            ${parseInt(r.pcs) ? `<span class="pcs">*${parseInt(r.pcs)}</span>` : ''}
         </div>` : `
         <div class="item-row">
             <span class="sn">${esc(r.label)}</span>
