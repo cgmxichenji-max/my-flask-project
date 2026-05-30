@@ -631,7 +631,7 @@ const WAREHOUSE_BOX_SAMPLES = {
     "A113×2":"11.5"
 };
 const INTEGER_BOX_PREFERENCE = ["11","10"];
-const INTEGER_BOX_VOLUME_LIMIT = 1.35;
+const INTEGER_BOX_VOLUME_LIMIT = 1.4;
 
 const GOODS_WEIGHTS = {
 {% for w in weights %}    {{ w.code|tojson }}:{{ w.weight }},
@@ -665,7 +665,8 @@ function rots(d){const[l,w,h]=d;return[[l,w,h],[l,h,w],[w,l,h],[w,h,l],[h,l,w],[
 function boxCap(box,item,buf){
     const[BL,BW,BH]=box;let best=0;
     for(const[l,w,h]of rots(item)){
-        const c=Math.floor(BL/(l+buf))*Math.floor(BW/(w+buf))*Math.floor(BH/(h+buf));
+        // 容量计算只用货物实物尺寸：buffer 是外部安全余量，不应在同品堆叠时重复加到每一件上。
+        const c=Math.floor(BL/l)*Math.floor(BW/w)*Math.floor(BH/h);
         if(c>best)best=c;
     }return best;
 }
