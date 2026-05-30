@@ -707,6 +707,17 @@ function singleItemBoxIndex(item,buf,irrFac){
     return BOXES.findIndex(box=>boxCap(box.dims,eff.dims,buf)>=eff.qty);
 }
 
+function singleUnitBoxIndex(item,buf,irrFac){
+    const singleKey=`${item.code}×1`;
+    const preset=PACK_PRESETS_JS[singleKey];
+    const knownBox=(preset&&preset.box)||WAREHOUSE_BOX_SAMPLES[singleKey]||null;
+    if(knownBox){
+        const knownIndex=boxIndexByName(knownBox);
+        if(knownIndex>=0)return knownIndex;
+    }
+    return singleItemBoxIndex({...item,qty:1},buf,irrFac);
+}
+
 function canUseBoxForItems(box,items,buf,fillRate,irrFac){
     if(!box||!items.length)return false;
     let totalVol=0;
@@ -730,6 +741,14 @@ function preferIntegerBox(recBox,items,buf,fillRate,irrFac){
         }
     }
     return recBox;
+}
+
+function enforceSingleUnitFloor(recBox,items,buf,irrFac){
+    const recIndex=boxIndexByName(recBox);
+    if(recIndex<0)return{box:recBox,changed:false};
+    const minIndex=Math.max(...items.map(item=>item.qty>1?singleUnitBoxIndex(item,buf,irrFac):-1));
+    if(minIndex>=0&&recIndex<minIndex)return{box:BOXES[minIndex].n,changed:true};
+    return{box:recBox,changed:false};
 }
 
 // 气泡袋适配判断（信封型）：
@@ -952,7 +971,11 @@ function computeRecommendation(){
         // 避免从单品转混装后反而推荐更小箱型。
         let totalVol=0;
         for(const item of items)totalVol+=effectiveBoxItem(item,irrFac).volume;
-        const minBoxIndex=Math.max(...items.map(item=>singleItemBoxIndex(item,buf,irrFac)));
+        // 多件同品不能比该商品单件推荐箱型更小，避免 A160×1 命中 10.5、A160×2 反而掉到 11.5。
+        const minBoxIndex=Math.max(...items.map(item=>Math.max(
+            singleItemBoxIndex(item,buf,irrFac),
+            item.qty>1?singleUnitBoxIndex(item,buf,irrFac):-1
+        )));
         for(const box of BOXES){
             const boxIndex=boxIndexByName(box.n);
             if(minBoxIndex>=0&&boxIndex<minBoxIndex)continue;
@@ -966,7 +989,11 @@ function computeRecommendation(){
     }
     if(!recBox)recBox='无匹配';
     if(warehouseBox)recBox=warehouseBox;
-    else recBox=preferIntegerBox(recBox,items,buf,fillM,irrFac);
+    else{
+        const floorResult=enforceSingleUnitFloor(recBox,items,buf,irrFac);
+        recBox=floorResult.box;
+        if(!floorResult.changed)recBox=preferIntegerBox(recBox,items,buf,fillM,irrFac);
+    }
 
     // 4. 气泡袋推荐
     const recBag=recommendBags(items,buf,bagRatio,fillM,irrFac);
