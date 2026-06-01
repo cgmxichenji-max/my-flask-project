@@ -2,6 +2,7 @@ import os
 import secrets
 
 from flask import Flask, g, render_template, session
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # ===== 导入模块蓝图 =====
 from auth import register_auth
@@ -19,6 +20,7 @@ from label_print.routes import label_print_bp  # 页头打印模块
 
 # ===== 创建 Flask 应用 =====
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # ===== 数据库统一配置 =====
 app.config['DATABASE_PATH'] = 'data/main.db'
 app.config['MAX_CONTENT_LENGTH'] = 512 * 1024 * 1024
