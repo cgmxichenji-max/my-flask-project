@@ -192,6 +192,11 @@ def _parse_expected_alias_match_value(raw_value):
 
 
 def _ensure_invoice_expected_match_table(conn):
+    # ensure tax_filed column exists for databases created before this feature
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(invoice)").fetchall()}
+    if 'tax_filed' not in existing:
+        conn.execute("ALTER TABLE invoice ADD COLUMN tax_filed INTEGER NOT NULL DEFAULT 0")
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS invoice_expected_match (
@@ -952,6 +957,7 @@ def delete_alias(alias_id):
 def invoices_list():
     only_unmatched = request.args.get('filter') == 'unmatched'
     usable_filter = (request.args.get('usable') or '').strip()
+    tax_filed_filter = (request.args.get('tax_filed') or '').strip()
     download_ok = (request.args.get('download_ok') or '').strip()
     download_error = (request.args.get('download_error') or '').strip()
     with get_db_connection() as conn:
@@ -961,7 +967,7 @@ def invoices_list():
                    i.invoice_type, i.tax_rate,
                    i.seller_name, i.buyer_name, i.project_name,
                    i.alias_name,
-                   i.pdf_remark, i.is_usable, i.customer_id, i.entity_id,
+                   i.pdf_remark, i.is_usable, i.tax_filed, i.customer_id, i.entity_id,
                    i.pdf_file_path, i.qr_content, i.created_at,
                    m.expected_amount_id AS matched_expected_amount_id,
                    c.short_name AS customer_short_name,
@@ -989,6 +995,9 @@ def invoices_list():
         if usable_filter in ('0', '1'):
             where_parts.append("i.is_usable = ?")
             params.append(int(usable_filter))
+        if tax_filed_filter in ('0', '1'):
+            where_parts.append("i.tax_filed = ?")
+            params.append(int(tax_filed_filter))
         if where_parts:
             sql += " WHERE " + " AND ".join(where_parts)
         sql += " ORDER BY i.id DESC"
@@ -998,6 +1007,7 @@ def invoices_list():
         rows=rows,
         only_unmatched=only_unmatched,
         usable_filter=usable_filter,
+        tax_filed_filter=tax_filed_filter,
         download_ok=download_ok,
         download_error=download_error,
     )
@@ -1728,6 +1738,19 @@ def invoice_delete(invoice_id):
         conn.execute("DELETE FROM invoice WHERE id = ?", (invoice_id,))
         conn.commit()
     return redirect(url_for('invoicing.invoices_list'))
+
+
+@invoicing_bp.route('/invoices/<int:invoice_id>/toggle_tax_filed', methods=['POST'])
+@module_required('invoicing')
+def invoice_toggle_tax_filed(invoice_id):
+    next_url = request.form.get('next') or request.referrer or url_for('invoicing.invoices_list')
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE invoice SET tax_filed = CASE WHEN tax_filed = 1 THEN 0 ELSE 1 END WHERE id = ?",
+            (invoice_id,)
+        )
+        conn.commit()
+    return redirect(next_url)
 
 
 # ===== 应开 vs 已开核对 =====
