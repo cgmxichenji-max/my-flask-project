@@ -390,6 +390,32 @@
         </section>
 
         <section class="section-card">
+            <div class="section-title">佣金导出</div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="commission_start_date">开始日期</label>
+                    <input id="commission_start_date" name="commission_start_date" type="date">
+                </div>
+                <div class="form-group">
+                    <label for="commission_end_date">结束日期</label>
+                    <input id="commission_end_date" name="commission_end_date" type="date">
+                </div>
+                <div class="form-group">
+                    <label for="commission_nickname_query">带货账号昵称 / 别名 / 关键词</label>
+                    <input id="commission_nickname_query" name="commission_nickname_query" type="text" placeholder="不输入表示全部">
+                </div>
+            </div>
+            <div class="report-actions">
+                <button class="btn btn-primary" type="button" id="btn-export-commission-summary">佣金汇总导出</button>
+                <button class="btn btn-primary" type="button" id="btn-export-commission-details">主播/团长佣金明细导出</button>
+            </div>
+            <div id="commission-export-result" class="import-result-box" style="width:100%;"></div>
+            <div class="hint-box">
+                说明：佣金数据来自资金流水表，并通过关联订单号匹配订单表的带货账号昵称；仅统计达人佣金和带货机构服务费，金额正负直接相加。明细导出为 ZIP，每个带货账号昵称一个 Excel。
+            </div>
+        </section>
+
+        <section class="section-card">
             <div class="section-title">原始数据处理</div>
 
             <div class="form-grid" style="grid-template-columns: repeat(5, minmax(160px, 1fr));">
@@ -489,6 +515,12 @@
     const exportFieldsTbody = document.getElementById('export-fields-tbody');
     const btnExportExcel = document.getElementById('btn-export-excel');
     const exportResult = document.getElementById('export-result');
+    const commissionStartDateInput = document.getElementById('commission_start_date');
+    const commissionEndDateInput = document.getElementById('commission_end_date');
+    const commissionNicknameQueryInput = document.getElementById('commission_nickname_query');
+    const btnExportCommissionSummary = document.getElementById('btn-export-commission-summary');
+    const btnExportCommissionDetails = document.getElementById('btn-export-commission-details');
+    const commissionExportResult = document.getElementById('commission-export-result');
 
     const filterEmptyBox = document.getElementById('filter-empty-box');
     const filterRowsContainer = document.getElementById('filter-rows-container');
@@ -558,6 +590,101 @@
         }
         if (timeEndInput && !timeEndInput.value) {
             timeEndInput.value = '23:59';
+        }
+    }
+
+    function applyCommissionDateRange() {
+        const range = exportDateRanges.fund_flows || {};
+        if (commissionStartDateInput) {
+            commissionStartDateInput.value = range.start_date || '';
+        }
+        if (commissionEndDateInput) {
+            commissionEndDateInput.value = range.end_date || '';
+        }
+    }
+
+    function getDownloadFilename(disposition, fallbackName) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        const normalMatch = disposition.match(/filename="?([^";]+)"?/i);
+
+        if (utf8Match && utf8Match[1]) {
+            return decodeURIComponent(utf8Match[1]);
+        }
+        if (normalMatch && normalMatch[1]) {
+            return decodeURIComponent(normalMatch[1]);
+        }
+        return fallbackName;
+    }
+
+    async function downloadBlobResponse(response, fallbackName) {
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const fileName = getDownloadFilename(disposition, fallbackName);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+        return fileName;
+    }
+
+    async function handleCommissionExport({ url, buttonElement, loadingText, defaultButtonText }) {
+        if (!commissionStartDateInput || !commissionEndDateInput || !buttonElement) {
+            return;
+        }
+
+        const startDate = (commissionStartDateInput.value || '').trim();
+        const endDate = (commissionEndDateInput.value || '').trim();
+        if (!startDate || !endDate) {
+            showImportMessage(commissionExportResult, '请选择佣金导出的开始日期和结束日期', false);
+            return;
+        }
+        if (startDate > endDate) {
+            showImportMessage(commissionExportResult, '佣金导出开始日期不能晚于结束日期', false);
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('start_date', startDate);
+        formData.append('end_date', endDate);
+        formData.append('nickname_query', commissionNicknameQueryInput ? commissionNicknameQueryInput.value : '');
+
+        buttonElement.disabled = true;
+        buttonElement.textContent = loadingText;
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await parseJsonResponse(response);
+                showImportMessage(commissionExportResult, errorData.message || '佣金导出失败', false);
+                return;
+            }
+
+            const responseType = response.headers.get('Content-Type') || '';
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const isDownloadResponse = responseType.includes('zip') || disposition.toLowerCase().includes('attachment');
+            if (!isDownloadResponse) {
+                await parseJsonResponse(response);
+            }
+
+            const fileName = await downloadBlobResponse(response, '佣金导出.zip');
+            showImportMessage(commissionExportResult, `导出成功：${fileName}`, true);
+        } catch (error) {
+            showImportMessage(commissionExportResult, `佣金导出失败：${error.message}`, false);
+        } finally {
+            buttonElement.disabled = false;
+            buttonElement.textContent = defaultButtonText;
         }
     }
 
@@ -1085,6 +1212,30 @@
         });
         applyExportDateRange(sourceTableSelect.value);
         renderExportFields(sourceTableSelect.value);
+    }
+
+    applyCommissionDateRange();
+
+    if (btnExportCommissionSummary) {
+        btnExportCommissionSummary.addEventListener('click', async function () {
+            await handleCommissionExport({
+                url: '/wechat_shop/export_commission_summary',
+                buttonElement: btnExportCommissionSummary,
+                loadingText: '正在导出汇总...',
+                defaultButtonText: '佣金汇总导出'
+            });
+        });
+    }
+
+    if (btnExportCommissionDetails) {
+        btnExportCommissionDetails.addEventListener('click', async function () {
+            await handleCommissionExport({
+                url: '/wechat_shop/export_commission_details',
+                buttonElement: btnExportCommissionDetails,
+                loadingText: '正在导出明细...',
+                defaultButtonText: '主播/团长佣金明细导出'
+            });
+        });
     }
 
     if (btnAddFilterRow) {

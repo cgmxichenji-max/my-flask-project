@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 from datetime import datetime
 import sqlite3
+import zipfile
 
 import pandas as pd
 from openpyxl.utils import get_column_letter
@@ -695,6 +696,379 @@ def export_data_to_excel(
 
     download_name = _build_export_download_name(table_key, start_text, end_text)
     return output, download_name
+
+
+COMMISSION_TRANSACTION_TYPES = ('达人佣金', '带货机构服务费')
+COMMISSION_UNMATCHED_NICKNAME = '未匹配带货账号昵称'
+COMMISSION_DETAIL_COLUMNS = [
+    '流水单号',
+    '记账时间',
+    '动账类型',
+    '收支类型',
+    '收支金额',
+    '关联订单号',
+    '带货账号昵称',
+]
+
+
+def _normalize_commission_date(value: str | None, boundary: str) -> str:
+    text = str(value or '').strip()
+    if not text:
+        raise ValueError('请选择佣金导出的开始日期和结束日期')
+
+    normalized = text.replace('/', '-')
+    try:
+        dt = datetime.strptime(normalized, '%Y-%m-%d')
+    except ValueError as exc:
+        raise ValueError('佣金导出日期格式不正确，请使用 YYYY-MM-DD') from exc
+
+    if boundary == 'end':
+        return dt.strftime('%Y-%m-%d 23:59:59')
+    return dt.strftime('%Y-%m-%d 00:00:00')
+
+
+def _normalize_commission_date_range(start_date: str | None, end_date: str | None) -> tuple[str, str]:
+    start_text = _normalize_commission_date(start_date, 'start')
+    end_text = _normalize_commission_date(end_date, 'end')
+    if start_text > end_text:
+        raise ValueError('佣金导出开始日期不能晚于结束日期')
+    return start_text, end_text
+
+
+def _ensure_commission_export_indexes(conn: sqlite3.Connection) -> None:
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        CREATE INDEX IF NOT EXISTS idx_wechat_fund_flow_booking_type
+        ON {WECHAT_FUND_FLOW_TABLE_NAME}(booking_time, transaction_type)
+        """
+    )
+    cursor.execute(
+        f"""
+        CREATE INDEX IF NOT EXISTS idx_wechat_fund_flow_related_order_no
+        ON {WECHAT_FUND_FLOW_TABLE_NAME}(related_order_no)
+        """
+    )
+    cursor.execute(
+        f"""
+        CREATE INDEX IF NOT EXISTS idx_wechat_orders_order_no
+        ON {WECHAT_ORDER_TABLE_NAME}(order_no)
+        """
+    )
+    cursor.execute(
+        f"""
+        CREATE INDEX IF NOT EXISTS idx_wechat_orders_promotion_account_nickname
+        ON {WECHAT_ORDER_TABLE_NAME}(promotion_account_nickname)
+        """
+    )
+    conn.commit()
+
+
+def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def _get_alias_nicknames(conn: sqlite3.Connection, nickname_query: str) -> list[str]:
+    keyword = (nickname_query or '').strip()
+    if not keyword:
+        return []
+    if not _table_exists(conn, 'customer') or not _table_exists(conn, 'customer_alias'):
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT DISTINCT TRIM(c.short_name) AS nickname
+        FROM customer_alias ca
+        JOIN customer c ON c.id = ca.customer_id
+        WHERE TRIM(ca.alias) = ?
+          AND TRIM(COALESCE(c.short_name, '')) <> ''
+        ORDER BY nickname
+        """,
+        (keyword,),
+    ).fetchall()
+    return [row['nickname'] for row in rows]
+
+
+def _month_values_between(start_text: str, end_text: str) -> list[tuple[int, int]]:
+    start_dt = datetime.strptime(start_text[:10], '%Y-%m-%d')
+    end_dt = datetime.strptime(end_text[:10], '%Y-%m-%d')
+    values: list[tuple[int, int]] = []
+    year = start_dt.year
+    month = start_dt.month
+    while (year, month) <= (end_dt.year, end_dt.month):
+        values.append((year, month))
+        if month == 12:
+            year += 1
+            month = 1
+        else:
+            month += 1
+    return values
+
+
+def _build_commission_month_text(start_text: str, end_text: str, short_year: bool = False) -> str:
+    months = _month_values_between(start_text, end_text)
+    if not months:
+        return ''
+
+    parts: list[str] = []
+    previous_year: int | None = None
+    has_multiple_years = len({year for year, _month in months}) > 1
+
+    for year, month in months:
+        if short_year:
+            if has_multiple_years or previous_year != year:
+                parts.append(f"{str(year)[-2:]}年{month}月")
+            else:
+                parts.append(f"{month}月")
+        else:
+            if has_multiple_years or previous_year != year:
+                parts.append(f"{year}年{month}月")
+            else:
+                parts.append(f"{month}月")
+        previous_year = year
+
+    return ' '.join(parts)
+
+
+def _safe_download_part(value: Any) -> str:
+    text = str(value or '').strip()
+    text = re.sub(r'[\\/:*?"<>|\r\n\t]+', '_', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text or '未命名'
+
+
+def _build_commission_zip_name(prefix: str, start_text: str, end_text: str) -> str:
+    month_text = _build_commission_month_text(start_text, end_text)
+    safe_month = _safe_download_part(month_text)
+    return f"{prefix}_{safe_month}.zip"
+
+
+def _build_commission_detail_filename(nickname: str, amount_sum: float, start_text: str, end_text: str) -> str:
+    month_text = _build_commission_month_text(start_text, end_text, short_year=True)
+    return _safe_download_part(f"{nickname}{amount_sum:.2f}澳柯{month_text}份.xlsx")
+
+
+def _write_dataframe_excel(
+    sheets: list[tuple[str, pd.DataFrame]],
+    amount_columns: set[str] | None = None,
+    text_columns: set[str] | None = None,
+) -> BytesIO:
+    amount_columns = amount_columns or set()
+    text_columns = text_columns or set()
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for sheet_name, df in sheets:
+            safe_sheet_name = re.sub(r'[\[\]:*?/\\]', '_', sheet_name)[:31] or 'Sheet1'
+            df.to_excel(writer, index=False, sheet_name=safe_sheet_name)
+            worksheet = writer.sheets[safe_sheet_name]
+            for column_index, column_name in enumerate(df.columns, start=1):
+                column_letter = get_column_letter(column_index)
+                if column_name in amount_columns:
+                    for cell in worksheet[column_letter][1:]:
+                        cell.number_format = '0.00'
+                if column_name in text_columns:
+                    for cell in worksheet[column_letter]:
+                        cell.number_format = '@'
+            _auto_adjust_excel_columns(worksheet)
+    output.seek(0)
+    return output
+
+
+def _query_commission_rows(
+    conn: sqlite3.Connection,
+    start_text: str,
+    end_text: str,
+    nickname_query: str | None,
+) -> pd.DataFrame:
+    _ensure_commission_export_indexes(conn)
+
+    if not _table_exists(conn, WECHAT_FUND_FLOW_TABLE_NAME):
+        raise ValueError(f'数据表不存在：{WECHAT_FUND_FLOW_TABLE_NAME}')
+    if not _table_exists(conn, WECHAT_ORDER_TABLE_NAME):
+        raise ValueError(f'数据表不存在：{WECHAT_ORDER_TABLE_NAME}')
+
+    keyword = (nickname_query or '').strip()
+    alias_nicknames = _get_alias_nicknames(conn, keyword)
+
+    where_parts = [
+        "REPLACE(CAST(f.booking_time AS TEXT), '/', '-') >= ?",
+        "REPLACE(CAST(f.booking_time AS TEXT), '/', '-') <= ?",
+        "f.transaction_type IN (?, ?)",
+    ]
+    params: list[Any] = [start_text, end_text, *COMMISSION_TRANSACTION_TYPES]
+
+    if keyword:
+        nickname_filters = ["带货账号昵称 LIKE ?"]
+        params.append(f"%{keyword}%")
+        if alias_nicknames:
+            placeholders = ', '.join('?' for _ in alias_nicknames)
+            nickname_filters.append(f"带货账号昵称 IN ({placeholders})")
+            params.extend(alias_nicknames)
+        where_parts.append('(' + ' OR '.join(nickname_filters) + ')')
+
+    sql = f"""
+        WITH commission_rows AS (
+            SELECT
+                CAST(f.flow_no AS TEXT) AS 流水单号,
+                f.booking_time AS 记账时间,
+                f.transaction_type AS 动账类型,
+                f.income_expense_type AS 收支类型,
+                COALESCE(CAST(f.amount AS REAL), 0) AS 收支金额,
+                CAST(f.related_order_no AS TEXT) AS 关联订单号,
+                COALESCE(
+                    (
+                        SELECT NULLIF(TRIM(o1.promotion_account_nickname), '')
+                        FROM {WECHAT_ORDER_TABLE_NAME} o1
+                        WHERE o1.order_no = f.related_order_no
+                          AND NULLIF(TRIM(o1.promotion_account_nickname), '') IS NOT NULL
+                        ORDER BY o1.id ASC
+                        LIMIT 1
+                    ),
+                    ?
+                ) AS 带货账号昵称
+            FROM {WECHAT_FUND_FLOW_TABLE_NAME} f
+            WHERE REPLACE(CAST(f.booking_time AS TEXT), '/', '-') >= ?
+              AND REPLACE(CAST(f.booking_time AS TEXT), '/', '-') <= ?
+              AND f.transaction_type IN (?, ?)
+        )
+        SELECT *
+        FROM commission_rows
+        {"WHERE " + " AND ".join(where_parts[3:]) if len(where_parts) > 3 else ""}
+        ORDER BY 记账时间 ASC, 流水单号 ASC, 关联订单号 ASC
+    """
+    query_params = [COMMISSION_UNMATCHED_NICKNAME, *params]
+    df = pd.read_sql_query(sql, conn, params=query_params)
+    if not df.empty:
+        df['收支金额'] = pd.to_numeric(df['收支金额'], errors='coerce').fillna(0)
+    return df
+
+
+def _build_commission_summary_frames(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if df.empty:
+        creator_df = pd.DataFrame(columns=['达人名称', '佣金之和'])
+        agency_df = pd.DataFrame(columns=['带货机构名称', '佣金之和'])
+        invoice_df = pd.DataFrame(columns=['达人/客户', '应开金额'])
+        return creator_df, agency_df, invoice_df
+
+    creator_df = (
+        df[df['动账类型'] == '达人佣金']
+        .groupby('带货账号昵称', as_index=False)['收支金额']
+        .sum()
+        .rename(columns={'带货账号昵称': '达人名称', '收支金额': '佣金之和'})
+        .sort_values('佣金之和', ascending=False)
+    )
+    agency_df = (
+        df[df['动账类型'] == '带货机构服务费']
+        .groupby('带货账号昵称', as_index=False)['收支金额']
+        .sum()
+        .rename(columns={'带货账号昵称': '带货机构名称', '收支金额': '佣金之和'})
+        .sort_values('佣金之和', ascending=False)
+    )
+    invoice_df = (
+        df.groupby('带货账号昵称', as_index=False)['收支金额']
+        .sum()
+        .rename(columns={'带货账号昵称': '达人/客户', '收支金额': '应开金额'})
+        .sort_values('应开金额', ascending=False)
+    )
+    return creator_df, agency_df, invoice_df
+
+
+def export_commission_summary_zip(
+    start_date: str | None,
+    end_date: str | None,
+    nickname_query: str | None = None,
+) -> tuple[BytesIO, str]:
+    start_text, end_text = _normalize_commission_date_range(start_date, end_date)
+    db_path = _get_database_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        df = _query_commission_rows(conn, start_text, end_text, nickname_query)
+
+    creator_df, agency_df, invoice_df = _build_commission_summary_frames(df)
+    month_text = _build_commission_month_text(start_text, end_text)
+    safe_month_text = _safe_download_part(month_text)
+
+    vba_excel = _write_dataframe_excel(
+        [
+            ('主播佣金', creator_df),
+            ('团长佣金', agency_df),
+        ],
+        amount_columns={'佣金之和'},
+    )
+
+    invoice_export_df = invoice_df.copy()
+    invoice_export_df['店铺/平台'] = '澳柯'
+    invoice_export_df['期间'] = month_text
+    invoice_export_df['归属'] = '澳柯'
+    invoice_export_df['账期起点'] = start_text[:10]
+    invoice_export_df['账期终点'] = end_text[:10]
+    invoice_export_df = invoice_export_df[
+        ['达人/客户', '应开金额', '店铺/平台', '期间', '归属', '账期起点', '账期终点']
+    ]
+    invoice_excel = _write_dataframe_excel(
+        [('应开金额导入', invoice_export_df[['达人/客户', '应开金额']])],
+        amount_columns={'应开金额'},
+        text_columns={'达人/客户'},
+    )
+
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"澳柯视频号佣金汇总_老版_{safe_month_text}.xlsx", vba_excel.getvalue())
+        zf.writestr(f"澳柯视频号应开金额导入_{safe_month_text}.xlsx", invoice_excel.getvalue())
+    archive.seek(0)
+    return archive, _build_commission_zip_name('澳柯视频号佣金汇总', start_text, end_text)
+
+
+def export_commission_detail_zip(
+    start_date: str | None,
+    end_date: str | None,
+    nickname_query: str | None = None,
+) -> tuple[BytesIO, str]:
+    start_text, end_text = _normalize_commission_date_range(start_date, end_date)
+    db_path = _get_database_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        df = _query_commission_rows(conn, start_text, end_text, nickname_query)
+
+    archive = BytesIO()
+    used_names: dict[str, int] = {}
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        if df.empty:
+            empty_excel = _write_dataframe_excel(
+                [('明细', pd.DataFrame(columns=COMMISSION_DETAIL_COLUMNS))],
+                amount_columns={'收支金额'},
+                text_columns={'流水单号', '关联订单号', '带货账号昵称'},
+            )
+            zf.writestr('无匹配佣金明细.xlsx', empty_excel.getvalue())
+        else:
+            grouped = df.groupby('带货账号昵称', sort=True)
+            for nickname, group_df in grouped:
+                amount_sum = float(group_df['收支金额'].sum())
+                detail_df = group_df[COMMISSION_DETAIL_COLUMNS].copy()
+                detail_excel = _write_dataframe_excel(
+                    [('明细', detail_df)],
+                    amount_columns={'收支金额'},
+                    text_columns={'流水单号', '关联订单号', '带货账号昵称'},
+                )
+                filename = _build_commission_detail_filename(str(nickname), amount_sum, start_text, end_text)
+                base_name = filename[:-5] if filename.lower().endswith('.xlsx') else filename
+                candidate = filename
+                used_count = used_names.get(candidate, 0)
+                if used_count:
+                    candidate = f"{base_name}_{used_count + 1}.xlsx"
+                used_names[filename] = used_count + 1
+                zf.writestr(candidate, detail_excel.getvalue())
+    archive.seek(0)
+    return archive, _build_commission_zip_name('澳柯视频号佣金明细', start_text, end_text)
 
 
 

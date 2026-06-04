@@ -5,7 +5,7 @@ import sqlite3
 from flask import current_app, jsonify, render_template, render_template_string, request
 
 from auth.decorators import module_required
-from common.download_utils import send_excel_download
+from common.download_utils import send_excel_download, send_zip_download
 from common.upload_staging import finish_staged_upload, stage_uploaded_files
 
 from .table_schemas import (
@@ -22,6 +22,8 @@ from .services import (
     read_after_sales_excel_files,
     read_fund_flow_excel_files,
     read_order_excel_files,
+    export_commission_detail_zip,
+    export_commission_summary_zip,
     export_data_to_excel,
 )
 
@@ -363,4 +365,40 @@ def export_data():
         return jsonify({
             'success': False,
             'message': str(e)
+        }), 400
+
+
+@wechat_shop_bp.route('/export_commission_summary', methods=['POST'])
+@module_required('wechat_shop')
+def export_commission_summary():
+    """导出佣金汇总 ZIP：包含 VBA 风格汇总和发票应开金额导入格式。"""
+    try:
+        output, download_name = export_commission_summary_zip(
+            start_date=request.form.get('start_date'),
+            end_date=request.form.get('end_date'),
+            nickname_query=request.form.get('nickname_query'),
+        )
+        return send_zip_download(output, download_name)
+    except Exception as exc:
+        return jsonify({
+            'success': False,
+            'message': str(exc),
+        }), 400
+
+
+@wechat_shop_bp.route('/export_commission_details', methods=['POST'])
+@module_required('wechat_shop')
+def export_commission_details():
+    """按带货账号昵称拆分导出主播/团长佣金明细 ZIP。"""
+    try:
+        output, download_name = export_commission_detail_zip(
+            start_date=request.form.get('start_date'),
+            end_date=request.form.get('end_date'),
+            nickname_query=request.form.get('nickname_query'),
+        )
+        return send_zip_download(output, download_name)
+    except Exception as exc:
+        return jsonify({
+            'success': False,
+            'message': str(exc),
         }), 400
