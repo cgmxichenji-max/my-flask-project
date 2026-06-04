@@ -926,6 +926,15 @@ def _query_commission_rows(
                         FROM {WECHAT_ORDER_TABLE_NAME} o1
                         WHERE o1.order_no = f.related_order_no
                           AND NULLIF(TRIM(o1.promotion_account_nickname), '') IS NOT NULL
+                          AND ABS(COALESCE(o1.promotion_fee_amount, 0) - COALESCE(f.amount, 0)) < 0.01
+                        ORDER BY o1.id ASC
+                        LIMIT 1
+                    ),
+                    (
+                        SELECT NULLIF(TRIM(o1.promotion_account_nickname), '')
+                        FROM {WECHAT_ORDER_TABLE_NAME} o1
+                        WHERE o1.order_no = f.related_order_no
+                          AND NULLIF(TRIM(o1.promotion_account_nickname), '') IS NOT NULL
                         ORDER BY o1.id ASC
                         LIMIT 1
                     ),
