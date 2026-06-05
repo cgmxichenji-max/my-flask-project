@@ -17,6 +17,8 @@ from vps_monitor import vps_monitor_bp       # VPS 监控模块
 from wechat_shop import wechat_shop_bp       # 微信小店模块
 from invoicing.routes import invoicing_bp     # 发票核对模块
 from label_print.routes import label_print_bp  # 页头打印模块
+from douyin_shop_chantelle import douyin_chantelle_bp   # 香娜露儿（抖音）
+from douyin_shop_mulianman import douyin_mulianman_bp    # 幕莲蔓（抖音）
 
 # ===== 创建 Flask 应用 =====
 app = Flask(__name__)
@@ -79,6 +81,10 @@ app.register_blueprint(wechat_shop_bp, url_prefix='/wechat_shop')
 app.register_blueprint(invoicing_bp, url_prefix='/invoicing')
 # /label_print -> 页头打印
 app.register_blueprint(label_print_bp, url_prefix='/label_print')
+# /douyin_shop_chantelle -> 香娜露儿（抖音）
+app.register_blueprint(douyin_chantelle_bp, url_prefix='/douyin_shop_chantelle')
+# /douyin_shop_mulianman -> 幕莲蔓（抖音）
+app.register_blueprint(douyin_mulianman_bp, url_prefix='/douyin_shop_mulianman')
 
 # ===== 总入口页面 =====
 @app.route('/')

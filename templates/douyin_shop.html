@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ shop_display_name }} - 包材管理系统</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: #efefef;
+            color: #333;
+        }
+        .topbar {
+            background: #42a941;
+            color: #fff;
+            text-align: center;
+            font-size: 22px;
+            font-weight: 700;
+            padding: 14px 20px;
+            letter-spacing: 1px;
+            box-shadow: 0 1px 2px rgba(0,0,0,.08);
+        }
+        .page-wrap { max-width: 1240px; margin: 28px auto 40px; padding: 0 18px; }
+        .page-title { text-align: center; font-size: 38px; font-weight: 700; margin: 8px 0 26px; color: #222; }
+        .section-card {
+            background: #f7f7f7;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,.07);
+            padding: 18px 16px 14px;
+            margin-bottom: 16px;
+        }
+        .section-title {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 18px; font-weight: 700; margin-bottom: 16px; color: #222;
+        }
+        .section-title::before {
+            content: ""; width: 4px; height: 24px; border-radius: 2px;
+            background: #63ba46; display: inline-block;
+        }
+        .hint-box {
+            background: #f4fbf0; border: 1px solid #d6e9ca; color: #4e6b45;
+            border-radius: 8px; padding: 10px 12px; margin-top: 12px;
+            font-size: 13px; line-height: 1.7;
+        }
+        .filter-empty-box {
+            background: #fff; border: 1px dashed #cfd6dd;
+            border-radius: 8px; padding: 18px 16px;
+            color: #666; font-size: 14px; line-height: 1.6; margin-top: 6px;
+        }
+        .status-table-wrap, .field-table-wrap, .filter-table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 860px; }
+        th, td { border: 1px solid #d8dde3; padding: 10px 12px; font-size: 14px; text-align: center; background: #fff; }
+        th { background: #e9eef4; font-weight: 700; color: #333; }
+        .import-actions { display: flex; flex-wrap: wrap; gap: 14px; }
+        .import-result-box {
+            display: none; margin-top: 14px; padding: 12px 14px;
+            border-radius: 8px; font-size: 14px; line-height: 1.7; white-space: pre-line;
+        }
+        .import-result-box.success { display: block; background: #f4fbf0; border: 1px solid #d6e9ca; color: #2f5e21; }
+        .import-result-box.error   { display: block; background: #fff3f3; border: 1px solid #efc7c7; color: #a33a3a; }
+        .btn { border: none; border-radius: 6px; padding: 11px 22px; font-size: 14px; font-weight: 700; cursor: pointer; transition: .18s; }
+        .btn:hover { transform: translateY(-1px); opacity: .96; }
+        .btn-primary  { background: #63ba46; color: #fff; }
+        .btn-secondary{ background: #a7cf93; color: #fff; }
+        .btn-dark     { background: #5f6f7a; color: #fff; }
+        .form-grid {
+            display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr));
+            gap: 14px 12px; margin-bottom: 14px;
+        }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .form-group label { font-size: 13px; font-weight: 700; color: #444; }
+        .form-group input, .form-group select {
+            width: 100%; height: 40px; border: 1px solid #cfd6dd; border-radius: 5px;
+            padding: 0 10px; font-size: 14px; background: #fff; color: #333;
+        }
+        .sub-title { font-size: 15px; font-weight: 700; color: #333; margin: 6px 0 10px; }
+        .field-grid-wrap { margin-bottom: 14px; background: #fff; border: 1px solid #d8dde3; border-radius: 8px; padding: 14px; }
+        .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 12px; }
+        .field-option { display: flex; align-items: center; gap: 10px; min-height: 46px; cursor: pointer; }
+        .field-option input[type="checkbox"] { width: 16px; height: 16px; margin: 0; flex: 0 0 auto; cursor: pointer; }
+        .field-option-text {
+            flex: 1; min-height: 40px; display: flex; align-items: center;
+            padding: 0 12px; border: 1px solid #cfd6dd; border-radius: 6px;
+            background: #fff; font-size: 14px; color: #333; line-height: 1.4; word-break: break-all;
+        }
+        .field-option:hover .field-option-text { border-color: #63ba46; background: #f4fbf0; }
+        .field-option input[type="checkbox"]:checked + .field-option-text {
+            border-color: #63ba46; background: #f4fbf0; color: #2f5e21; font-weight: 700;
+        }
+        .field-empty-text { font-size: 14px; color: #666; text-align: center; padding: 12px 8px; }
+        .filter-actions, .export-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+        .footer-note { text-align: center; margin-top: 28px; color: #777; font-size: 12px; }
+        @media (max-width: 1024px) {
+            .form-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+            .page-title { font-size: 30px; }
+        }
+        @media (max-width: 640px) {
+            .form-grid { grid-template-columns: 1fr; }
+            .page-title { font-size: 26px; }
+            .import-actions, .filter-actions, .export-actions { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">包材管理系统</div>
+    <div class="page-wrap">
+        <div class="page-title">{{ shop_display_name }} 工作台</div>
+
+        <!-- 数据状态 -->
+        <section class="section-card">
+            <div class="section-title">当前数据状态</div>
+            <div class="status-table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>表名</th><th>记录数</th><th>最早日期</th><th>最晚日期</th><th>最近导入时间</th></tr>
+                    </thead>
+                    <tbody id="data-status-tbody">
+                        {% if data_status_rows %}
+                            {% for row in data_status_rows %}
+                            <tr>
+                                <td>{{ row.table_name or '' }}</td>
+                                <td>{{ row.record_count or 0 }}</td>
+                                <td>{{ row.min_date or '' }}</td>
+                                <td>{{ row.max_date or '' }}</td>
+                                <td>{{ row.last_import_time or '' }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr><td colspan="5">暂无数据</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="hint-box">
+                订单表和资金结算表是核心数据；佣金订单明细和招商订单明细每月从抖音平台下载后导入。招商某月无数据可跳过不上传。
+            </div>
+        </section>
+
+        <!-- 数据导入 -->
+        <section class="section-card">
+            <div class="section-title">数据导入</div>
+            <div class="import-actions">
+                <input type="file" id="orders-input"     accept=".csv,.xlsx,.xls" multiple style="display:none">
+                <input type="file" id="fund-flow-input"  accept=".csv,.xlsx,.xls" multiple style="display:none">
+                <input type="file" id="commission-input" accept=".xlsx,.xls"      multiple style="display:none">
+                <input type="file" id="merchant-input"   accept=".xlsx,.xls"      multiple style="display:none">
+                <button class="btn btn-primary" type="button" id="btn-import-orders">导入订单表</button>
+                <button class="btn btn-primary" type="button" id="btn-import-fund-flow">导入资金结算表</button>
+                <button class="btn btn-primary" type="button" id="btn-import-commission">导入佣金订单明细</button>
+                <button class="btn btn-primary" type="button" id="btn-import-merchant">导入招商订单明细</button>
+            </div>
+            <div id="import-orders-result"     class="import-result-box"></div>
+            <div id="import-fund-flow-result"  class="import-result-box"></div>
+            <div id="import-commission-result" class="import-result-box"></div>
+            <div id="import-merchant-result"   class="import-result-box"></div>
+        </section>
+
+        <!-- 原始数据处理 -->
+        <section class="section-card">
+            <div class="section-title">原始数据处理</div>
+
+            <div class="form-grid" style="grid-template-columns: repeat(5, minmax(160px, 1fr));">
+                <div class="form-group">
+                    <label for="source_table">选择数据表</label>
+                    <select id="source_table" name="source_table">
+                        <option value="orders">订单表</option>
+                        <option value="fund_flow">资金结算表</option>
+                        <option value="commission">佣金订单明细</option>
+                        <option value="merchant">招商订单明细</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="date_start">开始日期</label>
+                    <input id="date_start" name="date_start" type="date">
+                </div>
+                <div class="form-group">
+                    <label for="time_start">开始时间</label>
+                    <input id="time_start" name="time_start" type="time" value="00:00">
+                </div>
+                <div class="form-group">
+                    <label for="date_end">结束日期</label>
+                    <input id="date_end" name="date_end" type="date">
+                </div>
+                <div class="form-group">
+                    <label for="time_end">结束时间</label>
+                    <input id="time_end" name="time_end" type="time" value="23:59">
+                </div>
+            </div>
+
+            <div class="sub-title">导出字段</div>
+            <div class="export-actions" style="margin-top:0; margin-bottom:10px;">
+                <button class="btn btn-secondary" type="button" id="btn-fields-select-all">全选</button>
+                <button class="btn btn-secondary" type="button" id="btn-fields-clear-all">全不选</button>
+                <button class="btn btn-dark"      type="button" id="btn-fields-restore-default">恢复默认</button>
+            </div>
+            <div class="field-grid-wrap">
+                <div id="export-fields-tbody" class="field-grid">
+                    <div class="field-empty-text">正在加载字段...</div>
+                </div>
+            </div>
+
+            <div class="sub-title">筛选条件</div>
+            <div id="filter-empty-box" class="filter-empty-box">
+                当前未添加筛选条件，点击"新增筛选条件"后再显示条件行。
+            </div>
+            <div id="filter-rows-container" class="filter-table-wrap" style="display:none; margin-top:6px;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:110px;">逻辑</th>
+                            <th style="width:260px;">字段</th>
+                            <th style="width:160px;">条件</th>
+                            <th>值</th>
+                            <th style="width:110px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="filter-rows-tbody"></tbody>
+                </table>
+            </div>
+
+            <div class="filter-actions">
+                <button class="btn btn-primary" type="button" id="btn-add-filter-row">新增筛选条件</button>
+                <button class="btn btn-dark"    type="button" id="btn-reset-filter-rows">重置条件</button>
+            </div>
+
+            <div class="export-actions" style="margin-top:14px;">
+                <button class="btn btn-primary" type="button" id="btn-export-data">导出数据</button>
+            </div>
+            <div id="export-result" class="import-result-box" style="width:100%;"></div>
+        </section>
+
+        <div class="footer-note">© 包材管理系统 · {{ shop_display_name }}</div>
+    </div>
+
+    {# 把数据嵌入独立 script 标签，避免 Jinja 特殊字符污染 JS 上下文 #}
+    <script id="export-field-config-data" type="application/json">{{ export_field_config_json | safe }}</script>
+    <script id="export-date-ranges-data"  type="application/json">{{ export_date_ranges_json  | safe }}</script>
+    <script id="api-urls-data" type="application/json">
+    {
+        "import_orders":    "{{ url_for(bp_name + '.import_orders') }}",
+        "import_fund_flow": "{{ url_for(bp_name + '.import_fund_flow') }}",
+        "import_commission":"{{ url_for(bp_name + '.import_commission') }}",
+        "import_merchant":  "{{ url_for(bp_name + '.import_merchant') }}",
+        "export_data":      "{{ url_for(bp_name + '.export_data') }}"
+    }
+    </script>
+
+    <script>
+    (function () {
+        const EXPORT_FIELD_CONFIG = JSON.parse(document.getElementById('export-field-config-data').textContent || '{}');
+        const EXPORT_DATE_RANGES  = JSON.parse(document.getElementById('export-date-ranges-data').textContent  || '{}');
+        const API_URLS            = JSON.parse(document.getElementById('api-urls-data').textContent            || '{}');
+
+        // =====================================================================
+        // 网络健壮性工具函数（与 wechat_shop 保持一致）
+        // =====================================================================
+
+        /**
+         * 解析响应体为 JSON。
+         * 服务器返回 HTML 错误页（502/504/Nginx 超时）时，
+         * 提取文字摘要后抛出 Error，避免 JSON.parse 报乱码。
+         */
+        async function parseJsonResponse(response) {
+            const contentType = response.headers.get('Content-Type') || '';
+            const text = await response.text();
+            if (contentType.includes('application/json')) {
+                try { return JSON.parse(text || '{}'); }
+                catch (e) { throw new Error('服务器返回了无法解析的 JSON'); }
+            }
+            // 非 JSON（HTML 错误页）：提取可读文字
+            const plain = text
+                .replace(/<script[\s\S]*?<\/script>/gi, '')
+                .replace(/<style[\s\S]*?<\/style>/gi, '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            const summary = plain ? `：${plain.slice(0, 200)}` : '';
+            throw new Error(`服务器返回非 JSON 响应（HTTP ${response.status}）${summary}`);
+        }
+
+        /** 从 Content-Disposition 解析文件名 */
+        function getDownloadFilename(disposition, fallback) {
+            const utf8m = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+            const norm  = disposition.match(/filename="?([^";]+)"?/i);
+            if (utf8m && utf8m[1]) return decodeURIComponent(utf8m[1]);
+            if (norm  && norm[1])  return decodeURIComponent(norm[1]);
+            return fallback;
+        }
+
+        /** 将 Blob 触发浏览器下载并返回文件名 */
+        async function downloadBlobResponse(response, fallback) {
+            const blob = await response.blob();
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const fileName = getDownloadFilename(disposition, fallback);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = fileName;
+            document.body.appendChild(a); a.click();
+            a.remove(); URL.revokeObjectURL(url);
+            return fileName;
+        }
+
+        /** 显示操作结果 */
+        function showMessage(el, message, isSuccess) {
+            el.textContent = message;
+            el.className = 'import-result-box ' + (isSuccess ? 'success' : 'error');
+        }
+
+        // =====================================================================
+        // 数据导入
+        // =====================================================================
+
+        async function handleImport({ buttonElement, fileInputElement, resultElement, importUrl, loadingText, defaultButtonText }) {
+            if (!fileInputElement.files || fileInputElement.files.length === 0) return;
+
+            buttonElement.disabled = true;
+            buttonElement.textContent = loadingText;
+            resultElement.className = 'import-result-box';
+            resultElement.textContent = '';
+
+            try {
+                const fd = new FormData();
+                for (let i = 0; i < fileInputElement.files.length; i++) {
+                    fd.append('files', fileInputElement.files[i]);
+                }
+
+                const response = await fetch(importUrl, {
+                    method: 'POST',
+                    body: fd,
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+
+                const data = await parseJsonResponse(response);
+
+                if (!response.ok || !data.success) {
+                    showMessage(resultElement, data.message || '导入失败', false);
+                    return;
+                }
+
+                // 组装详细结果文字
+                let message = data.message || '导入成功';
+                if (Array.isArray(data.files) && data.files.length > 0) {
+                    data.files.forEach(f => {
+                        message += `\n\n文件：${f.filename}`;
+                        message += `\n行数：${f.row_count}`;
+                        message += `\n列数：${f.column_count}`;
+                        if (Array.isArray(f.columns) && f.columns.length > 0) {
+                            message += `\n列名：${f.columns.join('，')}`;
+                        }
+                    });
+                }
+                if (Array.isArray(data.invalid_files) && data.invalid_files.length > 0) {
+                    message += `\n\n无效文件：${data.invalid_files.join('，')}`;
+                }
+                if (Array.isArray(data.failed_files) && data.failed_files.length > 0) {
+                    message += '\n\n读取失败：';
+                    data.failed_files.forEach(f => { message += `\n- ${f.filename}（${f.error}）`; });
+                }
+
+                // 刷新数据状态表
+                if (data.status_rows_html) {
+                    const tbody = document.getElementById('data-status-tbody');
+                    if (tbody) tbody.innerHTML = data.status_rows_html;
+                }
+
+                showMessage(resultElement, message, true);
+            } catch (error) {
+                showMessage(resultElement, `请求失败：${error.message}`, false);
+            } finally {
+                buttonElement.disabled = false;
+                buttonElement.textContent = defaultButtonText;
+                fileInputElement.value = '';
+            }
+        }
+
+        function setupImport(btnId, inputId, resultId, apiKey, loadingText, label) {
+            const btn   = document.getElementById(btnId);
+            const input = document.getElementById(inputId);
+            const box   = document.getElementById(resultId);
+            if (!btn || !input || !box) return;
+            btn.addEventListener('click', () => input.click());
+            input.addEventListener('change', () => handleImport({
+                buttonElement: btn,
+                fileInputElement: input,
+                resultElement: box,
+                importUrl: API_URLS[apiKey],
+                loadingText: loadingText,
+                defaultButtonText: label,
+            }));
+        }
+
+        setupImport('btn-import-orders',     'orders-input',     'import-orders-result',     'import_orders',    '正在导入订单文件…',   '导入订单表');
+        setupImport('btn-import-fund-flow',  'fund-flow-input',  'import-fund-flow-result',  'import_fund_flow', '正在导入资金结算…',   '导入资金结算表');
+        setupImport('btn-import-commission', 'commission-input', 'import-commission-result', 'import_commission','正在导入佣金明细…',   '导入佣金订单明细');
+        setupImport('btn-import-merchant',   'merchant-input',   'import-merchant-result',   'import_merchant',  '正在导入招商明细…',   '导入招商订单明细');
+
+        // =====================================================================
+        // 字段选择器（含 localStorage 记忆）
+        // =====================================================================
+
+        const FIELD_STORAGE_PREFIX = 'douyin_shop_export_fields_';
+        let currentTableKey = 'orders';
+
+        function getStorageKey(tableKey) { return FIELD_STORAGE_PREFIX + tableKey; }
+
+        function getSavedFields(tableKey) {
+            try {
+                const raw = localStorage.getItem(getStorageKey(tableKey));
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : null;
+            } catch (e) { return null; }
+        }
+
+        function saveCurrentFields(tableKey) {
+            const selected = Array.from(
+                document.querySelectorAll('.export-field-checkbox:checked')
+            ).map(cb => cb.value);
+            try { localStorage.setItem(getStorageKey(tableKey), JSON.stringify(selected)); } catch (e) {}
+        }
+
+        function renderFieldGrid(tableKey) {
+            const container = document.getElementById('export-fields-tbody');
+            if (!container) return;
+            const cfg = EXPORT_FIELD_CONFIG[tableKey] || { fields: [] };
+            if (!cfg.fields.length) {
+                container.innerHTML = '<div class="field-empty-text">该表无可导出字段</div>';
+                return;
+            }
+            const saved = getSavedFields(tableKey);
+            container.innerHTML = cfg.fields.map(field => {
+                const checked = Array.isArray(saved) ? saved.includes(field.value) : !!field.checked;
+                return `<label class="field-option">
+                    <input type="checkbox" class="export-field-checkbox" value="${field.value}" ${checked ? 'checked' : ''}>
+                    <span class="field-option-text" title="${field.label}">${field.label}</span>
+                </label>`;
+            }).join('');
+            // 每次勾选变化时自动存储
+            container.querySelectorAll('.export-field-checkbox').forEach(cb => {
+                cb.addEventListener('change', () => saveCurrentFields(tableKey));
+            });
+        }
+
+        function applyFieldSelection(mode) {
+            const cbs = Array.from(document.querySelectorAll('.export-field-checkbox'));
+            if (mode === 'all')  { cbs.forEach(cb => cb.checked = true);  saveCurrentFields(currentTableKey); return; }
+            if (mode === 'none') { cbs.forEach(cb => cb.checked = false); saveCurrentFields(currentTableKey); return; }
+            if (mode === 'default') { renderFieldGrid(currentTableKey); }
+        }
+
+        function getCheckedFields() {
+            return Array.from(document.querySelectorAll('.export-field-checkbox:checked')).map(cb => cb.value);
+        }
+
+        document.getElementById('source_table').addEventListener('change', function () {
+            currentTableKey = this.value;
+            renderFieldGrid(currentTableKey);
+            resetFilterRows();           // 清空旧条件行，无需再 refresh
+            const dr = EXPORT_DATE_RANGES[currentTableKey] || {};
+            document.getElementById('date_start').value = dr.start_date || '';
+            document.getElementById('date_end').value   = dr.end_date   || '';
+        });
+        document.getElementById('btn-fields-select-all').addEventListener('click',    () => applyFieldSelection('all'));
+        document.getElementById('btn-fields-clear-all').addEventListener('click',     () => applyFieldSelection('none'));
+        document.getElementById('btn-fields-restore-default').addEventListener('click',() => applyFieldSelection('default'));
+
+        // 初始化字段和日期范围
+        renderFieldGrid(currentTableKey);
+        const initDr = EXPORT_DATE_RANGES[currentTableKey] || {};
+        document.getElementById('date_start').value = initDr.start_date || '';
+        document.getElementById('date_end').value   = initDr.end_date   || '';
+
+        // =====================================================================
+        // 筛选条件
+        // =====================================================================
+
+        const FILTER_OPERATORS = [
+            { value: 'eq',           label: '等于' },
+            { value: 'ne',           label: '不等于' },
+            { value: 'contains',     label: '包含' },
+            { value: 'not_contains', label: '不包含' },
+            { value: 'gt',           label: '大于' },
+            { value: 'gte',          label: '大于等于' },
+            { value: 'lt',           label: '小于' },
+            { value: 'lte',          label: '小于等于' },
+            { value: 'is_empty',     label: '为空' },
+            { value: 'is_not_empty', label: '不为空' },
+        ];
+
+        const NO_VALUE_OPS = new Set(['is_empty', 'is_not_empty']);
+
+        function buildFieldOptionsHtml(selectedValue) {
+            const cfg = EXPORT_FIELD_CONFIG[currentTableKey] || { fields: [] };
+            return cfg.fields.map(f =>
+                `<option value="${f.value}" ${f.value === selectedValue ? 'selected' : ''}>${f.label}</option>`
+            ).join('');
+        }
+
+        function buildOperatorOptionsHtml(selectedValue) {
+            return FILTER_OPERATORS.map(o =>
+                `<option value="${o.value}" ${o.value === selectedValue ? 'selected' : ''}>${o.label}</option>`
+            ).join('');
+        }
+
+        function updateValueInputState(row) {
+            const opSel  = row.querySelector('.filter-op-select');
+            const valIn  = row.querySelector('.filter-value-input');
+            if (!opSel || !valIn) return;
+            const noValue = NO_VALUE_OPS.has(opSel.value);
+            valIn.disabled = noValue;
+            valIn.placeholder = noValue ? '此条件无需填值' : '请输入筛选值';
+            if (noValue) valIn.value = '';
+        }
+
+        function bindFilterRowEvents(row) {
+            const opSel = row.querySelector('.filter-op-select');
+            const delBtn = row.querySelector('.filter-del-btn');
+            if (opSel)  opSel.addEventListener('change',  () => updateValueInputState(row));
+            if (delBtn) delBtn.addEventListener('click', () => {
+                row.remove();
+                // 第一行隐藏逻辑选择器
+                const rows = document.querySelectorAll('#filter-rows-tbody tr');
+                rows.forEach((tr, idx) => {
+                    const logicSel = tr.querySelector('.filter-logic-select');
+                    if (logicSel) {
+                        logicSel.disabled = idx === 0;
+                        logicSel.style.visibility = idx === 0 ? 'hidden' : 'visible';
+                    }
+                });
+                updateFilterEmptyState();
+            });
+            updateValueInputState(row);
+        }
+
+        function updateFilterEmptyState() {
+            const hasRows = document.getElementById('filter-rows-tbody').children.length > 0;
+            document.getElementById('filter-empty-box').style.display      = hasRows ? 'none' : '';
+            document.getElementById('filter-rows-container').style.display = hasRows ? ''     : 'none';
+        }
+
+        function addFilterRow() {
+            const tbody = document.getElementById('filter-rows-tbody');
+            const rowCount = tbody.children.length;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>
+                    <select class="filter-logic-select" style="width:100%">
+                        <option value="AND">AND</option>
+                        <option value="OR">OR</option>
+                    </select>
+                </td>
+                <td><select class="filter-field-select" style="width:100%">${buildFieldOptionsHtml('')}</select></td>
+                <td><select class="filter-op-select" style="width:100%">${buildOperatorOptionsHtml('contains')}</select></td>
+                <td><input class="filter-value-input" type="text"
+                    style="width:100%;height:36px;border:1px solid #cfd6dd;border-radius:4px;padding:0 8px;font-size:13px;"
+                    placeholder="请输入筛选值"></td>
+                <td><button type="button" class="btn btn-dark filter-del-btn" style="padding:6px 14px;">删除</button></td>
+            `;
+            tbody.appendChild(tr);
+            // 第一行逻辑列隐藏（与 wechat_shop 一致）
+            const logicSel = tr.querySelector('.filter-logic-select');
+            if (logicSel) {
+                logicSel.disabled = rowCount === 0;
+                logicSel.style.visibility = rowCount === 0 ? 'hidden' : 'visible';
+            }
+            bindFilterRowEvents(tr);
+            updateFilterEmptyState();
+        }
+
+        function resetFilterRows() {
+            document.getElementById('filter-rows-tbody').innerHTML = '';
+            updateFilterEmptyState();
+        }
+
+        function collectFilterConditions() {
+            return Array.from(document.querySelectorAll('#filter-rows-tbody tr')).map((tr, idx) => ({
+                logic:    idx === 0 ? 'AND' : (tr.querySelector('.filter-logic-select')?.value || 'AND'),
+                field:    tr.querySelector('.filter-field-select')?.value  || '',
+                operator: tr.querySelector('.filter-op-select')?.value     || 'contains',
+                value:    tr.querySelector('.filter-value-input')?.value   || '',
+            }));
+        }
+
+        // 刷新所有行的字段下拉（切换表时调用）
+        function refreshFilterFieldOptions() {
+            document.querySelectorAll('#filter-rows-tbody tr').forEach(tr => {
+                const sel = tr.querySelector('.filter-field-select');
+                if (!sel) return;
+                const cur = sel.value;
+                sel.innerHTML = buildFieldOptionsHtml(cur);
+            });
+        }
+
+        document.getElementById('btn-add-filter-row').addEventListener('click', addFilterRow);
+        document.getElementById('btn-reset-filter-rows').addEventListener('click', resetFilterRows);
+        updateFilterEmptyState();
+
+        // =====================================================================
+        // 导出数据
+        // =====================================================================
+
+        async function handleExportData() {
+            const resultBox = document.getElementById('export-result');
+            const btn = document.getElementById('btn-export-data');
+            resultBox.className = 'import-result-box';
+            resultBox.textContent = '';
+
+            const selectedFields = getCheckedFields();
+            if (!selectedFields.length) {
+                showMessage(resultBox, '请至少选择一个导出字段', false);
+                return;
+            }
+
+            const dateStart = document.getElementById('date_start').value;
+            const timeStart = document.getElementById('time_start').value;
+            const dateEnd   = document.getElementById('date_end').value;
+            const timeEnd   = document.getElementById('time_end').value;
+
+            const fd = new FormData();
+            fd.append('table_key', currentTableKey);
+            if (dateStart) fd.append('start_time', dateStart + (timeStart ? 'T' + timeStart : 'T00:00'));
+            if (dateEnd)   fd.append('end_time',   dateEnd   + (timeEnd   ? 'T' + timeEnd   : 'T23:59'));
+            selectedFields.forEach(f => fd.append('fields', f));
+            const filters = collectFilterConditions();
+            if (filters.length) fd.append('filters', JSON.stringify(filters));
+
+            btn.disabled = true;
+            btn.textContent = '正在导出…';
+
+            try {
+                const response = await fetch(API_URLS.export_data, {
+                    method: 'POST',
+                    body: fd,
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+
+                if (!response.ok) {
+                    // 错误时解析 JSON 报错信息
+                    const errData = await parseJsonResponse(response);
+                    showMessage(resultBox, errData.message || '导出失败', false);
+                    return;
+                }
+
+                // 先确认是文件响应（防止服务器返回了 200 但内容是 JSON 错误）
+                const contentType = response.headers.get('Content-Type') || '';
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const isFile = contentType.includes('spreadsheetml') || disposition.toLowerCase().includes('attachment');
+                if (!isFile) {
+                    const errData = await parseJsonResponse(response);
+                    showMessage(resultBox, errData.message || '导出失败：服务器未返回文件', false);
+                    return;
+                }
+
+                const fileName = await downloadBlobResponse(response, '导出数据.xlsx');
+                showMessage(resultBox, `导出成功：${fileName}`, true);
+            } catch (error) {
+                showMessage(resultBox, `导出失败：${error.message}`, false);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '导出数据';
+            }
+        }
+
+        document.getElementById('btn-export-data').addEventListener('click', handleExportData);
+
+    })();
+    </script>
+</body>
+</html>

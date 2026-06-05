@@ -1,7 +1,7 @@
 # 项目记忆
 
 ## [2026-06-05 13:54] 修改记录
-- 修改内容：修复页头打印 WPS 货物清单按大空格拆分时误把商品数量拆成独立行的问题。后端解析与前端原文展示均新增“纯件数片段并回上一段”规则，支持将 `*1`、`×2`、`1件`、`一瓶` 等仅表示件数的片段合并到前一条商品内容；仍保留大空格拆分多个商品的能力。
+- 修改内容：修复页头打印 WPS 货物清单按大空格拆分时误把商品数量拆成独立行的问题。后端解析与前端原文展示均新增”纯件数片段并回上一段”规则，支持将 `*1`、`×2`、`1件`、`一瓶` 等仅表示件数的片段合并到前一条商品内容；仍保留大空格拆分多个商品的能力。
 - 修改文件：label_print/routes.py；templates/label_print.html；PROJECT_MEMORY.md
 - 修改原因：WPS 原始数据中商品名、规格与数量可能在同一行但由多个空格分隔，例如 `50ml  *1`；原规则看到两个以上空格就拆分，导致一条商品被读成两行，并可能把规格数字误当作件数。
 - 影响范围：仅页头打印模块 WPS 记录的原文展示与解析分段逻辑；不影响 WPS 在线读取、打印历史、包装推荐和数据库结构。
@@ -23,6 +23,14 @@
 - 影响范围：仅微信小店佣金导出中的带货机构服务费昵称归属；不影响订单/资金流水导入、原始数据导出、达人佣金金额匹配逻辑和其他模块。
 - 是否涉及数据库：否（仅修改查询逻辑，不写库）
 - 是否需要回滚：是
+
+## [2026-06-05 00:00] 修改记录
+- 修改内容：新增抖音店铺模块——香娜露儿（抖音）和幕莲蔓（抖音）。采用工厂模式：`douyin_shop_common/` 包含共享底层（table_schemas.py、services.py、__init__.py 蓝图工厂），两个店铺各一个薄壳 `__init__.py`（douyin_shop_chantelle、douyin_shop_mulianman）调用工厂生成蓝图。每个店铺建 4 张表：`{prefix}_orders`（订单，CSV，73 列）、`{prefix}_fund_flow`（资金结算，CSV，45 列，跳过第 2 行说明行）、`{prefix}_commission`（佣金订单明细，xlsx，47 列）、`{prefix}_merchant`（招商订单明细，xlsx，31 列，允许空月份不上传）。招商表原始 xlsx 第 21 列和第 30 列均为”订单来源”（平台命名重复），分别存为 order_source_purchase / order_source_traffic。所有表 `CREATE TABLE IF NOT EXISTS` 自动建表，支持按日期范围筛选和导出 xlsx。
+- 修改文件：新建 douyin_shop_common/（__init__.py, table_schemas.py, services.py）；新建 douyin_shop_chantelle/__init__.py；新建 douyin_shop_mulianman/__init__.py；新建 templates/douyin_shop.html；修改 app.py（追加两行蓝图注册）
+- 修改原因：接入抖音平台（香娜露儿、幕莲蔓两家店铺）数据，格式与微信小店不同，需单独建模
+- 影响范围：新增模块，不修改任何已有表；app.py 仅追加两行注册
+- 是否涉及数据库：是——新增 8 张表（两个店铺各 4 张），不修改现有表
+- 是否需要回滚：是——删除 douyin_shop_common/、douyin_shop_chantelle/、douyin_shop_mulianman/、templates/douyin_shop.html，以及 app.py 中两行注册即可
 
 ## [2026-06-04 16:30] 修改记录
 - 修改内容：修复佣金导出昵称匹配逻辑。原代码对同一订单的每笔资金流水均取订单表第一条昵称（ORDER BY id ASC LIMIT 1），导致同一订单存在多个带货达人（每人对应不同商品、不同 promotion_fee_amount）时，所有流水笔数均被错误归属到同一人。修复后：优先用资金流水的收支金额（f.amount）与订单表的带货费用（promotion_fee_amount）做精确匹配（误差 < 0.01），找到匹配行取其昵称；无精确匹配时回退到原第一条逻辑。
