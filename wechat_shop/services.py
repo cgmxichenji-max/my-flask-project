@@ -924,8 +924,8 @@ def _query_commission_rows(
                     (
                         SELECT
                             CASE
-                                WHEN COUNT(DISTINCT NULLIF(TRIM(o_agency.promotion_account_nickname), '')) = 1
-                                THEN MAX(NULLIF(TRIM(o_agency.promotion_account_nickname), ''))
+                                WHEN COUNT(DISTINCT TRIM(o_agency.promotion_account_nickname)) = 1
+                                THEN MAX(TRIM(o_agency.promotion_account_nickname))
                                 ELSE NULL
                             END
                         FROM {WECHAT_ORDER_TABLE_NAME} o_agency
@@ -933,24 +933,24 @@ def _query_commission_rows(
                           AND o_agency.order_no = f.related_order_no
                           AND o_agency.promotion_fee_channel = '机构服务费'
                           AND COALESCE(o_agency.promotion_fee_amount, 0) <> 0
-                          AND NULLIF(TRIM(o_agency.promotion_account_nickname), '') IS NOT NULL
+                          AND TRIM(o_agency.promotion_account_nickname) NOT IN ('', '-')
                     ),
                     (
-                        SELECT NULLIF(TRIM(o_creator.promotion_account_nickname), '')
+                        SELECT TRIM(o_creator.promotion_account_nickname)
                         FROM {WECHAT_ORDER_TABLE_NAME} o_creator
                         WHERE f.transaction_type <> '带货机构服务费'
                           AND o_creator.order_no = f.related_order_no
-                          AND NULLIF(TRIM(o_creator.promotion_account_nickname), '') IS NOT NULL
+                          AND TRIM(o_creator.promotion_account_nickname) NOT IN ('', '-')
                           AND ABS(COALESCE(o_creator.promotion_fee_amount, 0) - COALESCE(f.amount, 0)) < 0.01
                         ORDER BY o_creator.id ASC
                         LIMIT 1
                     ),
                     (
-                        SELECT NULLIF(TRIM(o_fallback.promotion_account_nickname), '')
+                        SELECT TRIM(o_fallback.promotion_account_nickname)
                         FROM {WECHAT_ORDER_TABLE_NAME} o_fallback
                         WHERE f.transaction_type <> '带货机构服务费'
                           AND o_fallback.order_no = f.related_order_no
-                          AND NULLIF(TRIM(o_fallback.promotion_account_nickname), '') IS NOT NULL
+                          AND TRIM(o_fallback.promotion_account_nickname) NOT IN ('', '-')
                         ORDER BY o_fallback.id ASC
                         LIMIT 1
                     ),
