@@ -1043,6 +1043,18 @@ def _parse_qty_from_text(line):
     return 0
 
 
+def _is_qty_only_segment(text):
+    text = _clean_cell(text)
+    if not text:
+        return False
+    number_pattern = r'(?:\d+|[零〇一二两俩三四五六七八九十]{1,3})'
+    unit_pattern = r'(?:个|件|只|条|瓶|支|盒|套|包)'
+    return bool(
+        re.fullmatch(rf'[xX×*]\s*{number_pattern}\s*(?:{unit_pattern})?', text)
+        or re.fullmatch(rf'{number_pattern}\s*{unit_pattern}', text)
+    )
+
+
 def _split_wps_content_segments(content_text):
     segments = []
     for line in re.split(r'[\r\n]+', content_text or ''):
@@ -1054,7 +1066,10 @@ def _split_wps_content_segments(content_text):
             if part in ('黑', '白'):
                 continue
             if part and not re.fullmatch(r'[.\-—_·…。．、，,;；:：\s]+', part):
-                segments.append(part)
+                if segments and _is_qty_only_segment(part):
+                    segments[-1] = f'{segments[-1]} {part}'
+                else:
+                    segments.append(part)
     return segments
 
 

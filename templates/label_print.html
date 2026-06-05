@@ -1242,12 +1242,20 @@ function shortText(text, len) {
 }
 
 function formatWpsTextLines(text) {
-    return String(text || '')
-        .split(/\r?\n/)
-        .flatMap(line => line.split(/\t+| {2,}|\u3000{2,}/))
-        .map(line => line.trim())
-        .filter(line => line && !/^[.\-—_·…。．、，,;；:：\s]+$/.test(line) && !['黑','白'].includes(line))
-        .join('\n');
+    const qtyOnlyRe = /^(?:[xX×*]\s*(?:\d+|[零〇一二两俩三四五六七八九十]{1,3})\s*(?:个|件|只|条|瓶|支|盒|套|包)?|(?:\d+|[零〇一二两俩三四五六七八九十]{1,3})\s*(?:个|件|只|条|瓶|支|盒|套|包))$/;
+    const parts = [];
+    String(text || '').split(/\r?\n/).forEach(line => {
+        line.split(/\t+| {2,}|\u3000{2,}/).forEach(part => {
+            part = part.trim();
+            if (!part || /^[.\-—_·…。．、，,;；:：\s]+$/.test(part) || ['黑','白'].includes(part)) return;
+            if (parts.length && qtyOnlyRe.test(part)) {
+                parts[parts.length - 1] += ' ' + part;
+            } else {
+                parts.push(part);
+            }
+        });
+    });
+    return parts.join('\n');
 }
 
 function getSelectedWpsRecord() {
