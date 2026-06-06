@@ -111,6 +111,12 @@
             {% if can_module(g.current_user, 'wechat_shop') %}
             <a href="/wechat_shop/" class="menu-card">微信小店</a>
             {% endif %}
+            {% if can_module(g.current_user, 'douyin_shop_chantelle') %}
+            <a href="/douyin_shop_chantelle/" class="menu-card">香娜露儿（抖音）</a>
+            {% endif %}
+            {% if can_module(g.current_user, 'douyin_shop_mulianman') %}
+            <a href="/douyin_shop_mulianman/" class="menu-card">幕莲蔓（抖音）</a>
+            {% endif %}
             {% if can_module(g.current_user, 'invoicing') %}
             <a href="/invoicing/" class="menu-card">发票核对</a>
             {% endif %}
