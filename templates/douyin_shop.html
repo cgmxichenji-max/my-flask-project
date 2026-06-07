@@ -436,11 +436,32 @@
         const dyCommissionEndDateInput = document.getElementById('dy_commission_end_date');
         const dyCommissionNicknameQueryInput = document.getElementById('dy_commission_nickname_query');
         const dyCommissionExportResult = document.getElementById('dy-commission-export-result');
+        const dyCommissionDateStorageKey = `douyin_commission_date_range:${window.location.pathname}`;
 
         function applyDyCommissionDateRange() {
             const range = EXPORT_DATE_RANGES.fund_flow || {};
-            if (dyCommissionStartDateInput) dyCommissionStartDateInput.value = range.start_date || '';
-            if (dyCommissionEndDateInput) dyCommissionEndDateInput.value = range.end_date || '';
+            let savedRange = null;
+            try {
+                savedRange = JSON.parse(localStorage.getItem(dyCommissionDateStorageKey) || 'null');
+            } catch (error) {
+                savedRange = null;
+            }
+            const latestDate = range.end_date || range.start_date || '';
+            const startDate = (savedRange && savedRange.start_date) || latestDate;
+            const endDate = (savedRange && savedRange.end_date) || latestDate;
+            if (dyCommissionStartDateInput) dyCommissionStartDateInput.value = startDate || '';
+            if (dyCommissionEndDateInput) dyCommissionEndDateInput.value = endDate || '';
+        }
+
+        function rememberDyCommissionDateRange(startDate, endDate) {
+            try {
+                localStorage.setItem(dyCommissionDateStorageKey, JSON.stringify({
+                    start_date: startDate,
+                    end_date: endDate,
+                }));
+            } catch (error) {
+                // localStorage may be unavailable in private or restricted browser modes.
+            }
         }
 
         async function handleCommissionExport({ url, buttonElement, loadingText, defaultButtonText }) {
@@ -461,6 +482,7 @@
             fd.append('start_date', startDate);
             fd.append('end_date', endDate);
             fd.append('nickname_query', dyCommissionNicknameQueryInput ? dyCommissionNicknameQueryInput.value : '');
+            rememberDyCommissionDateRange(startDate, endDate);
 
             buttonElement.disabled = true;
             buttonElement.textContent = loadingText;
