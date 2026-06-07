@@ -1368,3 +1368,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：西班牙服务器线上 Flask 应用代码与运行进程；未覆盖服务器 `data/`，未修改业务数据。更新前已在服务器 `/root` 生成代码备份 `my-flask-project_code_backup_before_github_pull_20260607_1404.tar.gz` 和数据备份 `my-flask-project_data_backup_before_github_pull_20260607_1404.tar.gz`。
 - 是否涉及数据库：否（仅备份数据目录，不写库）
 - 是否需要回滚：是（可用服务器备份包恢复代码/数据，或 git 回退到旧提交后重启服务）
+
+## [2026-06-07 15:34] 修改记录
+- 修改内容：将本地佣金导出代码合入并推送到 GitHub `main`，提交从 `7589454` 更新到 `6076310`；西班牙马德里服务器 `208.85.17.83` 已拉取该提交并用 `.venv/bin/python` 重启 Flask 服务，确认服务器模板包含“佣金导出”区块和 `export_commission_summary`、`export_commission_details` 接口。同步比对香娜露儿招商订单明细：本地 `dy_chantelle_merchant` 为 26408 条，服务器为 26087 条；当前导入目录 `D:\BaiduSyncdisk\MyWork\佣金计算\香娜露儿` 下 5 个招商 Excel 合计 26087 个唯一订单，和服务器完全一致。本地多出的 321 条均为 2026-05、状态为“订单结算”，且不在当前 5 个招商 Excel 中。差异明细输出到 `backups/chantelle_merchant_diff_local_server_import.csv`，摘要输出到 `backups/chantelle_merchant_diff_summary.txt`。
+- 修改文件：PROJECT_MEMORY.md；服务器 `/root/my-flask-project`；本地比对输出 `backups/chantelle_merchant_diff_local_server_import.csv`、`backups/chantelle_merchant_diff_summary.txt`
+- 修改原因：需要把本地最新佣金导出代码发布到 GitHub 并更新西班牙服务器，同时排查香娜露儿招商订单明细本地与服务器差异来源。
+- 影响范围：GitHub `main`、西班牙服务器代码和运行进程；数据库仅只读比对，不写入、不覆盖。比对结论显示服务器招商表与当前导入文件一致，本地库额外 321 条疑似来自旧版或其他招商文件。
+- 是否涉及数据库：是（只读查询本地与服务器 SQLite 数据库，不写库）
+- 是否需要回滚：是（代码可回退到 `7589454` 并重启；数据库未修改无需回滚）
