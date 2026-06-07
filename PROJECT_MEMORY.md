@@ -1360,3 +1360,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅新增本地备份压缩包与项目记录；不覆盖本地 `data/`，不修改远端业务数据。远端传输用临时压缩包已在校验完成后删除。
 - 是否涉及数据库：是（备份 SQLite 数据库文件，仅只读校验，不写库）
 - 是否需要回滚：否（如不再需要，删除本地备份压缩包即可）
+
+## [2026-06-07 14:08] 修改记录
+- 修改内容：西班牙马德里服务器 `208.85.17.83` 从 GitHub `origin/main` 拉取最新代码并重启 Flask 服务。服务器从 `833e814` fast-forward 到 `7589454`，新增抖音店铺模块相关代码；使用项目虚拟环境 `.venv/bin/python` 启动新进程 `221763`，公网与本机登录页均返回 HTTP 200。
+- 修改文件：服务器 `/root/my-flask-project`；PROJECT_MEMORY.md
+- 修改原因：需要让西班牙服务器运行 GitHub 最新代码。
+- 影响范围：西班牙服务器线上 Flask 应用代码与运行进程；未覆盖服务器 `data/`，未修改业务数据。更新前已在服务器 `/root` 生成代码备份 `my-flask-project_code_backup_before_github_pull_20260607_1404.tar.gz` 和数据备份 `my-flask-project_data_backup_before_github_pull_20260607_1404.tar.gz`。
+- 是否涉及数据库：否（仅备份数据目录，不写库）
+- 是否需要回滚：是（可用服务器备份包恢复代码/数据，或 git 回退到旧提交后重启服务）
