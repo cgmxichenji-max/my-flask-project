@@ -1267,9 +1267,9 @@ def _query_unmatched_leader_rows(
 def _build_invoice_import_df(creator_df: pd.DataFrame, leader_df: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for _idx, row in creator_df.iterrows():
-        rows.append({'达人/客户': row['达人名称'], '应开金额': -float(row['佣金金额'] or 0)})
+        rows.append({'达人/客户': row['达人名称'], '应开金额': abs(float(row['佣金金额'] or 0))})
     for _idx, row in leader_df.iterrows():
-        rows.append({'达人/客户': row['团长名称'], '应开金额': -float(row['佣金金额'] or 0)})
+        rows.append({'达人/客户': row['团长名称'], '应开金额': abs(float(row['佣金金额'] or 0))})
     df = pd.DataFrame(rows, columns=['达人/客户', '应开金额'])
     if not df.empty:
         df['_abs_sort'] = df['应开金额'].abs()
