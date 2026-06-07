@@ -11,10 +11,16 @@ import json
 from flask import Blueprint, jsonify, render_template, render_template_string, request
 
 from auth.decorators import module_required
-from common.download_utils import send_excel_download
+from common.download_utils import send_excel_download, send_zip_download
 from common.upload_staging import finish_staged_upload, stage_uploaded_files
 
-from .services import ShopConfig, export_data_to_excel, get_data_status_rows
+from .services import (
+    ShopConfig,
+    export_commission_detail_zip,
+    export_commission_summary_zip,
+    export_data_to_excel,
+    get_data_status_rows,
+)
 from .services import (
     import_orders_files,
     import_fund_flow_files,
@@ -201,6 +207,34 @@ def create_douyin_blueprint(
                 config=config,
             )
             return send_excel_download(output, filename)
+        except Exception as exc:
+            return jsonify({'success': False, 'message': str(exc)}), 400
+
+    @bp.route('/export_commission_summary', methods=['POST'])
+    @module_required(module_key)
+    def export_commission_summary():
+        try:
+            output, filename = export_commission_summary_zip(
+                start_date=request.form.get('start_date'),
+                end_date=request.form.get('end_date'),
+                nickname_query=request.form.get('nickname_query'),
+                config=config,
+            )
+            return send_zip_download(output, filename)
+        except Exception as exc:
+            return jsonify({'success': False, 'message': str(exc)}), 400
+
+    @bp.route('/export_commission_details', methods=['POST'])
+    @module_required(module_key)
+    def export_commission_details():
+        try:
+            output, filename = export_commission_detail_zip(
+                start_date=request.form.get('start_date'),
+                end_date=request.form.get('end_date'),
+                nickname_query=request.form.get('nickname_query'),
+                config=config,
+            )
+            return send_zip_download(output, filename)
         except Exception as exc:
             return jsonify({'success': False, 'message': str(exc)}), 400
 

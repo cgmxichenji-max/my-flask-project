@@ -9,7 +9,9 @@ from __future__ import annotations
 import re
 import sqlite3
 import unicodedata
+import zipfile
 from dataclasses import dataclass
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -972,3 +974,483 @@ def export_data_to_excel(
     s = re.sub(r'[\\/:*?"<>|\s]+', '_', start_text or '全部时间')
     e = re.sub(r'[\\/:*?"<>|\s]+', '_', end_text or '全部时间')
     return output, f'{safe}_{s}_到_{e}.xlsx'
+
+# ===================== 佣金导出 =====================
+
+DOUYIN_COMMISSION_AMOUNT_COLUMNS = {'佣金金额', '应开金额', '达人佣金', '招商服务费'}
+
+
+def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def _get_douyin_alias_nicknames(conn: sqlite3.Connection, keyword: str | None) -> list[str]:
+    text = str(keyword or '').strip()
+    if not text:
+        return []
+    if not _table_exists(conn, 'customer') or not _table_exists(conn, 'customer_alias'):
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT DISTINCT TRIM(c.short_name) AS nickname
+        FROM customer_alias ca
+        JOIN customer c ON c.id = ca.customer_id
+        WHERE TRIM(ca.alias) = ?
+          AND TRIM(COALESCE(c.short_name, '')) <> ''
+        ORDER BY nickname
+        """,
+        (text,),
+    ).fetchall()
+    return [str(row['nickname']).strip() for row in rows if str(row['nickname']).strip()]
+
+
+def _normalize_order_no(val: Any) -> str:
+    return str(val or '').strip().lstrip("'")
+
+
+def _normalize_commission_date(value: str | None, boundary: str) -> str:
+    text = str(value or '').strip().replace('/', '-')
+    if not text:
+        raise ValueError('请选择佣金导出的开始日期和结束日期')
+    try:
+        dt = datetime.strptime(text[:10], '%Y-%m-%d')
+    except ValueError as exc:
+        raise ValueError('佣金导出日期格式不正确，请使用 YYYY-MM-DD') from exc
+    return dt.strftime('%Y-%m-%d')
+
+
+def _normalize_commission_date_range(start_date: str | None, end_date: str | None) -> tuple[str, str]:
+    start_text = _normalize_commission_date(start_date, 'start')
+    end_text = _normalize_commission_date(end_date, 'end')
+    if start_text > end_text:
+        raise ValueError('佣金导出开始日期不能晚于结束日期')
+    return start_text, end_text
+
+
+def _month_values_between(start_text: str, end_text: str) -> list[tuple[int, int]]:
+    start_dt = datetime.strptime(start_text[:10], '%Y-%m-%d')
+    end_dt = datetime.strptime(end_text[:10], '%Y-%m-%d')
+    values: list[tuple[int, int]] = []
+    year, month = start_dt.year, start_dt.month
+    while (year, month) <= (end_dt.year, end_dt.month):
+        values.append((year, month))
+        if month == 12:
+            year += 1
+            month = 1
+        else:
+            month += 1
+    return values
+
+
+def _build_commission_month_text(start_text: str, end_text: str, short_year: bool = False) -> str:
+    months = _month_values_between(start_text, end_text)
+    if not months:
+        return ''
+    has_multiple_years = len({year for year, _month in months}) > 1
+    previous_year: int | None = None
+    parts: list[str] = []
+    for year, month in months:
+        year_text = str(year)[-2:] if short_year else str(year)
+        if has_multiple_years or previous_year != year:
+            parts.append(f'{year_text}年{month}月')
+        else:
+            parts.append(f'{month}月')
+        previous_year = year
+    return ' '.join(parts)
+
+
+def _safe_download_part(value: Any, fallback: str = '未命名') -> str:
+    text = str(value or '').strip()
+    text = re.sub(r'[\\/:*?"<>|\r\n\t]+', '_', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text or fallback
+
+
+def _build_commission_zip_name(prefix: str, start_text: str, end_text: str) -> str:
+    month_text = _safe_download_part(_build_commission_month_text(start_text, end_text))
+    return f'{prefix}_{month_text}.zip'
+
+
+def _write_dataframe_excel(
+    sheets: list[tuple[str, pd.DataFrame]],
+    amount_columns: set[str] | None = None,
+    text_columns: set[str] | None = None,
+) -> BytesIO:
+    amount_columns = amount_columns or set()
+    text_columns = text_columns or set()
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for sheet_name, df in sheets:
+            safe_sheet = re.sub(r'[\[\]:*?/\\]', '_', str(sheet_name))[:31] or 'Sheet1'
+            df.to_excel(writer, index=False, sheet_name=safe_sheet)
+            worksheet = writer.sheets[safe_sheet]
+            for column_index, column_name in enumerate(df.columns, start=1):
+                column_letter = get_column_letter(column_index)
+                if column_name in amount_columns:
+                    for cell in worksheet[column_letter][1:]:
+                        cell.number_format = '0.00'
+                if column_name in text_columns:
+                    for cell in worksheet[column_letter]:
+                        cell.number_format = '@'
+            _auto_adjust_excel_columns(worksheet)
+    output.seek(0)
+    return output
+
+
+def _commission_date_expr(alias: str = '') -> str:
+    prefix = f'{alias}.' if alias else ''
+    return f"SUBSTR(REPLACE(CAST({prefix}settlement_time AS TEXT), '/', '-'), 1, 10)"
+
+
+def _build_name_filter_sql(
+    field_sql: str,
+    keyword: str,
+    alias_nicknames: list[str],
+    params: list[Any],
+) -> str:
+    filters = [f'{field_sql} LIKE ?']
+    params.append(f'%{keyword}%')
+    if alias_nicknames:
+        placeholders = ', '.join('?' for _ in alias_nicknames)
+        filters.append(f'{field_sql} IN ({placeholders})')
+        params.extend(alias_nicknames)
+    return '(' + ' OR '.join(filters) + ')'
+
+
+def _ensure_douyin_commission_tables(conn: sqlite3.Connection, config: ShopConfig) -> None:
+    if not _table_exists(conn, config.fund_flow_table):
+        raise ValueError(f'数据表不存在：{config.fund_flow_table}，请先导入资金结算表')
+
+
+def _query_creator_summary(
+    conn: sqlite3.Connection,
+    start_text: str,
+    end_text: str,
+    keyword: str,
+    alias_nicknames: list[str],
+    config: ShopConfig,
+) -> pd.DataFrame:
+    params: list[Any] = [start_text, end_text]
+    where = [
+        f'{_commission_date_expr()} >= ?',
+        f'{_commission_date_expr()} <= ?',
+        'ABS(CAST(influencer_commission AS REAL)) > 0.0001',
+        "influencer_name IS NOT NULL",
+        "TRIM(influencer_name) <> ''",
+        "TRIM(influencer_name) <> '-'",
+    ]
+    if keyword:
+        where.append(_build_name_filter_sql('influencer_name', keyword, alias_nicknames, params))
+    sql = f"""
+        SELECT
+            TRIM(influencer_name) AS name,
+            SUM(CAST(influencer_commission AS REAL)) AS net_amount
+        FROM {config.fund_flow_table}
+        WHERE {' AND '.join(where)}
+        GROUP BY TRIM(influencer_name)
+        ORDER BY ABS(SUM(CAST(influencer_commission AS REAL))) DESC
+    """
+    df = pd.read_sql_query(sql, conn, params=params)
+    if df.empty:
+        return pd.DataFrame(columns=['达人名称', '佣金金额', 'net_amount'])
+    df['net_amount'] = pd.to_numeric(df['net_amount'], errors='coerce').fillna(0)
+    df['佣金金额'] = df['net_amount']
+    return df.rename(columns={'name': '达人名称'})[['达人名称', '佣金金额', 'net_amount']]
+
+
+def _load_merchant_order_map(conn: sqlite3.Connection, config: ShopConfig) -> dict[str, str]:
+    if not _table_exists(conn, config.merchant_table):
+        return {}
+    rows = conn.execute(
+        f"""
+        SELECT order_id, issuing_institution
+        FROM {config.merchant_table}
+        WHERE order_id IS NOT NULL
+          AND TRIM(CAST(order_id AS TEXT)) <> ''
+        """
+    ).fetchall()
+    result: dict[str, str] = {}
+    for row in rows:
+        order_id = _normalize_order_no(row['order_id'])
+        leader_name = str(row['issuing_institution'] or '').strip()
+        if order_id and leader_name and leader_name != '-' and order_id not in result:
+            result[order_id] = leader_name
+    return result
+
+
+def _name_matches_keyword(name: str, keyword: str, alias_nicknames: list[str]) -> bool:
+    if not keyword:
+        return True
+    return keyword in name or name in alias_nicknames
+
+
+def _query_leader_fee_rows(
+    conn: sqlite3.Connection,
+    start_text: str,
+    end_text: str,
+    config: ShopConfig,
+    selected_columns: list[str] | None = None,
+) -> pd.DataFrame:
+    cols = selected_columns or ['settlement_time', 'order_no', 'merchant_recruitment_fee']
+    columns_sql = ', '.join(cols)
+    sql = f"""
+        SELECT {columns_sql}
+        FROM {config.fund_flow_table}
+        WHERE {_commission_date_expr()} >= ?
+          AND {_commission_date_expr()} <= ?
+          AND ABS(CAST(merchant_recruitment_fee AS REAL)) > 0.0001
+        ORDER BY settlement_time ASC, order_no ASC
+    """
+    return pd.read_sql_query(sql, conn, params=[start_text, end_text])
+
+
+def _query_leader_summary(
+    conn: sqlite3.Connection,
+    start_text: str,
+    end_text: str,
+    keyword: str,
+    alias_nicknames: list[str],
+    config: ShopConfig,
+) -> pd.DataFrame:
+    merchant_map = _load_merchant_order_map(conn, config)
+    if not merchant_map:
+        return pd.DataFrame(columns=['团长名称', '佣金金额', 'net_amount', 'matched_rows'])
+
+    rows_df = _query_leader_fee_rows(conn, start_text, end_text, config)
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows_df.itertuples(index=False):
+        leader_name = merchant_map.get(_normalize_order_no(row.order_no))
+        if not leader_name or not _name_matches_keyword(leader_name, keyword, alias_nicknames):
+            continue
+        bucket = grouped.setdefault(leader_name, {'团长名称': leader_name, 'net_amount': 0.0, 'matched_rows': 0})
+        bucket['net_amount'] += float(row.merchant_recruitment_fee or 0)
+        bucket['matched_rows'] += 1
+
+    if not grouped:
+        return pd.DataFrame(columns=['团长名称', '佣金金额', 'net_amount', 'matched_rows'])
+    df = pd.DataFrame(grouped.values())
+    df['佣金金额'] = pd.to_numeric(df['net_amount'], errors='coerce').fillna(0)
+    df['_abs_sort'] = df['佣金金额'].abs()
+    return df.sort_values('_abs_sort', ascending=False)[['团长名称', '佣金金额', 'net_amount', 'matched_rows']]
+
+
+def _query_unmatched_leader_rows(
+    conn: sqlite3.Connection,
+    start_text: str,
+    end_text: str,
+    config: ShopConfig,
+) -> pd.DataFrame:
+    rows_df = _query_leader_fee_rows(conn, start_text, end_text, config)
+    merchant_map = _load_merchant_order_map(conn, config)
+    if not merchant_map:
+        unmatched_df = rows_df.copy()
+    else:
+        mask = ~rows_df['order_no'].map(lambda value: _normalize_order_no(value) in merchant_map)
+        unmatched_df = rows_df[mask].copy()
+    if unmatched_df.empty:
+        return pd.DataFrame(columns=['结算时间', '订单号', '招商服务费'])
+    unmatched_df = unmatched_df.rename(
+        columns={
+            'settlement_time': '结算时间',
+            'order_no': '订单号',
+            'merchant_recruitment_fee': '招商服务费',
+        }
+    )
+    return unmatched_df[['结算时间', '订单号', '招商服务费']]
+
+
+def _build_invoice_import_df(creator_df: pd.DataFrame, leader_df: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for _idx, row in creator_df.iterrows():
+        rows.append({'达人/客户': row['达人名称'], '应开金额': float(row['佣金金额'] or 0)})
+    for _idx, row in leader_df.iterrows():
+        rows.append({'达人/客户': row['团长名称'], '应开金额': float(row['佣金金额'] or 0)})
+    df = pd.DataFrame(rows, columns=['达人/客户', '应开金额'])
+    if not df.empty:
+        df['_abs_sort'] = df['应开金额'].abs()
+        df = df.sort_values('_abs_sort', ascending=False).drop(columns=['_abs_sort'])
+    return df
+
+
+def _fund_flow_chinese_columns(df: pd.DataFrame) -> pd.DataFrame:
+    reverse_map = {v: k for k, v in FUND_FLOW_COLUMN_MAPPING.items()}
+    return df.rename(columns={col: reverse_map.get(col, col) for col in df.columns})
+
+
+def _query_creator_detail_rows(
+    conn: sqlite3.Connection,
+    start_text: str,
+    end_text: str,
+    keyword: str,
+    alias_nicknames: list[str],
+    config: ShopConfig,
+) -> pd.DataFrame:
+    columns_sql = ', '.join(FUND_FLOW_COLUMN_TYPES.keys())
+    params: list[Any] = [start_text, end_text]
+    where = [
+        f'{_commission_date_expr()} >= ?',
+        f'{_commission_date_expr()} <= ?',
+        'ABS(CAST(influencer_commission AS REAL)) > 0.0001',
+        "influencer_name IS NOT NULL",
+        "TRIM(influencer_name) <> ''",
+        "TRIM(influencer_name) <> '-'",
+    ]
+    if keyword:
+        where.append(_build_name_filter_sql('influencer_name', keyword, alias_nicknames, params))
+    sql = f"""
+        SELECT {columns_sql}
+        FROM {config.fund_flow_table}
+        WHERE {' AND '.join(where)}
+        ORDER BY influencer_name ASC, settlement_time ASC, order_no ASC
+    """
+    return pd.read_sql_query(sql, conn, params=params)
+
+
+def _query_leader_detail_rows(
+    conn: sqlite3.Connection,
+    start_text: str,
+    end_text: str,
+    keyword: str,
+    alias_nicknames: list[str],
+    config: ShopConfig,
+) -> pd.DataFrame:
+    merchant_map = _load_merchant_order_map(conn, config)
+    if not merchant_map:
+        return pd.DataFrame()
+
+    rows_df = _query_leader_fee_rows(
+        conn,
+        start_text,
+        end_text,
+        config,
+        selected_columns=list(FUND_FLOW_COLUMN_TYPES.keys()),
+    )
+    if rows_df.empty:
+        return rows_df
+
+    rows_df['leader_name'] = rows_df['order_no'].map(lambda value: merchant_map.get(_normalize_order_no(value), ''))
+    rows_df = rows_df[
+        rows_df['leader_name'].map(lambda value: bool(value) and _name_matches_keyword(value, keyword, alias_nicknames))
+    ].copy()
+    if rows_df.empty:
+        return rows_df
+    return rows_df.sort_values(['leader_name', 'settlement_time', 'order_no'])
+
+
+def _unique_zip_name(used_names: dict[str, int], filename: str) -> str:
+    used_count = used_names.get(filename, 0)
+    used_names[filename] = used_count + 1
+    if not used_count:
+        return filename
+    stem = filename[:-5] if filename.lower().endswith('.xlsx') else filename
+    return f'{stem}_{used_count + 1}.xlsx'
+
+
+def export_commission_summary_zip(
+    start_date: str | None,
+    end_date: str | None,
+    nickname_query: str | None,
+    config: ShopConfig,
+) -> tuple[BytesIO, str]:
+    start_text, end_text = _normalize_commission_date_range(start_date, end_date)
+    keyword = str(nickname_query or '').strip()
+    db_path = _get_database_path()
+    month_text = _build_commission_month_text(start_text, end_text)
+    safe_month = _safe_download_part(month_text)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        _ensure_douyin_commission_tables(conn, config)
+        alias_nicknames = _get_douyin_alias_nicknames(conn, keyword)
+        creator_df = _query_creator_summary(conn, start_text, end_text, keyword, alias_nicknames, config)
+        leader_df = _query_leader_summary(conn, start_text, end_text, keyword, alias_nicknames, config)
+        unmatched_df = _query_unmatched_leader_rows(conn, start_text, end_text, config)
+
+    summary_excel = _write_dataframe_excel(
+        [
+            ('达人汇总', creator_df[['达人名称', '佣金金额']]),
+            ('团长汇总', leader_df[['团长名称', '佣金金额']]),
+        ],
+        amount_columns={'佣金金额'},
+        text_columns={'达人名称', '团长名称'},
+    )
+    invoice_df = _build_invoice_import_df(creator_df, leader_df)
+    invoice_excel = _write_dataframe_excel(
+        [('应开金额导入', invoice_df)],
+        amount_columns={'应开金额'},
+        text_columns={'达人/客户'},
+    )
+
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f'{safe_month}佣金汇总.xlsx', summary_excel.getvalue())
+        zf.writestr(f'{safe_month}应开金额导入.xlsx', invoice_excel.getvalue())
+        if not unmatched_df.empty:
+            unmatched_excel = _write_dataframe_excel(
+                [('未匹配招商订单', unmatched_df)],
+                amount_columns={'招商服务费'},
+                text_columns={'订单号'},
+            )
+            zf.writestr(f'{safe_month}未匹配招商订单.xlsx', unmatched_excel.getvalue())
+    archive.seek(0)
+    return archive, _build_commission_zip_name(f'{config.display_name}佣金汇总', start_text, end_text)
+
+
+def export_commission_detail_zip(
+    start_date: str | None,
+    end_date: str | None,
+    nickname_query: str | None,
+    config: ShopConfig,
+) -> tuple[BytesIO, str]:
+    start_text, end_text = _normalize_commission_date_range(start_date, end_date)
+    keyword = str(nickname_query or '').strip()
+    db_path = _get_database_path()
+    month_text = _build_commission_month_text(start_text, end_text, short_year=True)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        _ensure_douyin_commission_tables(conn, config)
+        alias_nicknames = _get_douyin_alias_nicknames(conn, keyword)
+        creator_rows = _query_creator_detail_rows(conn, start_text, end_text, keyword, alias_nicknames, config)
+        leader_rows = _query_leader_detail_rows(conn, start_text, end_text, keyword, alias_nicknames, config)
+
+    archive = BytesIO()
+    used_names: dict[str, int] = {}
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        if not creator_rows.empty:
+            for name, group_df in creator_rows.groupby('influencer_name', sort=True):
+                amount_sum = float(pd.to_numeric(group_df['influencer_commission'], errors='coerce').fillna(0).sum())
+                detail_df = _fund_flow_chinese_columns(group_df.copy())
+                detail_excel = _write_dataframe_excel(
+                    [('明细', detail_df)],
+                    amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
+                    text_columns={'订单号', '子订单号', '商品ID', '达人ID'},
+                )
+                filename = _safe_download_part(f'{name}_{abs(amount_sum):.2f}_{month_text}') + '.xlsx'
+                zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
+
+        if not leader_rows.empty:
+            for name, group_df in leader_rows.groupby('leader_name', sort=True):
+                amount_sum = float(pd.to_numeric(group_df['merchant_recruitment_fee'], errors='coerce').fillna(0).sum())
+                detail_df = group_df.copy().rename(columns={'leader_name': '团长名称'})
+                detail_df = _fund_flow_chinese_columns(detail_df)
+                detail_excel = _write_dataframe_excel(
+                    [('明细', detail_df)],
+                    amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
+                    text_columns={'订单号', '子订单号', '商品ID', '达人ID'},
+                )
+                filename = _safe_download_part(f'{abs(amount_sum):.2f}{name}_招商佣金_{month_text}') + '.xlsx'
+                zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
+
+        if not used_names:
+            empty_df = pd.DataFrame(columns=['提示'])
+            empty_excel = _write_dataframe_excel([('明细', empty_df)])
+            zf.writestr('无佣金明细.xlsx', empty_excel.getvalue())
+
+    archive.seek(0)
+    return archive, _build_commission_zip_name(f'{config.display_name}佣金明细', start_text, end_text)

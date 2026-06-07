@@ -157,6 +157,33 @@
             <div id="import-merchant-result"   class="import-result-box"></div>
         </section>
 
+        <!-- 佣金导出 -->
+        <section class="section-card">
+            <div class="section-title">佣金导出</div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="dy_commission_start_date">开始日期</label>
+                    <input id="dy_commission_start_date" name="dy_commission_start_date" type="date">
+                </div>
+                <div class="form-group">
+                    <label for="dy_commission_end_date">结束日期</label>
+                    <input id="dy_commission_end_date" name="dy_commission_end_date" type="date">
+                </div>
+                <div class="form-group">
+                    <label for="dy_commission_nickname_query">昵称 / 别名 / 关键词筛选</label>
+                    <input id="dy_commission_nickname_query" name="dy_commission_nickname_query" type="text" placeholder="达人或团长名称关键词，不填表示全部">
+                </div>
+            </div>
+            <div class="export-actions">
+                <button class="btn btn-primary" type="button" id="btn-export-dy-commission-summary">佣金汇总导出</button>
+                <button class="btn btn-primary" type="button" id="btn-export-dy-commission-details">达人/团长明细导出（ZIP）</button>
+            </div>
+            <div id="dy-commission-export-result" class="import-result-box" style="width:100%;"></div>
+            <div class="hint-box">
+                达人佣金按资金结算表的达人名称汇总；团长佣金按招商订单明细中的出单机构汇总。金额先正负相加得到净值，再按绝对值导出。
+            </div>
+        </section>
+
         <!-- 原始数据处理 -->
         <section class="section-card">
             <div class="section-title">原始数据处理</div>
@@ -243,7 +270,9 @@
         "import_fund_flow": "{{ url_for(bp_name + '.import_fund_flow') }}",
         "import_commission":"{{ url_for(bp_name + '.import_commission') }}",
         "import_merchant":  "{{ url_for(bp_name + '.import_merchant') }}",
-        "export_data":      "{{ url_for(bp_name + '.export_data') }}"
+        "export_data":      "{{ url_for(bp_name + '.export_data') }}",
+        "export_commission_summary": "{{ url_for(bp_name + '.export_commission_summary') }}",
+        "export_commission_details": "{{ url_for(bp_name + '.export_commission_details') }}"
     }
     </script>
 
@@ -398,6 +427,100 @@
         setupImport('btn-import-fund-flow',  'fund-flow-input',  'import-fund-flow-result',  'import_fund_flow', '正在导入资金结算…',   '导入资金结算表');
         setupImport('btn-import-commission', 'commission-input', 'import-commission-result', 'import_commission','正在导入佣金明细…',   '导入佣金订单明细');
         setupImport('btn-import-merchant',   'merchant-input',   'import-merchant-result',   'import_merchant',  '正在导入招商明细…',   '导入招商订单明细');
+
+        // =====================================================================
+        // 佣金导出
+        // =====================================================================
+
+        const dyCommissionStartDateInput = document.getElementById('dy_commission_start_date');
+        const dyCommissionEndDateInput = document.getElementById('dy_commission_end_date');
+        const dyCommissionNicknameQueryInput = document.getElementById('dy_commission_nickname_query');
+        const dyCommissionExportResult = document.getElementById('dy-commission-export-result');
+
+        function applyDyCommissionDateRange() {
+            const range = EXPORT_DATE_RANGES.fund_flow || {};
+            if (dyCommissionStartDateInput) dyCommissionStartDateInput.value = range.start_date || '';
+            if (dyCommissionEndDateInput) dyCommissionEndDateInput.value = range.end_date || '';
+        }
+
+        async function handleCommissionExport({ url, buttonElement, loadingText, defaultButtonText }) {
+            if (!dyCommissionStartDateInput || !dyCommissionEndDateInput || !buttonElement) return;
+
+            const startDate = (dyCommissionStartDateInput.value || '').trim();
+            const endDate = (dyCommissionEndDateInput.value || '').trim();
+            if (!startDate || !endDate) {
+                showMessage(dyCommissionExportResult, '请选择佣金导出的开始日期和结束日期', false);
+                return;
+            }
+            if (startDate > endDate) {
+                showMessage(dyCommissionExportResult, '佣金导出开始日期不能晚于结束日期', false);
+                return;
+            }
+
+            const fd = new FormData();
+            fd.append('start_date', startDate);
+            fd.append('end_date', endDate);
+            fd.append('nickname_query', dyCommissionNicknameQueryInput ? dyCommissionNicknameQueryInput.value : '');
+
+            buttonElement.disabled = true;
+            buttonElement.textContent = loadingText;
+            dyCommissionExportResult.className = 'import-result-box';
+            dyCommissionExportResult.textContent = '';
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    body: fd,
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorData = await parseJsonResponse(response);
+                    showMessage(dyCommissionExportResult, errorData.message || '佣金导出失败', false);
+                    return;
+                }
+
+                const contentType = response.headers.get('Content-Type') || '';
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const isFile = contentType.includes('zip') || disposition.toLowerCase().includes('attachment');
+                if (!isFile) {
+                    const errorData = await parseJsonResponse(response);
+                    showMessage(dyCommissionExportResult, errorData.message || '佣金导出失败：服务器未返回文件', false);
+                    return;
+                }
+
+                const fileName = await downloadBlobResponse(response, '佣金导出.zip');
+                showMessage(dyCommissionExportResult, `导出成功：${fileName}`, true);
+            } catch (error) {
+                showMessage(dyCommissionExportResult, `佣金导出失败：${error.message}`, false);
+            } finally {
+                buttonElement.disabled = false;
+                buttonElement.textContent = defaultButtonText;
+            }
+        }
+
+        const btnExportDyCommissionSummary = document.getElementById('btn-export-dy-commission-summary');
+        const btnExportDyCommissionDetails = document.getElementById('btn-export-dy-commission-details');
+        if (btnExportDyCommissionSummary) {
+            btnExportDyCommissionSummary.addEventListener('click', () => handleCommissionExport({
+                url: API_URLS.export_commission_summary,
+                buttonElement: btnExportDyCommissionSummary,
+                loadingText: '正在导出汇总…',
+                defaultButtonText: '佣金汇总导出',
+            }));
+        }
+        if (btnExportDyCommissionDetails) {
+            btnExportDyCommissionDetails.addEventListener('click', () => handleCommissionExport({
+                url: API_URLS.export_commission_details,
+                buttonElement: btnExportDyCommissionDetails,
+                loadingText: '正在导出明细…',
+                defaultButtonText: '达人/团长明细导出（ZIP）',
+            }));
+        }
+        applyDyCommissionDateRange();
 
         // =====================================================================
         // 字段选择器（含 localStorage 记忆）
