@@ -1269,17 +1269,13 @@ def _query_unmatched_leader_rows(
 
 
 def _build_invoice_import_df(creator_df: pd.DataFrame, leader_df: pd.DataFrame) -> pd.DataFrame:
-    # 佣金金额 = -net_amount：正数=需开票，负数=当期净收入/无需开票。
-    # 发票导入只保留正值（负值不产生发票）。
+    # 佣金金额 = -net_amount，全部放入发票导入，包括当期净值为正（退款超费用）者。
+    # 是否开票由业务人员在发票模块里判断，代码不自行过滤。
     rows: list[dict[str, Any]] = []
     for _idx, row in creator_df.iterrows():
-        amount = float(row['佣金金额'] or 0)
-        if amount > 0:
-            rows.append({'达人/客户': row['达人名称'], '应开金额': amount})
+        rows.append({'达人/客户': row['达人名称'], '应开金额': float(row['佣金金额'] or 0)})
     for _idx, row in leader_df.iterrows():
-        amount = float(row['佣金金额'] or 0)
-        if amount > 0:
-            rows.append({'达人/客户': row['团长名称'], '应开金额': amount})
+        rows.append({'达人/客户': row['团长名称'], '应开金额': float(row['佣金金额'] or 0)})
     df = pd.DataFrame(rows, columns=['达人/客户', '应开金额'])
     if not df.empty:
         df['_abs_sort'] = df['应开金额'].abs()
