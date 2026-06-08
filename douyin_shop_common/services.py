@@ -1159,9 +1159,10 @@ def _query_creator_summary(
     if df.empty:
         return pd.DataFrame(columns=['达人名称', '佣金金额', 'net_amount'])
     df['net_amount'] = pd.to_numeric(df['net_amount'], errors='coerce').fillna(0)
-    # 先正负汇总得净值，最后对净值取绝对值——与 VBA abs(sum) 一致
-    # 无论净值正负，汇总表和发票导入格式均显示正数
-    df['佣金金额'] = df['net_amount'].abs()
+    # 取反：资金流水里支出为负，取反后正常支出显示为正数；
+    # 若某达人当期退款超过费用（净值为正），取反后显示为负数——表示净收入/无需开票。
+    # 这保证：sum(佣金金额) = abs(达人佣金列总和)，满足核对等式。
+    df['佣金金额'] = -df['net_amount']
     return df.rename(columns={'name': '达人名称'})[['达人名称', '佣金金额', 'net_amount']]
 
 
@@ -1236,8 +1237,8 @@ def _query_leader_summary(
     if not grouped:
         return pd.DataFrame(columns=['团长名称', '佣金金额', 'net_amount', 'matched_rows'])
     df = pd.DataFrame(grouped.values())
-    # 先正负汇总得净值，最后对净值取绝对值——汇总表显示正数
-    df['佣金金额'] = pd.to_numeric(df['net_amount'], errors='coerce').fillna(0).abs()
+    # 取反：同达人逻辑。sum(佣金金额) = abs(招商服务费列已匹配部分总和)，差额 = 未匹配行的绝对值。
+    df['佣金金额'] = -pd.to_numeric(df['net_amount'], errors='coerce').fillna(0)
     df['_abs_sort'] = df['佣金金额'].abs()
     return df.sort_values('_abs_sort', ascending=False)[['团长名称', '佣金金额', 'net_amount', 'matched_rows']]
 
@@ -1268,12 +1269,17 @@ def _query_unmatched_leader_rows(
 
 
 def _build_invoice_import_df(creator_df: pd.DataFrame, leader_df: pd.DataFrame) -> pd.DataFrame:
-    # 佣金金额 已经是 abs(net_amount)，直接用（正数），无需再额外处理
+    # 佣金金额 = -net_amount：正数=需开票，负数=当期净收入/无需开票。
+    # 发票导入只保留正值（负值不产生发票）。
     rows: list[dict[str, Any]] = []
     for _idx, row in creator_df.iterrows():
-        rows.append({'达人/客户': row['达人名称'], '应开金额': float(row['佣金金额'] or 0)})
+        amount = float(row['佣金金额'] or 0)
+        if amount > 0:
+            rows.append({'达人/客户': row['达人名称'], '应开金额': amount})
     for _idx, row in leader_df.iterrows():
-        rows.append({'达人/客户': row['团长名称'], '应开金额': float(row['佣金金额'] or 0)})
+        amount = float(row['佣金金额'] or 0)
+        if amount > 0:
+            rows.append({'达人/客户': row['团长名称'], '应开金额': amount})
     df = pd.DataFrame(rows, columns=['达人/客户', '应开金额'])
     if not df.empty:
         df['_abs_sort'] = df['应开金额'].abs()
