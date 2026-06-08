@@ -1159,7 +1159,9 @@ def _query_creator_summary(
     if df.empty:
         return pd.DataFrame(columns=['达人名称', '佣金金额', 'net_amount'])
     df['net_amount'] = pd.to_numeric(df['net_amount'], errors='coerce').fillna(0)
-    df['佣金金额'] = df['net_amount']
+    # 取反：net_amount 通常为负（商家支出），佣金金额 显示为正（达人应收）
+    # 若净值为正（退款超过佣金），佣金金额 为负（代表净收入，无需开票）
+    df['佣金金额'] = -df['net_amount']
     return df.rename(columns={'name': '达人名称'})[['达人名称', '佣金金额', 'net_amount']]
 
 
@@ -1234,7 +1236,8 @@ def _query_leader_summary(
     if not grouped:
         return pd.DataFrame(columns=['团长名称', '佣金金额', 'net_amount', 'matched_rows'])
     df = pd.DataFrame(grouped.values())
-    df['佣金金额'] = pd.to_numeric(df['net_amount'], errors='coerce').fillna(0)
+    # 取反：net_amount 通常为负（商家支出），佣金金额 显示为正（团长应收）
+    df['佣金金额'] = -pd.to_numeric(df['net_amount'], errors='coerce').fillna(0)
     df['_abs_sort'] = df['佣金金额'].abs()
     return df.sort_values('_abs_sort', ascending=False)[['团长名称', '佣金金额', 'net_amount', 'matched_rows']]
 
@@ -1265,11 +1268,12 @@ def _query_unmatched_leader_rows(
 
 
 def _build_invoice_import_df(creator_df: pd.DataFrame, leader_df: pd.DataFrame) -> pd.DataFrame:
+    # 佣金金额 已经是取反后的值（负→正，正→负），直接用，无需再 abs()
     rows: list[dict[str, Any]] = []
     for _idx, row in creator_df.iterrows():
-        rows.append({'达人/客户': row['达人名称'], '应开金额': abs(float(row['佣金金额'] or 0))})
+        rows.append({'达人/客户': row['达人名称'], '应开金额': float(row['佣金金额'] or 0)})
     for _idx, row in leader_df.iterrows():
-        rows.append({'达人/客户': row['团长名称'], '应开金额': abs(float(row['佣金金额'] or 0))})
+        rows.append({'达人/客户': row['团长名称'], '应开金额': float(row['佣金金额'] or 0)})
     df = pd.DataFrame(rows, columns=['达人/客户', '应开金额'])
     if not df.empty:
         df['_abs_sort'] = df['应开金额'].abs()
