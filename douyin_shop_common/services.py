@@ -1153,7 +1153,7 @@ def _query_creator_summary(
         FROM {config.fund_flow_table}
         WHERE {' AND '.join(where)}
         GROUP BY TRIM(influencer_name)
-        ORDER BY ABS(SUM(CAST(influencer_commission AS REAL))) DESC
+        ORDER BY SUM(CAST(influencer_commission AS REAL)) ASC
     """
     df = pd.read_sql_query(sql, conn, params=params)
     if df.empty:
@@ -1239,8 +1239,7 @@ def _query_leader_summary(
     df = pd.DataFrame(grouped.values())
     # 取反：同达人逻辑。sum(佣金金额) = abs(招商服务费列已匹配部分总和)，差额 = 未匹配行的绝对值。
     df['佣金金额'] = -pd.to_numeric(df['net_amount'], errors='coerce').fillna(0)
-    df['_abs_sort'] = df['佣金金额'].abs()
-    return df.sort_values('_abs_sort', ascending=False)[['团长名称', '佣金金额', 'net_amount', 'matched_rows']]
+    return df.sort_values('佣金金额', ascending=False)[['团长名称', '佣金金额', 'net_amount', 'matched_rows']]
 
 
 def _query_unmatched_leader_rows(
@@ -1278,8 +1277,7 @@ def _build_invoice_import_df(creator_df: pd.DataFrame, leader_df: pd.DataFrame) 
         rows.append({'达人/客户': row['团长名称'], '应开金额': float(row['佣金金额'] or 0)})
     df = pd.DataFrame(rows, columns=['达人/客户', '应开金额'])
     if not df.empty:
-        df['_abs_sort'] = df['应开金额'].abs()
-        df = df.sort_values('_abs_sort', ascending=False).drop(columns=['_abs_sort'])
+        df = df.sort_values('应开金额', ascending=False)
     return df
 
 
@@ -1437,7 +1435,7 @@ def export_commission_detail_zip(
                     amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
                     text_columns={'订单号', '子订单号', '商品ID', '达人ID'},
                 )
-                filename = _safe_download_part(f'{name}_{abs(amount_sum):.2f}_{month_text}') + '.xlsx'
+                filename = _safe_download_part(f'{name}_{-amount_sum:.2f}_{month_text}') + '.xlsx'
                 zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
 
         if not leader_rows.empty:
@@ -1450,7 +1448,7 @@ def export_commission_detail_zip(
                     amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
                     text_columns={'订单号', '子订单号', '商品ID', '达人ID'},
                 )
-                filename = _safe_download_part(f'{abs(amount_sum):.2f}{name}_招商佣金_{month_text}') + '.xlsx'
+                filename = _safe_download_part(f'{-amount_sum:.2f}{name}_招商佣金_{month_text}') + '.xlsx'
                 zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
 
         if not used_names:
