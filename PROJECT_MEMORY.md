@@ -1433,3 +1433,15 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：courier_fee 全模块、label_print 推荐前端改为调后端接口（行为：实时本地计算→防抖请求后端）；共用 label_weights/label_sizes/label_packing_*/label_pack_* 等表（只读）。
 - 是否涉及数据库：是（运行时迁移：courier_fee_bills 加列 ship_content_key；courier_fee_pricing_rules 加列 weight_tolerance_pct；均 CREATE TABLE IF NOT EXISTS + ALTER TABLE try/except 幂等。底单/账单业务数据需重新导入并重新运行计算以生效）
 - 是否需要回滚：否（新增列向后兼容；如需回滚代码，旧列保留不影响）
+
+## [2026-06-09 21:38] 修改记录
+- 修改内容：将快递费模块及包装推荐后端单一源化等本地改动提交并推送到 GitHub `main`（`5671e55` → `568b8cb`），随后更新西班牙马德里服务器 `208.85.17.83` 运行新代码。
+  1. 提交内容：新增 courier_fee 整模块（routes/services/bill_services/table_schemas/weight_estimate + __init__）、新增 label_print/pack_recommend.py（包装推荐+预估重量唯一算法源）、label_print/routes.py 加 /label_print/api/recommend 接口、templates/courier_fee.html、templates/label_print.html（删约340行重复JS改调后端）、app.py 注册蓝图、auth/services.py 加 courier_fee 权限key/标签、templates/index.html 加菜单入口、.gitignore 排除敏感项、PROJECT_MEMORY.md。
+  2. .gitignore 新增忽略：temp/（含200MB真实账单/底单数据）、data_local_backup_*/、backups/、*.pid、flask_local*.log；确认提交未包含任何 temp/、data/、*.db、备份或日志。
+  3. 服务器：git pull origin main 快进到 568b8cb；重启前用 .venv/bin/python 自检 courier_fee + pack_recommend 导入成功（依赖齐全）；pkill 旧 app.run 进程后 setsid 启动新 production 进程（PID 300618，0.0.0.0:5001, debug=False）。验证 /courier_fee/、/label_print/api/recommend、/label_print/ 均返回 302（已注册需登录），公网 http://208.85.17.83:5001/ 返回 302，服务器 HEAD=568b8cb。
+- 修改文件：GitHub main；服务器 /root/my-flask-project；本地 .gitignore、PROJECT_MEMORY.md
+- 修改原因：需要把快递费模块与包装推荐单一源化改动发布到 GitHub 并让马德里服务器运行新代码。
+- 影响范围：GitHub main、马德里服务器代码与运行进程；data/ 为 gitignore，拉取未触碰服务器业务数据。
+- 是否涉及数据库：否（代码部署；服务器 courier_fee 相关表将于首次访问时自动创建，本次未写业务数据）
+- 是否需要回滚：是（服务器 `git reset --hard 5671e55` 后重启可回退；GitHub 可 revert 568b8cb）
+- 待办（服务器端人工）：1) 管理员给相关用户授予「快递费计算」模块权限；2) 在服务器端重新导入底单+账单并运行计算。
