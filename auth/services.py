@@ -18,6 +18,7 @@ MODULE_KEYS = (
     'douyin_shop_mulianman',
     'invoicing',
     'label_print',
+    'courier_fee',
 )
 MODULE_LABELS = {
     'inventory': '库存盘点',
@@ -29,6 +30,7 @@ MODULE_LABELS = {
     'douyin_shop_mulianman': '幕莲蔓（抖音）',
     'invoicing': '发票核对',
     'label_print': '页头打印',
+    'courier_fee': '快递费计算',
 }
 
 

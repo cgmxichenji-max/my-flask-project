@@ -1176,6 +1176,59 @@ def _render(active_tab, conn=None):
     )
 
 
+# ─────────────────────────────── 包装推荐接口（唯一算法源） ───────────────────────────────
+
+@label_print_bp.route('/api/recommend', methods=['POST'])
+@module_required('label_print')
+def api_recommend():
+    """
+    入参 JSON: {"rows":[{"code":"140","qty":2}, ...]}
+    返回:      {"box":..,"bag":..,"bagQty":..,"comboKey":..,
+               "estimatable":bool,"estimatedWeight":float|None,"detail":{..}}
+    箱型/气泡袋推荐与预估重量的唯一实现，页头打印前端与快递费批量计算共用。
+    """
+    from .pack_recommend import PackRecommender
+    data = request.get_json(silent=True) or {}
+    raw_rows = data.get('rows') or []
+
+    rows = []
+    for r in raw_rows:
+        code = str((r or {}).get('code') or '').strip()
+        try:
+            qty = int(float((r or {}).get('qty') or 0))
+        except (ValueError, TypeError):
+            qty = 0
+        if code and qty > 0:
+            rows.append({'code': code, 'qty': qty})
+
+    if not rows:
+        return jsonify({'box': None, 'bag': None, 'bagQty': 0, 'comboKey': '',
+                        'estimatable': False, 'estimatedWeight': None, 'detail': {}})
+
+    conn = get_db_connection()
+    try:
+        rec_engine = PackRecommender(conn)
+        rec = rec_engine.recommend(rows) or {}
+        ok, total, detail = rec_engine.estimate(rows)
+    finally:
+        conn.close()
+
+    bag_name = rec.get('bag')
+    bag_qty = rec.get('bagQty') or 0
+    bag_text = f'{bag_name}×{bag_qty}' if (bag_name and bag_qty) else (bag_name or None)
+
+    return jsonify({
+        'box':             rec.get('box'),
+        'bag':             bag_name,
+        'bagQty':          bag_qty,
+        'bagText':         bag_text,
+        'comboKey':        rec.get('comboKey', ''),
+        'estimatable':     bool(ok),
+        'estimatedWeight': total if ok else None,
+        'detail':          detail,
+    })
+
+
 # ─────────────────────────────── 页面路由 ───────────────────────────────
 
 @label_print_bp.route('/', strict_slashes=False)

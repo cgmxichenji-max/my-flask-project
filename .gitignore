@@ -78,3 +78,18 @@ pip_install.log
 pip313_install.log
 flask_restart.log
 flask_restart.err
+
+# -----------------
+# 本地临时账单/分析数据（含真实业务数据，禁止上传）
+# -----------------
+temp/
+data_local_backup_*/
+backups/
+
+# -----------------
+# 本地运行时文件
+# -----------------
+*.pid
+.flask_local.pid
+flask_local.log
+flask_local.err.log

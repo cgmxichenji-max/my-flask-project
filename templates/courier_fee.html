@@ -1,0 +1,1501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>快递费计算 - 包材管理系统</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                         "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: #efefef;
+            color: #333;
+        }
+
+        .topbar {
+            background: #42a941;
+            color: #fff;
+            text-align: center;
+            font-size: 22px;
+            font-weight: 700;
+            padding: 14px 20px;
+            letter-spacing: 1px;
+            box-shadow: 0 1px 2px rgba(0,0,0,.08);
+        }
+
+        .page-wrap {
+            max-width: 1400px;
+            margin: 20px auto 40px;
+            padding: 0 18px;
+        }
+
+        .page-title {
+            text-align: center;
+            font-size: 32px;
+            font-weight: 700;
+            margin: 8px 0 20px;
+            color: #222;
+        }
+
+        /* ── Tab 系统 ── */
+        .tab-bar {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid #63ba46;
+            margin-bottom: 20px;
+        }
+
+        .tab-btn {
+            padding: 10px 28px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            background: #e0e0e0;
+            border: none;
+            border-radius: 8px 8px 0 0;
+            color: #555;
+            margin-right: 4px;
+            transition: .15s;
+        }
+
+        .tab-btn:hover { background: #d0ead0; color: #2e7d32; }
+
+        .tab-btn.active {
+            background: #fff;
+            color: #2e7d32;
+            border: 2px solid #63ba46;
+            border-bottom: 2px solid #fff;
+            margin-bottom: -2px;
+        }
+
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* ── 卡片 ── */
+        .section-card {
+            background: #f7f7f7;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,.07);
+            padding: 18px 16px 14px;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 17px;
+            font-weight: 700;
+            margin-bottom: 14px;
+            color: #222;
+        }
+
+        .section-title::before {
+            content: "";
+            width: 4px; height: 22px;
+            border-radius: 2px;
+            background: #63ba46;
+            display: inline-block;
+        }
+
+        /* ── 状态格子 ── */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+
+        .status-item {
+            background: #fff;
+            border: 1px solid #d8dde3;
+            border-radius: 8px;
+            padding: 12px 14px;
+            text-align: center;
+        }
+
+        .status-item .s-label { font-size: 12px; color: #666; margin-bottom: 5px; }
+        .status-item .s-value { font-size: 19px; font-weight: 700; color: #2e7d32; }
+
+        /* ── 按钮 ── */
+        .btn {
+            border: none; border-radius: 6px;
+            padding: 9px 20px; font-size: 14px; font-weight: 700;
+            cursor: pointer; transition: .18s ease;
+            white-space: nowrap;
+        }
+        .btn:hover { transform: translateY(-1px); opacity: .94; }
+        .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+        .btn-primary   { background: #63ba46; color: #fff; }
+        .btn-secondary { background: #a7cf93; color: #fff; }
+        .btn-dark      { background: #5f6f7a; color: #fff; }
+        .btn-info      { background: #4a90d9; color: #fff; }
+        .btn-danger    { background: #e05252; color: #fff; }
+        .btn-sm        { padding: 5px 12px; font-size: 13px; }
+
+        .import-actions, .filter-actions {
+            display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+        }
+
+        /* ── 消息框 ── */
+        .result-box {
+            display: none; margin-top: 12px; padding: 12px 14px;
+            border-radius: 8px; font-size: 14px; line-height: 1.7; white-space: pre-line;
+        }
+        .result-box.success { display: block; background: #f0f7ea; border: 1px solid #d6e9ca; color: #355b2d; }
+        .result-box.error   { display: block; background: #fff3f3; border: 1px solid #efc7c7; color: #a33a3a; }
+
+        /* ── 筛选表单 ── */
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(200px, 1fr));
+            gap: 10px 12px;
+            margin-bottom: 12px;
+        }
+
+        .form-group { display: flex; flex-direction: column; gap: 4px; }
+        .form-group label { font-size: 13px; font-weight: 700; color: #444; }
+        .form-group input, .form-group select {
+            height: 36px; border: 1px solid #cfd6dd; border-radius: 5px;
+            padding: 0 10px; font-size: 14px; background: #fff; color: #333;
+        }
+
+        /* ── 数据表格（通用）── */
+        .table-scroll { overflow-x: auto; margin-top: 6px; }
+
+        table { width: 100%; border-collapse: collapse; min-width: 900px; }
+
+        th, td {
+            border: 1px solid #d8dde3; padding: 7px 9px;
+            font-size: 13px; background: #fff;
+        }
+        th { background: #e9eef4; font-weight: 700; color: #333; text-align: center; white-space: nowrap; }
+        td { text-align: center; white-space: nowrap; }
+        tr:hover td { background: #f4f9f0; }
+
+        /* ── 分页 ── */
+        .pagination { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        .pagination .page-info { font-size: 13px; color: #555; }
+        .pagination .btn { padding: 5px 14px; font-size: 13px; }
+
+        /* ── 计费规则编辑行 ── */
+        .rule-input {
+            width: 100%; min-width: 80px; height: 30px;
+            border: 1px solid #cfd6dd; border-radius: 4px;
+            padding: 0 6px; font-size: 13px; background: #fff;
+            text-align: center;
+        }
+        .rule-input:focus { outline: none; border-color: #63ba46; }
+
+        select.rule-input { padding: 0 4px; }
+
+        .tag-active   { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; background: #d6f0ca; color: #2e7d32; }
+        .tag-inactive { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; background: #f0f0f0; color: #888; }
+
+        /* ── 提示 ── */
+        .hint-box {
+            background: #f0f7ea; border: 1px solid #d6e9ca; color: #4e6b45;
+            border-radius: 8px; padding: 10px 12px; margin-top: 12px;
+            font-size: 13px; line-height: 1.7;
+        }
+
+        .result-meta { font-size: 13px; color: #555; margin-bottom: 6px; min-height: 18px; }
+
+        .footer-note { text-align: center; margin-top: 28px; color: #777; font-size: 12px; }
+
+        /* ── Tab 3 专用样式 ── */
+
+        /* 月份/操作行 */
+        .ym-bar {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+            margin-bottom: 4px;
+        }
+        .ym-bar label { font-size: 14px; font-weight: 700; color: #444; }
+        .ym-bar select, .ym-bar input[type=month] {
+            height: 36px; border: 1px solid #cfd6dd; border-radius: 5px;
+            padding: 0 10px; font-size: 14px; background: #fff; color: #333;
+        }
+
+        /* 文件列表表格 */
+        .file-list-table { min-width: 700px; }
+        .file-list-table td.actions { white-space: nowrap; }
+
+        /* 筛选 tab 行 */
+        .filter-tab-row {
+            display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;
+        }
+        .filter-tab {
+            padding: 6px 16px; font-size: 13px; font-weight: 700;
+            border-radius: 20px; cursor: pointer; border: 2px solid #ccc;
+            background: #f5f5f5; color: #555; transition: .15s;
+        }
+        .filter-tab.active {
+            border-color: #63ba46; background: #e8f5e3; color: #2e7d32;
+        }
+        /* 已核查 tab：蓝色区分 */
+        .filter-tab-verified { border-color: #90caf9; color: #1565c0; }
+        .filter-tab-verified.active { border-color: #1565c0; background: #e3f2fd; color: #1565c0; }
+
+        /* 横表全选 checkbox */
+        .bill-cb { width: 16px; height: 16px; cursor: pointer; }
+
+        /* 修正标记 */
+        .tag-corrected { background: #fff0c2; color: #7a5a00;
+            display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+        .tag-price-err { background: #ffe0e0; color: #a33; font-size: 12px;
+            display: inline-block; padding: 2px 8px; border-radius: 10px; }
+        .tag-ok { background: #e8f5e3; color: #2e7d32; font-size: 12px;
+            display: inline-block; padding: 2px 8px; border-radius: 10px; }
+
+        /* 模态框 */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,.45); z-index: 9000;
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-box {
+            background: #fff; border-radius: 12px; padding: 28px 32px;
+            max-width: 440px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,.18);
+        }
+        .modal-box h3 { margin: 0 0 12px; font-size: 17px; color: #222; }
+        .modal-box p  { font-size: 14px; color: #555; margin-bottom: 18px; line-height: 1.6; }
+        .modal-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        /* 可排序列头 */
+        th.sortable { cursor: pointer; user-select: none; }
+        th.sortable:hover { background: #dde4ec; }
+        th.sort-asc::after  { content: ' ▲'; font-size: 10px; }
+        th.sort-desc::after { content: ' ▼'; font-size: 10px; }
+
+        /* 搜索框 */
+        .bill-search-row {
+            display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;
+        }
+        .bill-search-row input {
+            flex: 1; min-width: 200px; height: 34px;
+            border: 1px solid #cfd6dd; border-radius: 5px; padding: 0 10px; font-size: 13px;
+        }
+
+        /* 操作区按钮组 */
+        .ops-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+        @media (max-width: 1024px) {
+            .status-grid { grid-template-columns: repeat(2, 1fr); }
+            .filter-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+        }
+        @media (max-width: 640px) {
+            .status-grid { grid-template-columns: 1fr 1fr; }
+            .filter-grid { grid-template-columns: 1fr; }
+            .btn { width: 100%; }
+            .filter-actions, .import-actions { flex-direction: column; }
+            .tab-btn { padding: 8px 14px; font-size: 13px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">包材管理系统</div>
+    <div class="page-wrap">
+        <div class="page-title">快递费计算工作台</div>
+
+        <!-- ── Tab 导航 ── -->
+        <div class="tab-bar">
+            <button class="tab-btn active" data-tab="tab-shipments">底单记录</button>
+            <button class="tab-btn"        data-tab="tab-pricing">计费标准</button>
+            <button class="tab-btn"        data-tab="tab-bills">快递费账单</button>
+        </div>
+
+        <!-- ═══════════════════════════════════════════
+             Tab 1：底单记录
+        ════════════════════════════════════════════ -->
+        <div id="tab-shipments" class="tab-panel active">
+
+            <!-- 数据状态 -->
+            <section class="section-card">
+                <div class="section-title">底单记录数据状态</div>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <div class="s-label">总记录数</div>
+                        <div class="s-value" id="s-count">{{ status.record_count }}</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="s-label">最早发货时间</div>
+                        <div class="s-value" style="font-size:14px;" id="s-min">{{ status.min_date or '—' }}</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="s-label">最晚发货时间</div>
+                        <div class="s-value" style="font-size:14px;" id="s-max">{{ status.max_date or '—' }}</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="s-label">最近导入时间</div>
+                        <div class="s-value" style="font-size:13px;" id="s-last">{{ status.last_import_time or '—' }}</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 导入 -->
+            <section class="section-card">
+                <div class="section-title">底单记录导入</div>
+                <div class="import-actions">
+                    <input type="file" id="shipment-file-input" accept=".xlsx,.xls" multiple style="display:none">
+                    <button class="btn btn-primary" id="btn-import-shipments">选择文件并导入</button>
+                    <span style="font-size:13px;color:#666;">支持同时上传多个文件（.xlsx / .xls）</span>
+                </div>
+                <div id="import-result" class="result-box"></div>
+                <div class="hint-box">
+                    说明：底单记录以<b>快递单号</b>为去重键，已存在的记录自动跳过；发货时间无效（如"已回收面单"）的行也会被自动跳过。
+                </div>
+            </section>
+
+            <!-- 筛选 & 查询 -->
+            <section class="section-card">
+                <div class="section-title">底单记录查询与导出</div>
+                <div class="filter-grid">
+                    <div class="form-group">
+                        <label>发货时间（起）</label>
+                        <input type="date" id="f-start">
+                    </div>
+                    <div class="form-group">
+                        <label>发货时间（止）</label>
+                        <input type="date" id="f-end">
+                    </div>
+                    <div class="form-group">
+                        <label>所属平台</label>
+                        <input type="text" id="f-platform" placeholder="如：快手、抖音">
+                    </div>
+                    <div class="form-group">
+                        <label>店铺名称</label>
+                        <input type="text" id="f-shop" placeholder="关键词模糊匹配">
+                    </div>
+                    <div class="form-group">
+                        <label>快递名称</label>
+                        <input type="text" id="f-courier" placeholder="如：中通、申通、韵达">
+                    </div>
+                    <div class="form-group">
+                        <label>快递单号</label>
+                        <input type="text" id="f-tracking" placeholder="支持模糊查询">
+                    </div>
+                    <div class="form-group">
+                        <label>订单编号</label>
+                        <input type="text" id="f-order" placeholder="支持模糊查询">
+                    </div>
+                    <div class="form-group">
+                        <label>发货内容关键词</label>
+                        <input type="text" id="f-content" placeholder="如：140、161">
+                    </div>
+                </div>
+                <div class="filter-actions">
+                    <button class="btn btn-primary"   id="btn-query">查询</button>
+                    <button class="btn btn-secondary" id="btn-reset-filter">重置条件</button>
+                    <button class="btn btn-info"      id="btn-export">导出当前筛选结果</button>
+                </div>
+                <div class="result-meta" id="result-meta"></div>
+                <div id="query-result-box" class="result-box"></div>
+                <div class="table-scroll" id="table-wrap" style="display:none;">
+                    <table id="data-table">
+                        <thead>
+                            <tr>
+                                {% for h in display_headers %}
+                                <th>{{ h }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody id="table-body"></tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="pagination" style="display:none;">
+                    <button class="btn btn-dark" id="btn-prev">上一页</button>
+                    <span class="page-info" id="page-info"></span>
+                    <button class="btn btn-dark" id="btn-next">下一页</button>
+                    <span class="page-info">每页 100 条</span>
+                </div>
+            </section>
+
+        </div><!-- /tab-shipments -->
+
+        <!-- ═══════════════════════════════════════════
+             Tab 2：计费标准
+        ════════════════════════════════════════════ -->
+        <div id="tab-pricing" class="tab-panel">
+
+            <section class="section-card">
+                <div class="section-title">计费规则管理</div>
+
+                <div class="filter-actions" style="margin-bottom:14px;">
+                    <button class="btn btn-primary" id="btn-add-rule">＋ 新增规则</button>
+                </div>
+
+                <div id="pricing-msg" class="result-box"></div>
+
+                <div class="table-scroll">
+                    <table id="pricing-table">
+                        <thead>
+                            <tr>
+                                <th>快递公司</th>
+                                <th>底重（kg）</th>
+                                <th>超出条件</th>
+                                <th>底重收费（元）</th>
+                                <th>江浙沪皖续重（元/kg）</th>
+                                <th>其他省份续重（元/kg）</th>
+                                <th>重量允差（%）</th>
+                                <th>起效日期</th>
+                                <th>启用</th>
+                                <th>备注</th>
+                                <th style="min-width:130px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pricing-tbody"></tbody>
+                    </table>
+                </div>
+
+                <div class="hint-box">
+                    说明：<b>超出条件</b>指续重费的触发方式——"大于(&gt;)" 表示重量超过底重才计续重，"大于等于(&gt;=)" 表示达到底重即开始计续重。<br>
+                    续重按向上取整（整 kg）计算，江浙沪皖（江苏/浙江/上海/安徽）使用单独费率。<br>
+                    同一快递公司可设置多条规则，计算时自动取<b>起效日期 ≤ 账单日期</b>的最新一条启用规则。
+                </div>
+            </section>
+
+        </div><!-- /tab-pricing -->
+
+        <!-- ═══════════════════════════════════════════
+             Tab 3：快递费账单
+        ════════════════════════════════════════════ -->
+        <div id="tab-bills" class="tab-panel">
+
+            <!-- 月份选择 -->
+            <section class="section-card">
+                <div class="section-title">当前处理月份</div>
+                <div class="ym-bar">
+                    <label>已有月份：</label>
+                    <select id="bill-ym-select" onchange="onYmChange()">
+                        <option value="">— 请选择 —</option>
+                    </select>
+                    <span style="color:#888;font-size:13px;">或手动输入新月份：</span>
+                    <input type="month" id="bill-ym-new"
+                           value="{{ default_ym[:4] }}-{{ default_ym[4:] }}"
+                           title="新月份（首次上传时自动创建）">
+                    <button class="btn btn-dark btn-sm" onclick="applyYmFromInput()">使用此月份</button>
+                    <span class="result-meta" id="ym-tip" style="color:#2e7d32;"></span>
+                </div>
+            </section>
+
+            <!-- 账单文件管理 -->
+            <section class="section-card">
+                <div class="section-title">账单文件管理</div>
+
+                <!-- 上传区 -->
+                <div class="import-actions" style="margin-bottom:12px;">
+                    <select id="upload-carrier" style="height:36px;border:1px solid #cfd6dd;border-radius:5px;padding:0 10px;font-size:14px;background:#fff;">
+                        {% for c in carrier_names %}
+                        <option value="{{ c }}">{{ c }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="file" id="bill-file-input" accept=".xlsx,.xls" style="display:none">
+                    <button class="btn btn-primary" id="btn-bill-upload"
+                            onclick="document.getElementById('bill-file-input').click()">
+                        选择文件并上传
+                    </button>
+                    <span style="font-size:13px;color:#666;">先选快递公司，再选文件</span>
+                </div>
+                <div id="upload-result" class="result-box"></div>
+
+                <!-- 文件列表 -->
+                <div class="table-scroll" id="bill-file-list-wrap" style="display:none;">
+                    <table class="file-list-table">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="cb-all-files" title="全选文件"></th>
+                                <th>文件名</th>
+                                <th>快递公司</th>
+                                <th>份数</th>
+                                <th>有效行数</th>
+                                <th>合计费用</th>
+                                <th>状态</th>
+                                <th>上传时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bill-file-tbody"></tbody>
+                    </table>
+                </div>
+                <div class="filter-actions" style="margin-top:10px;">
+                    <button class="btn btn-dark btn-sm" id="btn-dl-raw-zip"
+                            onclick="downloadRawZip()">打包下载选中原始文件</button>
+                </div>
+            </section>
+
+            <!-- 计算处理 -->
+            <section class="section-card">
+                <div class="section-title">计算处理（OPT_02 + OPT_03）</div>
+                <div class="filter-actions">
+                    <button class="btn btn-primary" id="btn-run-calc" onclick="runCalc()">
+                        运行计算
+                    </button>
+                    <span style="font-size:13px;color:#666;">
+                        OPT_02：按运单号填入发货内容 &nbsp;|&nbsp;
+                        OPT_03：计算标准费用 / 差额 / 核对结果
+                    </span>
+                </div>
+                <div id="calc-result" class="result-box"></div>
+            </section>
+
+            <!-- 快递账单记录 -->
+            <section class="section-card">
+                <div class="section-title">快递账单记录</div>
+
+                <!-- 筛选 Tab：未核查分组 + 已核查 -->
+                <div class="filter-tab-row">
+                    <button class="filter-tab active" data-ftype="all"
+                            onclick="setBillFilter('all', this)">
+                        全部（未核查）<span id="cnt-all">0</span>
+                    </button>
+                    <button class="filter-tab" data-ftype="price_error"
+                            onclick="setBillFilter('price_error', this)">
+                        价格异常 <span id="cnt-price">0</span>
+                    </button>
+                    <button class="filter-tab" data-ftype="empty_content"
+                            onclick="setBillFilter('empty_content', this)">
+                        空白异常 <span id="cnt-empty">0</span>
+                    </button>
+                    <button class="filter-tab" data-ftype="weight_error"
+                            onclick="setBillFilter('weight_error', this)">
+                        重量异常 <span id="cnt-weight">0</span>
+                    </button>
+                    <button class="filter-tab filter-tab-verified" data-ftype="verified"
+                            onclick="setBillFilter('verified', this)">
+                        已核查 <span id="cnt-verified">0</span>
+                    </button>
+                </div>
+
+                <!-- 搜索 -->
+                <div class="bill-search-row">
+                    <input type="text" id="bill-search"
+                           placeholder="多关键词空格分隔，搜索运单号/快递公司/结算对象/省份/发货内容/核对结果..."
+                           onkeydown="if(event.key==='Enter') doBillQuery(1)">
+                    <button class="btn btn-info btn-sm" onclick="doBillQuery(1)">搜索</button>
+                    <button class="btn btn-secondary btn-sm" onclick="toggleSelectAllBills()">全选/取消全选</button>
+                    <span class="result-meta" id="bill-result-meta"></span>
+                </div>
+
+                <div id="bill-query-msg" class="result-box"></div>
+                <div class="table-scroll" id="bill-table-wrap" style="display:none;">
+                    <table id="bill-table">
+                        <thead id="bill-thead"></thead>
+                        <tbody id="bill-tbody"></tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="bill-pagination" style="display:none;">
+                    <button class="btn btn-dark btn-sm" id="bill-btn-prev" onclick="doBillQuery(billPage-1)">上一页</button>
+                    <span class="page-info" id="bill-page-info"></span>
+                    <button class="btn btn-dark btn-sm" id="bill-btn-next" onclick="doBillQuery(billPage+1)">下一页</button>
+                    <span class="page-info">每页 100 条</span>
+                </div>
+            </section>
+
+            <!-- 操作区 -->
+            <section class="section-card">
+                <div class="section-title">核查操作</div>
+                <div class="ops-row">
+                    <button class="btn btn-primary"   id="btn-opt07"   onclick="runOpt07()">运行 OPT_07（写回未勾选异常行）</button>
+                    <button class="btn btn-info"      id="btn-dl-corr" onclick="downloadCorrectedZip()">下载修正文件（ZIP）</button>
+                    <button class="btn btn-secondary" id="btn-save-vf" onclick="saveVerified()">✓ 正式入库（标记已核查）</button>
+                    <button class="btn btn-danger"    id="btn-discard" onclick="discardUnverified()">× 丢弃本月未核查数据</button>
+                </div>
+                <div id="ops-result" class="result-box"></div>
+            </section>
+
+        </div><!-- /tab-bills -->
+
+        <div class="footer-note">© 2026 包材管理系统</div>
+    </div><!-- /page-wrap -->
+
+<!-- ── 重复文件确认模态框 ── -->
+<div class="modal-overlay" id="dup-modal">
+    <div class="modal-box">
+        <h3>已有同月份账单文件</h3>
+        <p id="dup-modal-msg"></p>
+        <div class="modal-actions">
+            <button class="btn btn-danger btn-sm"   onclick="confirmUpload('replace')">替换（删除旧文件）</button>
+            <button class="btn btn-primary btn-sm"  onclick="confirmUpload('add')"    id="btn-dup-add">保存为第 2 份</button>
+            <button class="btn btn-dark btn-sm"     onclick="closeDupModal()">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ 数据注入 ═══ -->
+<script id="pricing-rules-data" type="application/json">{{ pricing_rules_json | safe }}</script>
+<script id="op-options-data"    type="application/json">{{ base_weight_op_options | tojson }}</script>
+<script id="bill-months-data"   type="application/json">{{ bill_months_json | safe }}</script>
+<script id="bill-headers-data"  type="application/json">{{ bill_headers_json | safe }}</script>
+<script id="bill-sortable-data" type="application/json">{{ bill_sortable_json | safe }}</script>
+
+<script>
+'use strict';
+
+// ── Tab 切换 ──────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.tab).classList.add('active');
+    });
+});
+
+// ── 工具 ─────────────────────────────────────────────
+function showMsg(el, msg, ok) {
+    el.textContent = msg;
+    el.className = 'result-box ' + (ok ? 'success' : 'error');
+}
+function hideMsg(el) { el.textContent = ''; el.className = 'result-box'; }
+
+function getDownloadName(disposition, fallback) {
+    const m1 = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    const m2 = disposition.match(/filename="?([^";]+)"?/i);
+    if (m1) return decodeURIComponent(m1[1]);
+    if (m2) return decodeURIComponent(m2[1]);
+    return fallback;
+}
+
+async function triggerDownload(response, fallback) {
+    const blob = await response.blob();
+    const url  = URL.createObjectURL(blob);
+    const name = getDownloadName(response.headers.get('Content-Disposition') || '', fallback);
+    const a    = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+}
+
+// ════════════════════════════════════════════
+// Tab 1：底单记录
+// ════════════════════════════════════════════
+
+function refreshStatus(s) {
+    if (!s) return;
+    document.getElementById('s-count').textContent = s.record_count ?? '—';
+    document.getElementById('s-min').textContent   = s.min_date  || '—';
+    document.getElementById('s-max').textContent   = s.max_date  || '—';
+    document.getElementById('s-last').textContent  = s.last_import_time || '—';
+}
+
+// 导入
+const fileInput    = document.getElementById('shipment-file-input');
+const btnImport    = document.getElementById('btn-import-shipments');
+const importResult = document.getElementById('import-result');
+
+btnImport.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', async () => {
+    if (!fileInput.files.length) return;
+    btnImport.disabled = true;
+    btnImport.textContent = '导入中…';
+    hideMsg(importResult);
+    const fd = new FormData();
+    for (const f of fileInput.files) fd.append('files', f);
+    try {
+        const resp = await fetch('/courier_fee/import_shipments', {
+            method: 'POST', body: fd,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        const data = await resp.json();
+        showMsg(importResult, data.message || (data.success ? '导入成功' : '导入失败'), data.success);
+        if (data.success && data.status) refreshStatus(data.status);
+    } catch (e) {
+        showMsg(importResult, '请求失败：' + e.message, false);
+    } finally {
+        btnImport.disabled = false;
+        btnImport.textContent = '选择文件并导入';
+        fileInput.value = '';
+    }
+});
+
+// 查询
+let currentPage = 1, currentFilters = {};
+
+function collectFilters() {
+    return {
+        ship_time_start:      document.getElementById('f-start').value,
+        ship_time_end:        document.getElementById('f-end').value,
+        platform:             document.getElementById('f-platform').value.trim(),
+        shop_name:            document.getElementById('f-shop').value.trim(),
+        courier_name:         document.getElementById('f-courier').value.trim(),
+        tracking_no:          document.getElementById('f-tracking').value.trim(),
+        order_no:             document.getElementById('f-order').value.trim(),
+        ship_content_keyword: document.getElementById('f-content').value.trim(),
+    };
+}
+
+async function doQuery(page) {
+    currentFilters = collectFilters();
+    currentPage    = page;
+    const btnQuery = document.getElementById('btn-query');
+    btnQuery.disabled = true;
+    btnQuery.textContent = '查询中…';
+    hideMsg(document.getElementById('query-result-box'));
+    try {
+        const resp = await fetch('/courier_fee/query_shipments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ ...currentFilters, page, page_size: 100 }),
+        });
+        const data = await resp.json();
+        if (!data.success) {
+            showMsg(document.getElementById('query-result-box'), data.message || '查询失败', false);
+            return;
+        }
+        renderTable(data);
+    } catch (e) {
+        showMsg(document.getElementById('query-result-box'), '请求失败：' + e.message, false);
+    } finally {
+        btnQuery.disabled = false;
+        btnQuery.textContent = '查询';
+    }
+}
+
+function renderTable(data) {
+    const { rows, total, page, page_size, fields } = data;
+    const tbody = document.getElementById('table-body');
+    const totalPages = Math.ceil(total / page_size) || 1;
+    document.getElementById('result-meta').textContent =
+        `共 ${total} 条，第 ${page} / ${totalPages} 页`;
+    tbody.innerHTML = '';
+    if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="${fields.length}" style="text-align:center;color:#999;">暂无数据</td></tr>`;
+    } else {
+        for (const row of rows) {
+            const tr = document.createElement('tr');
+            for (const f of fields) {
+                const td = document.createElement('td');
+                td.textContent = row[f] ?? '';
+                tr.appendChild(td);
+            }
+            tbody.appendChild(tr);
+        }
+    }
+    document.getElementById('table-wrap').style.display  = 'block';
+    document.getElementById('pagination').style.display  = 'flex';
+    document.getElementById('page-info').textContent     = `第 ${page} / ${totalPages} 页`;
+    document.getElementById('btn-prev').disabled = page <= 1;
+    document.getElementById('btn-next').disabled = page >= totalPages;
+}
+
+document.getElementById('btn-query').addEventListener('click',   () => doQuery(1));
+document.getElementById('btn-prev').addEventListener('click',    () => { if (currentPage > 1) doQuery(currentPage - 1); });
+document.getElementById('btn-next').addEventListener('click',    () => doQuery(currentPage + 1));
+
+document.getElementById('btn-reset-filter').addEventListener('click', () => {
+    ['f-start','f-end','f-platform','f-shop','f-courier','f-tracking','f-order','f-content']
+        .forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('result-meta').textContent = '';
+    document.getElementById('table-wrap').style.display = 'none';
+    document.getElementById('pagination').style.display = 'none';
+    document.getElementById('table-body').innerHTML = '';
+    hideMsg(document.getElementById('query-result-box'));
+});
+
+document.getElementById('btn-export').addEventListener('click', async () => {
+    const btnExp = document.getElementById('btn-export');
+    btnExp.disabled = true;
+    btnExp.textContent = '导出中…';
+    try {
+        const resp = await fetch('/courier_fee/export_shipments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify(collectFilters()),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            showMsg(document.getElementById('query-result-box'), err.message || '导出失败', false);
+            return;
+        }
+        await triggerDownload(resp, '底单记录导出.xlsx');
+    } catch (e) {
+        showMsg(document.getElementById('query-result-box'), '导出请求失败：' + e.message, false);
+    } finally {
+        btnExp.disabled = false;
+        btnExp.textContent = '导出当前筛选结果';
+    }
+});
+
+// ════════════════════════════════════════════
+// Tab 2：计费标准
+// ════════════════════════════════════════════
+
+const OP_OPTIONS = JSON.parse(document.getElementById('op-options-data')?.textContent || '{}');
+// OP_OPTIONS = { "gt": "大于(>)", "gte": "大于等于(>=)" }
+
+let pricingRules = JSON.parse(document.getElementById('pricing-rules-data')?.textContent || '[]');
+
+const pricingMsg   = document.getElementById('pricing-msg');
+const pricingTbody = document.getElementById('pricing-tbody');
+
+// 构建 select 选项 HTML
+function buildOpSelect(selectedVal) {
+    return Object.entries(OP_OPTIONS).map(([val, label]) =>
+        `<option value="${val}" ${val === selectedVal ? 'selected' : ''}>${label}</option>`
+    ).join('');
+}
+
+// 渲染计费规则表格
+function renderPricingTable(rules) {
+    pricingTbody.innerHTML = '';
+    if (!rules.length) {
+        pricingTbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#999;">暂无规则，点击"新增规则"添加</td></tr>';
+        return;
+    }
+    for (const rule of rules) {
+        const tr = document.createElement('tr');
+        tr.dataset.id = rule.id;
+        tr.innerHTML = `
+            <td>${esc(rule.carrier_name)}</td>
+            <td>${rule.base_weight}</td>
+            <td>${OP_OPTIONS[rule.base_weight_op] || rule.base_weight_op}</td>
+            <td>${rule.base_fee}</td>
+            <td>${rule.rate_jzshw}</td>
+            <td>${rule.rate_other}</td>
+            <td>${rule.weight_tolerance_pct != null ? Math.round(rule.weight_tolerance_pct * 100) + '%' : '20%'}</td>
+            <td>${esc(rule.effective_date)}</td>
+            <td>${rule.is_active
+                ? '<span class="tag-active">启用</span>'
+                : '<span class="tag-inactive">停用</span>'
+            }</td>
+            <td>${esc(rule.note || '')}</td>
+            <td>
+                <button class="btn btn-info btn-sm" onclick="editRule(${rule.id})">编辑</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteRule(${rule.id})" style="margin-left:4px;">删除</button>
+            </td>
+        `;
+        pricingTbody.appendChild(tr);
+    }
+}
+
+function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// 把某行切换为编辑模式
+function editRule(ruleId) {
+    const rule = pricingRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    const tr = pricingTbody.querySelector(`tr[data-id="${ruleId}"]`);
+    if (!tr) return;
+    tr.innerHTML = buildEditRow(rule);
+}
+
+// 新增规则（在表头插入一行空编辑行）
+document.getElementById('btn-add-rule').addEventListener('click', () => {
+    // 若已有新增行则不重复插入
+    if (pricingTbody.querySelector('tr[data-id="new"]')) return;
+    const tr = document.createElement('tr');
+    tr.dataset.id = 'new';
+    tr.innerHTML = buildEditRow({ id: null, carrier_name: '', base_weight: 1.2,
+        base_weight_op: 'gt', base_fee: '', rate_jzshw: '', rate_other: '',
+        weight_tolerance_pct: 0.20,
+        effective_date: '', is_active: 1, note: '' });
+    pricingTbody.insertBefore(tr, pricingTbody.firstChild);
+});
+
+function buildEditRow(rule) {
+    return `
+        <td><input class="rule-input" id="e-carrier" value="${esc(rule.carrier_name)}" placeholder="中通/韵达/申通" style="min-width:80px;"></td>
+        <td><input class="rule-input" id="e-bw"      value="${rule.base_weight}" type="number" step="0.01" min="0.01" style="min-width:70px;"></td>
+        <td>
+            <select class="rule-input" id="e-op" style="min-width:120px;">
+                ${buildOpSelect(rule.base_weight_op)}
+            </select>
+        </td>
+        <td><input class="rule-input" id="e-fee"    value="${rule.base_fee}"   type="number" step="0.01" min="0" style="min-width:70px;"></td>
+        <td><input class="rule-input" id="e-jzshw"  value="${rule.rate_jzshw}" type="number" step="0.01" min="0" style="min-width:70px;"></td>
+        <td><input class="rule-input" id="e-other"  value="${rule.rate_other}" type="number" step="0.01" min="0" style="min-width:70px;"></td>
+        <td><input class="rule-input" id="e-tol"    value="${rule.weight_tolerance_pct != null ? Math.round(rule.weight_tolerance_pct * 100) : 20}" type="number" step="1" min="0" max="200" style="min-width:70px;"></td>
+        <td><input class="rule-input" id="e-date"   value="${esc(rule.effective_date)}" type="date" style="min-width:130px;"></td>
+        <td>
+            <select class="rule-input" id="e-active" style="min-width:70px;">
+                <option value="1" ${rule.is_active ? 'selected' : ''}>启用</option>
+                <option value="0" ${!rule.is_active ? 'selected' : ''}>停用</option>
+            </select>
+        </td>
+        <td><input class="rule-input" id="e-note" value="${esc(rule.note || '')}" style="min-width:100px;"></td>
+        <td>
+            <button class="btn btn-primary btn-sm" onclick="saveRule(${rule.id || 'null'})">保存</button>
+            <button class="btn btn-dark btn-sm" onclick="cancelEdit(${rule.id || 'null'})" style="margin-left:4px;">取消</button>
+        </td>
+    `;
+}
+
+function cancelEdit(ruleId) {
+    if (!ruleId) {
+        // 新增行取消，直接移除
+        const tr = pricingTbody.querySelector('tr[data-id="new"]');
+        if (tr) tr.remove();
+    } else {
+        renderPricingTable(pricingRules);
+    }
+}
+
+async function saveRule(ruleId) {
+    const tr = ruleId
+        ? pricingTbody.querySelector(`tr[data-id="${ruleId}"]`)
+        : pricingTbody.querySelector('tr[data-id="new"]');
+    if (!tr) return;
+
+    const payload = {
+        id:             ruleId || null,
+        carrier_name:   tr.querySelector('#e-carrier').value.trim(),
+        base_weight:    parseFloat(tr.querySelector('#e-bw').value),
+        base_weight_op: tr.querySelector('#e-op').value,
+        base_fee:       parseFloat(tr.querySelector('#e-fee').value),
+        rate_jzshw:     parseFloat(tr.querySelector('#e-jzshw').value),
+        rate_other:     parseFloat(tr.querySelector('#e-other').value),
+        weight_tolerance_pct: (parseFloat(tr.querySelector('#e-tol').value) || 20) / 100,
+        effective_date: tr.querySelector('#e-date').value,
+        is_active:      parseInt(tr.querySelector('#e-active').value, 10),
+        note:           tr.querySelector('#e-note').value.trim(),
+    };
+
+    hideMsg(pricingMsg);
+    try {
+        const resp = await fetch('/courier_fee/pricing_rules/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!data.success) {
+            showMsg(pricingMsg, data.message || '保存失败', false);
+            return;
+        }
+        pricingRules = data.rules;
+        renderPricingTable(pricingRules);
+        showMsg(pricingMsg, '保存成功', true);
+    } catch (e) {
+        showMsg(pricingMsg, '请求失败：' + e.message, false);
+    }
+}
+
+async function deleteRule(ruleId) {
+    if (!confirm(`确认删除规则 id=${ruleId}？删除后不可恢复。`)) return;
+    hideMsg(pricingMsg);
+    try {
+        const resp = await fetch('/courier_fee/pricing_rules/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ id: ruleId }),
+        });
+        const data = await resp.json();
+        if (!data.success) {
+            showMsg(pricingMsg, data.message || '删除失败', false);
+            return;
+        }
+        pricingRules = data.rules;
+        renderPricingTable(pricingRules);
+        showMsg(pricingMsg, '已删除', true);
+    } catch (e) {
+        showMsg(pricingMsg, '请求失败：' + e.message, false);
+    }
+}
+
+// 初始渲染
+renderPricingTable(pricingRules);
+
+// ════════════════════════════════════════════
+// Tab 3：快递费账单
+// ════════════════════════════════════════════
+
+const BILL_MONTHS   = JSON.parse(document.getElementById('bill-months-data')?.textContent   || '[]');
+const BILL_HEADERS  = JSON.parse(document.getElementById('bill-headers-data')?.textContent  || '[]');
+const BILL_SORTABLE = JSON.parse(document.getElementById('bill-sortable-data')?.textContent || '{}');
+
+let currentYM       = '';   // 当前操作年月 (YYYYMM)
+let billFilter      = 'all';
+let billPage        = 1;
+let billSortCol     = 'bill_date';
+let billSortDir     = 'ASC';
+let pendingFile     = null; // 待确认的 File 对象（重复弹窗使用）
+let pendingCarrier  = '';
+let pendingYM       = '';
+
+// ── 初始化月份选择器 ──────────────────────────────
+function initBillYmSelect() {
+    const sel = document.getElementById('bill-ym-select');
+    sel.innerHTML = '<option value="">— 请选择 —</option>';
+    BILL_MONTHS.forEach(ym => {
+        const opt = document.createElement('option');
+        opt.value = ym;
+        opt.textContent = ymDisplay(ym);
+        sel.appendChild(opt);
+    });
+    if (BILL_MONTHS.length) {
+        sel.value = BILL_MONTHS[0];
+        setCurrentYM(BILL_MONTHS[0]);
+    }
+}
+
+function ymDisplay(ym) {
+    if (!ym || ym.length < 6) return ym;
+    return `${ym.slice(0,4)} 年 ${ym.slice(4,6)} 月`;
+}
+
+function refreshYmSelect(months) {
+    const sel = document.getElementById('bill-ym-select');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— 请选择 —</option>';
+    months.forEach(ym => {
+        const opt = document.createElement('option');
+        opt.value = ym;
+        opt.textContent = ymDisplay(ym);
+        sel.appendChild(opt);
+    });
+    // 保持当前选中
+    if (months.includes(cur)) sel.value = cur;
+    else if (currentYM && months.includes(currentYM)) sel.value = currentYM;
+    else if (months.length) sel.value = months[0];
+}
+
+function onYmChange() {
+    const v = document.getElementById('bill-ym-select').value;
+    if (v) setCurrentYM(v);
+}
+
+function applyYmFromInput() {
+    const v = document.getElementById('bill-ym-new').value;
+    if (!v) { alert('请选择月份'); return; }
+    const ym = v.replace('-', '');
+    setCurrentYM(ym);
+    // 同步下拉框（新月份不一定在列表里，先留着）
+    const sel = document.getElementById('bill-ym-select');
+    if ([...sel.options].every(o => o.value !== ym)) {
+        const opt = document.createElement('option');
+        opt.value = ym; opt.textContent = ymDisplay(ym);
+        sel.appendChild(opt);
+    }
+    sel.value = ym;
+}
+
+function setCurrentYM(ym) {
+    currentYM = ym;
+    document.getElementById('ym-tip').textContent = `当前：${ymDisplay(ym)}`;
+    loadBillFiles(ym);
+    refreshAnomalyCounts(ym);
+}
+
+// ── 文件列表 ──────────────────────────────────────
+async function loadBillFiles(ym) {
+    if (!ym) return;
+    try {
+        const resp = await fetch(`/courier_fee/bill_files?ym=${ym}`,
+            { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await resp.json();
+        if (data.success) renderFileList(data.files);
+    } catch(e) {}
+}
+
+function renderFileList(files) {
+    const tbody = document.getElementById('bill-file-tbody');
+    const wrap  = document.getElementById('bill-file-list-wrap');
+    if (!files.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    tbody.innerHTML = '';
+    const STATUS_LABELS = { uploaded:'已上传', verified:'已核查' };
+    files.forEach(f => {
+        const tr = document.createElement('tr');
+        tr.dataset.fid = f.id;
+        tr.innerHTML = `
+            <td><input type="checkbox" class="bill-cb file-cb" data-fid="${f.id}"></td>
+            <td style="text-align:left;">${esc(f.stored_filename)}</td>
+            <td>${esc(f.carrier_name)}</td>
+            <td style="text-align:center;">${f.file_seq}</td>
+            <td style="text-align:right;">${f.row_count.toLocaleString()}</td>
+            <td style="text-align:right;">${f.total_fee.toLocaleString('zh-CN',{minimumFractionDigits:2})}</td>
+            <td>${STATUS_LABELS[f.status] || f.status}</td>
+            <td style="font-size:12px;">${f.uploaded_at}</td>
+            <td class="actions">
+                <a class="btn btn-dark btn-sm"
+                   href="/courier_fee/bill_download_file/${f.id}">下载</a>
+                <button class="btn btn-danger btn-sm"
+                        onclick="deleteBillFile(${f.id})" style="margin-left:4px;">删除</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+    document.getElementById('cb-all-files').onchange = function() {
+        document.querySelectorAll('.file-cb').forEach(cb => cb.checked = this.checked);
+    };
+}
+
+async function deleteBillFile(fid) {
+    if (!confirm('确认删除此文件及其账单数据？')) return;
+    const resp = await fetch('/courier_fee/bill_delete_file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify({ file_id: fid, year_month: currentYM }),
+    });
+    const data = await resp.json();
+    if (data.success) { renderFileList(data.files); refreshAnomalyCounts(currentYM); }
+    else alert(data.message || '删除失败');
+}
+
+async function downloadRawZip() {
+    const ids = [...document.querySelectorAll('.file-cb:checked')].map(cb => parseInt(cb.dataset.fid));
+    if (!ids.length) { alert('请先勾选要下载的文件'); return; }
+    const btn = document.getElementById('btn-dl-raw-zip');
+    btn.disabled = true; btn.textContent = '生成中…';
+    try {
+        const resp = await fetch('/courier_fee/bill_download_raw_zip', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ file_ids: ids }),
+        });
+        if (!resp.ok) { alert('打包失败'); return; }
+        await triggerDownload(resp, '快递账单原始文件.zip');
+    } catch(e) { alert('请求失败：' + e.message); }
+    finally { btn.disabled = false; btn.textContent = '打包下载选中原始文件'; }
+}
+
+// ── 上传 ──────────────────────────────────────────
+const billFileInput = document.getElementById('bill-file-input');
+billFileInput.addEventListener('change', async () => {
+    if (!billFileInput.files.length) return;
+    const file    = billFileInput.files[0];
+    const carrier = document.getElementById('upload-carrier').value;
+    const ym      = currentYM || document.getElementById('bill-ym-new').value.replace('-','');
+    if (!ym) { alert('请先选择或输入年月'); billFileInput.value = ''; return; }
+    await doUpload(file, carrier, ym, '');
+    billFileInput.value = '';
+});
+
+async function doUpload(file, carrier, ym, action) {
+    const btn = document.getElementById('btn-bill-upload');
+    btn.disabled = true; btn.textContent = '上传中…';
+    hideMsg(document.getElementById('upload-result'));
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('carrier_name', carrier);
+    fd.append('year_month', ym);
+    fd.append('action', action);
+    try {
+        const resp = await fetch('/courier_fee/bill_upload', {
+            method: 'POST', body: fd,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        const data = await resp.json();
+        if (data.conflict) {
+            // 弹窗询问
+            pendingFile = file; pendingCarrier = carrier; pendingYM = ym;
+            document.getElementById('dup-modal-msg').textContent = data.message;
+            document.getElementById('btn-dup-add').textContent = `保存为第 ${data.next_seq} 份`;
+            document.getElementById('dup-modal').classList.add('show');
+        } else if (data.success) {
+            showMsg(document.getElementById('upload-result'), data.message, true);
+            if (data.files)  renderFileList(data.files);
+            if (data.months) refreshYmSelect(data.months);
+            if (!currentYM) setCurrentYM(ym);
+            refreshAnomalyCounts(ym);
+        } else {
+            showMsg(document.getElementById('upload-result'), data.message || '上传失败', false);
+        }
+    } catch(e) {
+        showMsg(document.getElementById('upload-result'), '请求失败：' + e.message, false);
+    } finally {
+        btn.disabled = false; btn.textContent = '选择文件并上传';
+    }
+}
+
+async function confirmUpload(action) {
+    // 先保存引用，再关弹窗（closeDupModal 会把 pendingFile 置 null）
+    const file    = pendingFile;
+    const carrier = pendingCarrier;
+    const ym      = pendingYM;
+    closeDupModal();
+    if (!file) return;
+    await doUpload(file, carrier, ym, action);
+}
+
+function closeDupModal() {
+    document.getElementById('dup-modal').classList.remove('show');
+    pendingFile = null;
+}
+
+// ── 计算 ──────────────────────────────────────────
+async function runCalc() {
+    if (!currentYM) { alert('请先选择年月'); return; }
+    const btn = document.getElementById('btn-run-calc');
+    btn.disabled = true; btn.textContent = '计算中…';
+    const res = document.getElementById('calc-result');
+    hideMsg(res);
+    try {
+        const resp = await fetch('/courier_fee/bill_run_calc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ year_month: currentYM }),
+        });
+        const data = await resp.json();
+        showMsg(res, data.message || (data.success ? '计算完成' : '计算失败'), data.success);
+        if (data.counts) updateCountBadges(data.counts);
+        if (data.success) doBillQuery(1);
+    } catch(e) { showMsg(res, '请求失败：' + e.message, false); }
+    finally { btn.disabled = false; btn.textContent = '运行计算'; }
+}
+
+// ── 异常计数 ─────────────────────────────────────
+async function refreshAnomalyCounts(ym) {
+    if (!ym) return;
+    try {
+        const resp = await fetch('/courier_fee/bill_anomaly_counts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ year_month: ym }),
+        });
+        const data = await resp.json();
+        if (data.success) updateCountBadges(data.counts);
+    } catch(e) {}
+}
+
+function updateCountBadges(c) {
+    document.getElementById('cnt-all').textContent      = c.total         ?? 0;
+    document.getElementById('cnt-price').textContent    = c.price_error   ?? 0;
+    document.getElementById('cnt-empty').textContent    = c.empty_content ?? 0;
+    document.getElementById('cnt-weight').textContent   = c.weight_error  ?? 0;
+    document.getElementById('cnt-verified').textContent = c.verified      ?? 0;
+}
+
+// ── 横表筛选 ─────────────────────────────────────
+function setBillFilter(ftype, btn) {
+    billFilter = ftype;
+    document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    doBillQuery(1);
+}
+
+// ── 横表表头（初始化一次） ────────────────────────
+function initBillTableHead() {
+    const thead = document.getElementById('bill-thead');
+    if (thead.innerHTML) return; // 已初始化
+    const tr = document.createElement('tr');
+    // checkbox 列
+    const thCb = document.createElement('th');
+    thCb.innerHTML = '<input type="checkbox" id="bill-cb-all" title="全选">';
+    tr.appendChild(thCb);
+    // 数据列
+    BILL_HEADERS.forEach(([field, label]) => {
+        const th = document.createElement('th');
+        const sortable = BILL_SORTABLE[field];
+        if (sortable) {
+            th.className = 'sortable';
+            th.dataset.col = field;
+            th.onclick = () => sortBillTable(field);
+        }
+        th.textContent = label;
+        tr.appendChild(th);
+    });
+    thead.appendChild(tr);
+    // 全选联动
+    document.getElementById('bill-cb-all').onchange = function() {
+        document.querySelectorAll('.bill-row-cb').forEach(cb => cb.checked = this.checked);
+    };
+}
+
+function sortBillTable(col) {
+    if (billSortCol === col) billSortDir = billSortDir === 'ASC' ? 'DESC' : 'ASC';
+    else { billSortCol = col; billSortDir = 'ASC'; }
+    // 更新列头样式
+    document.querySelectorAll('#bill-thead th.sortable').forEach(th => {
+        th.classList.remove('sort-asc','sort-desc');
+        if (th.dataset.col === billSortCol)
+            th.classList.add(billSortDir === 'ASC' ? 'sort-asc' : 'sort-desc');
+    });
+    doBillQuery(billPage);
+}
+
+// ── 横表查询 ─────────────────────────────────────
+async function doBillQuery(page) {
+    if (!currentYM) return;
+    billPage = page;
+    initBillTableHead();
+    const search = document.getElementById('bill-search').value;
+    const msgEl  = document.getElementById('bill-query-msg');
+    hideMsg(msgEl);
+    try {
+        const resp = await fetch('/courier_fee/bill_query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({
+                year_month:  currentYM,
+                filter_type: billFilter,
+                search:      search,
+                page:        page,
+                page_size:   100,
+                sort_col:    billSortCol,
+                sort_dir:    billSortDir,
+            }),
+        });
+        const data = await resp.json();
+        if (!data.success) { showMsg(msgEl, data.message || '查询失败', false); return; }
+        renderBillTable(data);
+    } catch(e) { showMsg(msgEl, '请求失败：' + e.message, false); }
+}
+
+function renderBillTable(data) {
+    const { rows, total, page, page_size, fields } = data;
+    const tbody      = document.getElementById('bill-tbody');
+    const totalPages = Math.ceil(total / page_size) || 1;
+
+    document.getElementById('bill-result-meta').textContent =
+        `共 ${total.toLocaleString()} 条，第 ${page} / ${totalPages} 页`;
+
+    tbody.innerHTML = '';
+    if (!rows.length) {
+        const colCount = BILL_HEADERS.length + 1;
+        tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align:center;color:#999;padding:20px;">暂无数据</td></tr>`;
+    } else {
+        for (const row of rows) {
+            const tr = document.createElement('tr');
+            // checkbox
+            const tdCb = document.createElement('td');
+            tdCb.innerHTML = `<input type="checkbox" class="bill-row-cb bill-cb" data-rid="${row.id}">`;
+            tr.appendChild(tdCb);
+            // 数据列
+            for (const [field] of BILL_HEADERS) {
+                const td = document.createElement('td');
+                const val = row[field];
+                if (field === 'check_result') {
+                    if (val === '不正确')    td.innerHTML = `<span class="tag-price-err">${esc(val)}</span>`;
+                    else if (val === '正确') td.innerHTML = `<span class="tag-ok">${esc(val)}</span>`;
+                    else td.textContent = val ?? '';
+                } else if (field === 'is_corrected') {
+                    td.innerHTML = val ? '<span class="tag-corrected">已修正</span>' : '';
+                } else if (field === 'fee_diff') {
+                    const num = parseFloat(val);
+                    td.textContent = val != null ? num.toFixed(2) : '';
+                    if (num > 0.001)  td.style.color = '#c00';
+                    if (num < -0.001) td.style.color = '#2e7d32';
+                } else if (['settle_weight','actual_fee','std_fee','est_max_fee',
+                             'min_weight','max_weight'].includes(field)) {
+                    td.textContent = val != null ? parseFloat(val).toFixed(2) : '';
+                } else {
+                    td.textContent = val ?? '';
+                }
+                tr.appendChild(td);
+            }
+            tbody.appendChild(tr);
+        }
+    }
+
+    document.getElementById('bill-table-wrap').style.display  = 'block';
+    document.getElementById('bill-pagination').style.display  = 'flex';
+    document.getElementById('bill-page-info').textContent     = `第 ${page} / ${totalPages} 页`;
+    document.getElementById('bill-btn-prev').disabled         = page <= 1;
+    document.getElementById('bill-btn-next').disabled         = page >= totalPages;
+}
+
+function toggleSelectAllBills() {
+    const cbs  = document.querySelectorAll('.bill-row-cb');
+    const allChecked = [...cbs].every(cb => cb.checked);
+    cbs.forEach(cb => cb.checked = !allChecked);
+}
+
+function getCheckedRowIds() {
+    return [...document.querySelectorAll('.bill-row-cb:checked')]
+        .map(cb => parseInt(cb.dataset.rid));
+}
+
+// ── OPT_07 ───────────────────────────────────────
+async function runOpt07() {
+    if (!currentYM) { alert('请先选择年月'); return; }
+    const okIds = getCheckedRowIds();
+    const res   = document.getElementById('ops-result');
+    const btn   = document.getElementById('btn-opt07');
+    btn.disabled = true; btn.textContent = 'OPT_07 执行中…';
+    hideMsg(res);
+    try {
+        const resp = await fetch('/courier_fee/bill_run_opt07', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ year_month: currentYM, ok_ids: okIds }),
+        });
+        const data = await resp.json();
+        showMsg(res, data.message || (data.success ? 'OPT_07 完成' : '失败'), data.success);
+        if (data.counts) updateCountBadges(data.counts);
+        if (data.success) doBillQuery(billPage);
+    } catch(e) { showMsg(res, '请求失败：' + e.message, false); }
+    finally { btn.disabled = false; btn.textContent = '运行 OPT_07（写回未勾选异常行）'; }
+}
+
+// ── 下载修正 ZIP ─────────────────────────────────
+async function downloadCorrectedZip() {
+    if (!currentYM) { alert('请先选择年月'); return; }
+    const btn = document.getElementById('btn-dl-corr');
+    btn.disabled = true; btn.textContent = '生成中…';
+    try {
+        const resp = await fetch('/courier_fee/bill_download_corrected_zip', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ year_month: currentYM }),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            showMsg(document.getElementById('ops-result'), err.message || '生成失败', false);
+            return;
+        }
+        await triggerDownload(resp, `快递账单修正_${currentYM}.zip`);
+    } catch(e) { showMsg(document.getElementById('ops-result'), '请求失败：' + e.message, false); }
+    finally { btn.disabled = false; btn.textContent = '下载修正文件（ZIP）'; }
+}
+
+// ── 正式入库 ─────────────────────────────────────
+async function saveVerified() {
+    if (!currentYM) { alert('请先选择年月'); return; }
+    if (!confirm(`确认将 ${ymDisplay(currentYM)} 所有未核查数据标记为已核查并正式入库？`)) return;
+    const res = document.getElementById('ops-result');
+    const btn = document.getElementById('btn-save-vf');
+    btn.disabled = true; btn.textContent = '入库中…';
+    hideMsg(res);
+    try {
+        const resp = await fetch('/courier_fee/bill_save_verified', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ year_month: currentYM }),
+        });
+        const data = await resp.json();
+        showMsg(res, data.message || (data.success ? '入库完成' : '失败'), data.success);
+        if (data.success) { refreshAnomalyCounts(currentYM); loadBillFiles(currentYM); doBillQuery(1); }
+    } catch(e) { showMsg(res, '请求失败：' + e.message, false); }
+    finally { btn.disabled = false; btn.textContent = '✓ 正式入库（标记已核查）'; }
+}
+
+// ── 丢弃未核查 ────────────────────────────────────
+async function discardUnverified() {
+    if (!currentYM) { alert('请先选择年月'); return; }
+    if (!confirm(`确认丢弃 ${ymDisplay(currentYM)} 所有未核查数据？此操作不可恢复！`)) return;
+    const res = document.getElementById('ops-result');
+    const btn = document.getElementById('btn-discard');
+    btn.disabled = true; btn.textContent = '处理中…';
+    hideMsg(res);
+    try {
+        const resp = await fetch('/courier_fee/bill_discard_unverified', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ year_month: currentYM }),
+        });
+        const data = await resp.json();
+        showMsg(res, data.message || (data.success ? '已丢弃' : '失败'), data.success);
+        if (data.months) refreshYmSelect(data.months);
+        if (data.success) {
+            renderFileList([]);
+            document.getElementById('bill-table-wrap').style.display = 'none';
+            document.getElementById('bill-pagination').style.display = 'none';
+            document.getElementById('bill-result-meta').textContent  = '';
+            document.getElementById('bill-tbody').innerHTML = '';
+            updateCountBadges({ total: 0, price_error: 0, empty_content: 0, weight_error: 0, verified: 0 });
+        }
+    } catch(e) { showMsg(res, '请求失败：' + e.message, false); }
+    finally { btn.disabled = false; btn.textContent = '× 丢弃本月未核查数据'; }
+}
+
+// ── 初始化 ────────────────────────────────────────
+initBillYmSelect();
+</script>
+</body>
+</html>

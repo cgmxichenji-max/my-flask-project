@@ -595,246 +595,12 @@
 // ══════════════════════════════════
 //  包装推荐 — 数据（服务端注入）
 // ══════════════════════════════════
-const GOODS_SIZES = {
-{% for s in sizes %}    {{ s.code|tojson }}:{d:[{{ s.length }},{{ s.width }},{{ s.height }}],ir:{{ s.is_irregular }}},
-{% endfor %}};
+//  包装推荐 — 调用后端唯一算法源 /label_print/api/recommend
+//  箱型/气泡袋推荐与预估重量逻辑只在 label_print/pack_recommend.py 维护，
+//  本前端不再内置算法，避免两份实现不一致。
+// ══════════════════════════════════
 
-const RAW_PACK = [
-{% for ps in packing_sizes %}    {n:{{ ps.pack_name|tojson }},s:{{ ps.size|tojson }}},
-{% endfor %}];
-
-const PACK_SETTINGS_JS = {
-{% for s in pack_settings %}    {{ s.key|tojson }}:{{ s.value|tojson }},
-{% endfor %}};
-
-const PACK_PRESETS_JS = {
-{% for p in pack_presets %}    {{ p.combo_key|tojson }}:{box:{{ p.box_name|tojson }},bag:{{ p.bag_name|tojson }},bagQty:{{ p.bag_qty or 0 }},note:{{ p.note|tojson }}},
-{% endfor %}};
-
-const WAREHOUSE_BOX_SAMPLES = {
-    "140×1+702×2":"8",
-    "702×2":"7.5",
-    "155×1":"11",
-    "155×2":"10",
-    "155×3":"8",
-    "139×1":"11",
-    "139×2":"11",
-    "140×3":"7.5",
-    "A113×6":"11",
-    "A160×1":"10.5",
-    "140×1+184×1":"7.5",
-    "139×1+140×1":"11",
-    "164×2+165×1":"6",
-    "163×1":"11",
-    "164×1+184×1":"6.5",
-    "112×1":"6.5",
-    "A113×2":"11.5"
-};
-const INTEGER_BOX_PREFERENCE = ["11","10"];
-const INTEGER_BOX_VOLUME_LIMIT = 1.4;
-
-const GOODS_WEIGHTS = {
-{% for w in weights %}    {{ w.code|tojson }}:{{ w.weight }},
-{% endfor %}};
-
-const PACK_WEIGHTS = {
-{% for pw in packing_weights %}    {{ pw.pack_name|tojson }}:{{ pw.weight }},
-{% endfor %}};
-
-// 各包材最新库存快照：{pack_name: qty}，无记录的包材视为有货
-const PACK_STOCK_JS = {{ pack_stock|tojson }};
-
-// 解析尺寸字符串 "290×170×190" → [290,170,190]
-function parseDims(s){return(s||'').split('×').map(Number).filter(n=>n>0&&!isNaN(n));}
-
-// 准备箱型列表（3段）和气泡袋列表（2段），均按体积/面积升序
-// 库存快照中 qty<=0 的包材跳过（无快照记录的视为有货，不影响）
-const BOXES=[],BAGS=[];
-RAW_PACK.forEach(p=>{
-    const d=parseDims(p.s);p.dims=d;
-    if(PACK_STOCK_JS.hasOwnProperty(p.n)&&PACK_STOCK_JS[p.n]<=0)return;
-    if(d.length===3)BOXES.push(p);else if(d.length===2)BAGS.push(p);
-});
-BOXES.sort((a,b)=>a.dims[0]*a.dims[1]*a.dims[2]-b.dims[0]*b.dims[1]*b.dims[2]);
-BAGS.sort((a,b)=>a.dims[0]*a.dims[1]-b.dims[0]*b.dims[1]);
-
-// 6种摆放朝向
-function rots(d){const[l,w,h]=d;return[[l,w,h],[l,h,w],[w,l,h],[w,h,l],[h,l,w],[h,w,l]];}
-
-// 单品在箱中的最大容量（枚举6朝向）
-function boxCap(box,item,buf){
-    const[BL,BW,BH]=box;let best=0;
-    for(const[l,w,h]of rots(item)){
-        // 容量计算只用货物实物尺寸：buffer 是外部安全余量，不应在同品堆叠时重复加到每一件上。
-        const c=Math.floor(BL/l)*Math.floor(BW/w)*Math.floor(BH/h);
-        if(c>best)best=c;
-    }return best;
-}
-
-// 货物能否以任意朝向放入箱中
-function fitsBox(box,item,buf){
-    const[BL,BW,BH]=box;
-    for(const[l,w,h]of rots(item)){if(l+buf<=BL&&w+buf<=BW&&h+buf<=BH)return true;}
-    return false;
-}
-
-function boxIndexByName(name){
-    return BOXES.findIndex(box=>box.n===name);
-}
-
-function boxByName(name){
-    return BOXES.find(box=>box.n===name)||null;
-}
-
-function boxVolume(box){
-    return box ? box.dims[0]*box.dims[1]*box.dims[2] : Infinity;
-}
-
-function effectiveBoxItem(item,irrFac){
-    if(!item.ir||item.qty<=1)return{dims:item.dims,qty:item.qty,volume:item.dims[0]*item.dims[1]*item.dims[2]*item.qty};
-    const sorted=item.dims.slice().sort((a,b)=>b-a);
-    const long=sorted[0], mid=sorted[1], high=sorted[2];
-    const step=Math.max(5,Math.ceil(high*(irrFac-1)));
-    const stackedHigh=high+step*(item.qty-1);
-    const compactDims=[long,mid,stackedHigh];
-    const rawVol=item.dims[0]*item.dims[1]*item.dims[2]*item.qty;
-    const compactVol=long*mid*stackedHigh;
-    return{dims:compactDims,qty:1,volume:Math.max(rawVol*0.55,compactVol)};
-}
-
-function singleItemBoxIndex(item,buf,irrFac){
-    const eff=effectiveBoxItem(item,irrFac);
-    return BOXES.findIndex(box=>boxCap(box.dims,eff.dims,buf)>=eff.qty);
-}
-
-function singleUnitBoxIndex(item,buf,irrFac){
-    const singleKey=`${item.code}×1`;
-    const preset=PACK_PRESETS_JS[singleKey];
-    const knownBox=(preset&&preset.box)||WAREHOUSE_BOX_SAMPLES[singleKey]||null;
-    if(knownBox){
-        const knownIndex=boxIndexByName(knownBox);
-        if(knownIndex>=0)return knownIndex;
-    }
-    return singleItemBoxIndex({...item,qty:1},buf,irrFac);
-}
-
-function canUseBoxForItems(box,items,buf,fillRate,irrFac){
-    if(!box||!items.length)return false;
-    let totalVol=0;
-    for(const item of items){
-        const eff=effectiveBoxItem(item,irrFac);
-        if(boxCap(box.dims,eff.dims,buf)<eff.qty)return false;
-        totalVol+=eff.volume;
-    }
-    return items.length===1 || totalVol<=boxVolume(box)*fillRate;
-}
-
-function preferIntegerBox(recBox,items,buf,fillRate,irrFac){
-    if(!recBox||recBox==='无匹配'||!String(recBox).includes('.'))return recBox;
-    const current=boxByName(recBox);
-    if(!current)return recBox;
-    const maxVolume=boxVolume(current)*INTEGER_BOX_VOLUME_LIMIT;
-    for(const name of INTEGER_BOX_PREFERENCE){
-        const candidate=boxByName(name);
-        if(candidate&&boxVolume(candidate)<=maxVolume&&canUseBoxForItems(candidate,items,buf,fillRate,irrFac)){
-            return name;
-        }
-    }
-    return recBox;
-}
-
-function enforceSingleUnitFloor(recBox,items,buf,irrFac){
-    const recIndex=boxIndexByName(recBox);
-    if(recIndex<0)return{box:recBox,changed:false};
-    const minIndex=Math.max(...items.map(item=>item.qty>1?singleUnitBoxIndex(item,buf,irrFac):-1));
-    if(minIndex>=0&&recIndex<minIndex)return{box:BOXES[minIndex].n,changed:true};
-    return{box:recBox,changed:false};
-}
-
-// 气泡袋适配判断（信封型）：
-//   BW=袋短边（开口，限制插入深度）, BL=袋长边（截面展开方向）
-//   枚举3种插入方向：条件：截面周长 2*(a+b) ≤ BL×ratio  且  插入深度+缓冲 ≤ BW
-//   ratio 可 >1.0（允许袋子轻微撑开）；取满足条件的最小袋型
-function fitsBag(bag,item,buf,ratio){
-    const[BW,BL]=bag;const[l,w,h]=item;
-    return(2*(w+h)<=BL*ratio&&l+buf<=BW)||(2*(l+h)<=BL*ratio&&w+buf<=BW)||(2*(l+w)<=BL*ratio&&h+buf<=BW);
-}
-
-function formatBagName(name,qty){
-    if(!name)return null;
-    const q=parseInt(qty)||1;
-    return `${name}×${q}`;
-}
-
-function bagRole(bag){
-    if((bag.n||'').includes('小'))return'small';
-    if((bag.n||'').includes('中'))return'medium';
-    if((bag.n||'').includes('大'))return'large';
-    return'';
-}
-
-function findBagByRole(role){
-    return BAGS.find(b=>bagRole(b)===role)||null;
-}
-
-function bagPseudoVolume(bag,ratio){
-    const[BW,BL]=bag.dims;
-    const side=(BL*ratio)/4;
-    return side*side*BW;
-}
-
-function bagCapacityPiecesByVolume(bag,dims,ratio,fillRate){
-    const itemVol=dims[0]*dims[1]*dims[2];
-    if(itemVol<=0)return 0;
-    return Math.max(1,Math.floor((bagPseudoVolume(bag,ratio)*fillRate)/itemVol));
-}
-
-function requiredBagCountByVolume(bag,items,ratio,fillRate,irrFac){
-    let count=1;
-    for(const{dims,qty,ir}of items){
-        const cap=bagCapacityPiecesByVolume(bag,dims,ratio,fillRate)/(ir?irrFac:1);
-        if(cap<=0)return Infinity;
-        count=Math.max(count,Math.ceil(qty/cap));
-    }
-    const totalVol=items.reduce((s,{dims,qty,ir})=>s+dims[0]*dims[1]*dims[2]*qty*(ir?irrFac:1),0);
-    count=Math.max(count,Math.ceil(totalVol/(bagPseudoVolume(bag,ratio)*fillRate)));
-    return count;
-}
-
-function canUseBagCount(bag,items,buf,ratio,fillRate,irrFac,count){
-    if(!bag||!items.length)return false;
-    for(const{dims,qty,ir}of items){
-        if(!fitsBag(bag.dims,dims,buf,ratio))return false;
-    }
-    return requiredBagCountByVolume(bag,items,ratio,fillRate,irrFac)<=count;
-}
-
-function recommendBags(items,buf,ratio,fillRate,irrFac){
-    const bagItems=items.filter(i=>!['164','165'].includes(String(i.code).toUpperCase()));
-    if(!bagItems.length)return null;
-    const small=findBagByRole('small');
-    const medium=findBagByRole('medium');
-    const large=findBagByRole('large');
-    const oneBagSeq=[small,medium,large].filter(Boolean);
-    for(const bag of oneBagSeq){
-        if(canUseBagCount(bag,bagItems,buf,ratio,fillRate,irrFac,1))return formatBagName(bag.n,1);
-    }
-    for(let count=2;count<=20;count++){
-        for(const bag of [medium,large].filter(Boolean)){
-            if(canUseBagCount(bag,bagItems,buf,ratio,fillRate,irrFac,count))return formatBagName(bag.n,count);
-        }
-    }
-    return null;
-}
-
-// 构建组合编号（按货物编号字典序排序）
-function buildComboKey(rows){
-    return rows.filter(r=>r.code&&r.qty>0)
-               .sort((a,b)=>a.code.localeCompare(b.code))
-               .map(r=>`${r.code}×${r.qty}`)
-               .join('+');
-}
-
+// 整理输入行：编码归一 + 合并同码 + 按编码排序
 function normalizePackRows(rawRows){
     const byCode={};
     rawRows.forEach(r=>{
@@ -844,31 +610,6 @@ function normalizePackRows(rawRows){
         byCode[code]=(byCode[code]||0)+r.qty;
     });
     return Object.keys(byCode).sort((a,b)=>a.localeCompare(b)).map(code=>({code,qty:byCode[code]}));
-}
-
-function goodsSizeForCode(code){
-    if(GOODS_SIZES[code])return GOODS_SIZES[code];
-    const key=Object.keys(GOODS_SIZES).find(k=>k.toLowerCase()===String(code).toLowerCase());
-    return key?GOODS_SIZES[key]:null;
-}
-
-function goodsWeightForCode(code){
-    if(GOODS_WEIGHTS.hasOwnProperty(code))return Number(GOODS_WEIGHTS[code])||0;
-    const key=Object.keys(GOODS_WEIGHTS).find(k=>k.toLowerCase()===String(code).toLowerCase());
-    return key ? (Number(GOODS_WEIGHTS[key])||0) : null;
-}
-
-function packWeightForName(name){
-    if(!name)return null;
-    if(PACK_WEIGHTS.hasOwnProperty(name))return Number(PACK_WEIGHTS[name])||0;
-    const key=Object.keys(PACK_WEIGHTS).find(k=>k.toLowerCase()===String(name).toLowerCase());
-    return key ? (Number(PACK_WEIGHTS[key])||0) : null;
-}
-
-function parseBagText(text){
-    const m=String(text||'').match(/^(.+)×(\d+)$/);
-    if(m)return{name:m[1],qty:parseInt(m[2])||1};
-    return text?{name:String(text),qty:1}:null;
 }
 
 function fmtKg(value){
@@ -885,140 +626,62 @@ function getCurrentPackRows(){
     return normalizePackRows(rawRows);
 }
 
-function computeEstimatedWeight(rec){
-    const rows=getCurrentPackRows();
-    if(!rows.length)return null;
-    const missing=[];
-    let goodsWeight=0;
-    rows.forEach(row=>{
-        const wt=goodsWeightForCode(row.code);
-        if(wt===null)missing.push(`货物${row.code}`);
-        else goodsWeight+=wt*row.qty;
-    });
+// 最近一次后端推荐结果（供打印使用）
+// {box,bag,bagText,bagQty,comboKey,estimatable,estimatedWeight,detail}
+let _lastRec=null;
+let _recReqSeq=0;
+let _recTimer=null;
 
-    let boxWeight=0;
-    if(rec&&rec.box&&rec.box!=='无匹配'&&!String(rec.box).startsWith('不预览')){
-        const wt=packWeightForName(rec.box);
-        if(wt===null)missing.push(`箱型${rec.box}`);
-        else boxWeight=wt;
-    }
-
-    let bagWeight=0;
-    const bag=parseBagText(rec&&rec.bag);
-    if(bag){
-        const wt=packWeightForName(bag.name);
-        if(wt===null)missing.push(`气泡袋${bag.name}`);
-        else bagWeight=wt*bag.qty;
-    }
-
-    return{total:goodsWeight+boxWeight+bagWeight,goodsWeight,boxWeight,bagWeight,missing};
-}
-
-function updateWeightDisplay(rec){
-    const el=document.getElementById('weight-display');
-    if(!el)return;
-    const estimate=computeEstimatedWeight(rec);
-    if(!estimate){
-        el.style.display='none';
-        el.innerHTML='';
-        return;
-    }
-    el.style.display='';
-    let html=`预估重量：<strong class="weight-total">${fmtKg(estimate.total)} kg</strong>`;
-    html+=`（货物 ${fmtKg(estimate.goodsWeight)} kg`;
-    html+=` + 箱型 ${fmtKg(estimate.boxWeight)} kg`;
-    html+=` + 气泡袋 ${fmtKg(estimate.bagWeight)} kg）`;
-    if(estimate.missing.length)html+=`<span class="weight-missing">缺少重量：${esc(estimate.missing.join('、'))}</span>`;
-    el.innerHTML=html;
-}
-
-// 主推荐函数
-function computeRecommendation(){
-    const rows=getCurrentPackRows();
-    if(!rows.length)return null;
-
-    const comboKey=buildComboKey(rows);
-    // 1. 预设优先
-    const preset=PACK_PRESETS_JS[comboKey];
-    if(preset)return{box:preset.box||null,bag:formatBagName(preset.bag,preset.bagQty),comboKey};
-    const warehouseBox=WAREHOUSE_BOX_SAMPLES[comboKey]||null;
-
-    // 读参数
-    const buf      =parseFloat(PACK_SETTINGS_JS.buffer_mm)||0;
-    const fillM    =parseFloat(PACK_SETTINGS_JS.fill_rate_multi)||0.75;
-    const irrFac   =parseFloat(PACK_SETTINGS_JS.irregular_factor)||1.15;
-    const cplxThr  =parseInt(PACK_SETTINGS_JS.complex_threshold)||10;
-    const bagRatio =parseFloat(PACK_SETTINGS_JS.bag_girth_ratio)||1.05;
-
-    // 取有尺寸数据的货物
-    const items=rows.map(r=>{const g=goodsSizeForCode(r.code);return g?{code:r.code,qty:r.qty,dims:g.d,ir:g.ir}:null;}).filter(Boolean);
-    if(!items.length)return{box:null,bag:null,comboKey};
-
-    // 2. 超阈值不预览
-    if(items.length>cplxThr)return{box:`不预览（${items.length}种 > 阈值${cplxThr}）`,bag:null,comboKey};
-
-    // 找最大单件（用于箱型约束）
-    let largestItem=null,largestVol=0;
-    for(const{dims}of items){const v=dims[0]*dims[1]*dims[2];if(v>largestVol){largestVol=v;largestItem=dims;}}
-
-    let recBox=null;
-    if(items.length===1){
-        // 3a. 单品精确计算
-        const eff=effectiveBoxItem(items[0],irrFac);
-        for(const box of BOXES){if(boxCap(box.dims,eff.dims,buf)>=eff.qty){recBox=box.n;break;}}
-    }else{
-        // 3b. 多品体积估算。每种货物按自身件数也必须能装进候选箱，
-        // 避免从单品转混装后反而推荐更小箱型。
-        let totalVol=0;
-        for(const item of items)totalVol+=effectiveBoxItem(item,irrFac).volume;
-        // 多件同品不能比该商品单件推荐箱型更小，避免 A160×1 命中 10.5、A160×2 反而掉到 11.5。
-        const minBoxIndex=Math.max(...items.map(item=>Math.max(
-            singleItemBoxIndex(item,buf,irrFac),
-            item.qty>1?singleUnitBoxIndex(item,buf,irrFac):-1
-        )));
-        for(const box of BOXES){
-            const boxIndex=boxIndexByName(box.n);
-            if(minBoxIndex>=0&&boxIndex<minBoxIndex)continue;
-            const vol=box.dims[0]*box.dims[1]*box.dims[2];
-            const itemCapsOk=items.every(item=>{
-                const eff=effectiveBoxItem(item,irrFac);
-                return boxCap(box.dims,eff.dims,buf)>=eff.qty;
-            });
-            if(itemCapsOk&&fitsBox(box.dims,largestItem,buf)&&totalVol<=vol*fillM){recBox=box.n;break;}
+function renderRecommendation(rec){
+    const el=document.getElementById('rec-display');
+    if(el){
+        if(!rec){
+            el.innerHTML='<span style="color:#aaa;font-size:12px">输入货物编号和件数后显示推荐包装</span>';
+        }else{
+            let html='';
+            if(rec.box)html+=` 推荐箱型：<strong class="rec-box">${esc(rec.box)}</strong>`;
+            if(rec.bagText)html+=`　气泡袋：<strong class="rec-bag">${esc(rec.bagText)}</strong>`;
+            if(rec.comboKey)html+=`　<span class="rec-key" onclick="(function(k){navigator.clipboard?navigator.clipboard.writeText(k).then(()=>alert('已复制：'+k)):prompt('请复制组合编号：',k)})(${JSON.stringify(rec.comboKey)})" title="点击复制，可粘贴到预设规则Tab的组合编号中">[${esc(rec.comboKey)}]</span>`;
+            el.innerHTML=html;
         }
     }
-    if(!recBox)recBox='无匹配';
-    if(warehouseBox)recBox=warehouseBox;
-    else{
-        const floorResult=enforceSingleUnitFloor(recBox,items,buf,irrFac);
-        recBox=floorResult.box;
-        if(!floorResult.changed)recBox=preferIntegerBox(recBox,items,buf,fillM,irrFac);
+    const wel=document.getElementById('weight-display');
+    if(wel){
+        if(rec&&rec.estimatable&&rec.detail){
+            const d=rec.detail;
+            let html=`预估重量：<strong class="weight-total">${fmtKg(rec.estimatedWeight)} kg</strong>`;
+            html+=`（货物 ${fmtKg(d.goods_w||0)} kg`;
+            html+=` + 箱型 ${fmtKg(d.box_w||0)} kg`;
+            html+=` + 气泡袋 ${fmtKg(d.bag_w||0)} kg）`;
+            wel.style.display='';
+            wel.innerHTML=html;
+        }else if(rec&&rec.detail&&rec.detail.missing&&rec.detail.missing.length){
+            wel.style.display='';
+            wel.innerHTML=`预估重量：<span style="color:#c00">无法预估（缺少：${esc(rec.detail.missing.join('、'))}）</span>`;
+        }else{
+            wel.style.display='none';
+            wel.innerHTML='';
+        }
     }
-
-    // 4. 气泡袋推荐
-    const recBag=recommendBags(items,buf,bagRatio,fillM,irrFac);
-
-    return{box:recBox,bag:recBag,comboKey};
 }
 
-let _lastRec=null;
-
+// 请求后端推荐（防抖 200ms + 顺序保护，丢弃过期响应）
 function updateRecommendation(){
-    const rec=computeRecommendation();
-    _lastRec=rec;
-    const el=document.getElementById('rec-display');
-    if(!el)return;
-    if(!rec){
-        el.innerHTML='<span style="color:#aaa;font-size:12px">输入货物编号和件数后显示推荐包装</span>';
-        updateWeightDisplay(null);
-        return;
-    }
-    let html='';
-    if(rec.box)html+=` 推荐箱型：<strong class="rec-box">${esc(rec.box)}</strong>`;
-    if(rec.bag)html+=`　气泡袋：<strong class="rec-bag">${esc(rec.bag)}</strong>`;
-    if(rec.comboKey)html+=`　<span class="rec-key" onclick="(function(k){navigator.clipboard?navigator.clipboard.writeText(k).then(()=>alert('已复制：'+k)):prompt('请复制组合编号：',k)})(${JSON.stringify(rec.comboKey)})" title="点击复制，可粘贴到预设规则Tab的组合编号中">[${esc(rec.comboKey)}]</span>`;
-    el.innerHTML=html;
-    updateWeightDisplay(rec);
+    const rows=getCurrentPackRows();
+    if(!rows.length){ _lastRec=null; renderRecommendation(null); return; }
+    if(_recTimer)clearTimeout(_recTimer);
+    _recTimer=setTimeout(()=>{
+        const seq=++_recReqSeq;
+        fetch('/label_print/api/recommend',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({rows})
+        }).then(r=>r.json()).then(rec=>{
+            if(seq!==_recReqSeq)return;
+            _lastRec=rec;
+            renderRecommendation(rec);
+        }).catch(()=>{});
+    },200);
 }
 
 // ══════════════════════════════════
@@ -1532,18 +1195,19 @@ function doPrint() {
             <span class="pcs">*${r.pcs}</span>
             ${r.boxStr ? `<span class="bx">${esc(r.boxStr)}</span>` : ''}
         </div>`).join('');
-    // 推荐包装行（打印底部）
+    // 推荐包装行（打印底部）——使用后端返回并缓存的 _lastRec
     let recLine='';
-    if(_lastRec&&(_lastRec.box||_lastRec.bag)){
+    if(_lastRec&&(_lastRec.box||_lastRec.bagText)){
         const parts=[];
         if(_lastRec.box&&_lastRec.box!=='无匹配')parts.push('箱型：'+esc(_lastRec.box));
-        if(_lastRec.bag)parts.push('气泡袋：'+esc(_lastRec.bag));
+        if(_lastRec.bagText)parts.push('气泡袋：'+esc(_lastRec.bagText));
         if(parts.length)recLine=`<div class="rec">推荐包装：${parts.join('　')}</div>`;
     }
-    const weightEstimate = computeEstimatedWeight(_lastRec);
-    const weightLine = weightEstimate
-        ? `<span class="weight">预估重量：${fmtKg(weightEstimate.total)} kg${weightEstimate.missing.length ? `（缺少：${esc(weightEstimate.missing.join('、'))}）` : ''}</span>`
-        : '';
+    const weightLine = (_lastRec&&_lastRec.estimatable)
+        ? `<span class="weight">预估重量：${fmtKg(_lastRec.estimatedWeight)} kg</span>`
+        : ((_lastRec&&_lastRec.detail&&_lastRec.detail.missing&&_lastRec.detail.missing.length)
+            ? `<span class="weight">预估重量：无法预估（缺少：${esc(_lastRec.detail.missing.join('、'))}）</span>`
+            : '');
     const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>页头</title>
 <style>@page{size:76mm 130mm;margin:0}html,body{margin:0;padding:0;background:#fff;font-family:"Microsoft YaHei",Arial,sans-serif}
 .wrap{width:76mm;padding:14mm 5mm 5mm}.item-row{display:flex;align-items:baseline;gap:3mm;margin-bottom:4mm;flex-wrap:wrap}

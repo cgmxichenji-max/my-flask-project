@@ -1,3 +1,11 @@
+## [2026-06-08 20:46] 修改记录
+- 修改内容：新建快递费计算模块（courier_fee），完成第一阶段——底单记录导入功能。包含：新建 courier_fee Blueprint（__init__.py / routes.py / services.py / table_schemas.py）；新建 templates/courier_fee.html；注册蓝图至 app.py；首页 index.html 增加"快递费计算"入口按钮（受权限控制）。功能包括：底单记录多文件 Excel 上传导入（去重键：tracking_no；发货时间无效行自动跳过）、分页查询、多条件筛选、全字段导出为 Excel。
+- 修改文件：courier_fee/__init__.py（新增）、courier_fee/table_schemas.py（新增）、courier_fee/services.py（新增）、courier_fee/routes.py（新增）、templates/courier_fee.html（新增）、app.py（新增 import + register_blueprint）、templates/index.html（新增菜单入口）
+- 修改原因：按用户需求迁移 VBA 快递费计算功能到 Flask 项目，第一阶段先完成底单记录独立导入模块
+- 影响范围：新增模块，不影响任何已有模块；数据存储在 courier_fee_shipments 表和 courier_fee_import_status 表
+- 是否涉及数据库：是（新增表 courier_fee_shipments、courier_fee_import_status）
+- 是否需要回滚：否（新增，不影响原有功能）
+
 ## [2026-06-07 16:50] 修改记录
 - 修改内容：修正抖音店铺佣金汇总导出 ZIP 中“应开金额导入”文件的金额生成规则。应开金额不再按佣金汇总净额直接取相反数，而是导出佣金汇总净额的绝对值；正常已结算负佣金和结算后退款/保证金退款等正佣金都会在应开金额导入文件中显示为正值。佣金汇总表和明细导出仍保留原始正负口径。
 - 修改文件：douyin_shop_common/services.py；PROJECT_MEMORY.md
@@ -1400,3 +1408,28 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：GitHub `main`、西班牙服务器代码和运行进程；数据库仅只读比对，不写入、不覆盖。比对结论显示服务器招商表与当前导入文件一致，本地库额外 321 条疑似来自旧版或其他招商文件。
 - 是否涉及数据库：是（只读查询本地与服务器 SQLite 数据库，不写库）
 - 是否需要回滚：是（代码可回退到 `7589454` 并重启；数据库未修改无需回滚）
+
+## [2026-06-09 21:22] 修改记录
+- 修改内容：快递费模块（Tab3 快递账单）核对逻辑大修 + 重量预估算法后端单一源化。具体：
+  1. 发货内容解析 OPT_04：移植 VBA `SPX_PC_ParseShipText`，新增 `ship_content_key`（排序聚合Key，如 `113B*2;140*1`），修复 `[n]` 拍下数乘数、组合段(含「组合」)解析；
+  2. 重量核查 OPT_05 重做：废弃固定 0.03/0.22 包材常量与百分比范围估算，改为「按页头打印逻辑实际匹配箱型+气泡袋，货物+包装预估整件重量」，结算重量 ≤ 预估×(1+允差%) 记「是」，算不出重量则假设对方正确；
+  3. 真·重量异常过滤（对齐 VBA `OPT_ShouldExportWeightErr`）：仅「否」且「实收 > 起步费」才计为重量异常（只收起步费的不与快递较真）。202605 实测重量异常 9081→5；
+  4. 价格核对 OPT_03 增「最低收费忽略」(实收≈起步费)；重量异常行不再误判为价格异常；
+  5. 计费规则新增可配置 `weight_tolerance_pct`（重量允差%，默认20%），计费标准页可编辑；
+  6. 底单导入修复：发货时间非日期（退货/占号「已占用单号但未发货」「已回收面单」）不再整行丢弃，有单号/订单号即保留（发货时间留空），空白异常 13→1（需重新导入底单生效）；
+  7. 修正文件下载改 openpyxl：修正行黄色填充 + 「修正说明」列 + 文件名含修正后总金额 + 仅导出当前未核查批次文件；
+  8. 箱型推荐库存过滤 bug 修复：停用包材（库存=0，如箱9）不再被推荐，与页头打印一致；
+  9. 横表展示列新增 发货内容排序Key/预估重量/允差上限，结算重量与预估并排。
+- 修改文件：
+  - 新增 `label_print/pack_recommend.py`（包装推荐+预估重量唯一算法源，PackRecommender）
+  - `label_print/routes.py`（新增 `POST /label_print/api/recommend` 接口）
+  - `templates/label_print.html`（删除约340行重复JS算法，改为防抖200ms请求后端；打印预估重量改用后端结果）
+  - `courier_fee/weight_estimate.py`（瘦身为从 pack_recommend 导入 PackRecommender，保留 ship_key 解析）
+  - `courier_fee/bill_services.py`（OPT_02/03/04/05 全流程、generate_corrected_zip、_ensure_bill_tables 迁移）
+  - `courier_fee/services.py`（底单导入保留非日期行；计费规则表加 weight_tolerance_pct）
+  - `courier_fee/table_schemas.py`（展示列、默认计费规则加允差）
+  - `templates/courier_fee.html`（计费标准加「重量允差%」列）
+- 修改原因：原重量核对用固定包材常量+百分比范围，对轻货误判率高达45%(9081条)；需按真实箱型匹配精确预估并与 VBA 口径对齐（只对快递多收费的超重较真）。底单导入丢弃退货占号行导致空白异常虚高。包装推荐算法此前页头打印(JS)与快递费(Python)各一份，后端单一源化以便统一维护。
+- 影响范围：courier_fee 全模块、label_print 推荐前端改为调后端接口（行为：实时本地计算→防抖请求后端）；共用 label_weights/label_sizes/label_packing_*/label_pack_* 等表（只读）。
+- 是否涉及数据库：是（运行时迁移：courier_fee_bills 加列 ship_content_key；courier_fee_pricing_rules 加列 weight_tolerance_pct；均 CREATE TABLE IF NOT EXISTS + ALTER TABLE try/except 幂等。底单/账单业务数据需重新导入并重新运行计算以生效）
+- 是否需要回滚：否（新增列向后兼容；如需回滚代码，旧列保留不影响）
