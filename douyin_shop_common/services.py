@@ -1013,6 +1013,21 @@ def _normalize_order_no(val: Any) -> str:
     return str(val or '').strip().lstrip("'")
 
 
+def _normalize_summary_id(value: Any) -> str:
+    return str(value or '').strip().lstrip("'")
+
+
+def _join_summary_ids(values: Any) -> str:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = _normalize_summary_id(value)
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return ';'.join(sorted(result))
+
+
 def _normalize_commission_date(value: str | None, boundary: str) -> str:
     text = str(value or '').strip().replace('/', '-')
     if not text:
@@ -1149,40 +1164,51 @@ def _query_creator_summary(
     sql = f"""
         SELECT
             TRIM(influencer_name) AS name,
+            influencer_id,
             SUM(CAST(influencer_commission AS REAL)) AS net_amount
         FROM {config.fund_flow_table}
         WHERE {' AND '.join(where)}
-        GROUP BY TRIM(influencer_name)
+        GROUP BY TRIM(influencer_name), influencer_id
         ORDER BY SUM(CAST(influencer_commission AS REAL)) ASC
     """
     df = pd.read_sql_query(sql, conn, params=params)
     if df.empty:
-        return pd.DataFrame(columns=['达人名称', '佣金金额', 'net_amount'])
-    df['net_amount'] = pd.to_numeric(df['net_amount'], errors='coerce').fillna(0)
+        return pd.DataFrame(columns=['达人名称', '达人ID', '佣金金额', 'net_amount'])
+    grouped = (
+        df.groupby('name', dropna=False)
+        .agg(
+            达人ID=('influencer_id', _join_summary_ids),
+            net_amount=('net_amount', 'sum'),
+        )
+        .reset_index()
+    )
+    grouped['net_amount'] = pd.to_numeric(grouped['net_amount'], errors='coerce').fillna(0)
     # 取反：资金流水里支出为负，取反后正常支出显示为正数；
     # 若某达人当期退款超过费用（净值为正），取反后显示为负数——表示净收入/无需开票。
     # 这保证：sum(佣金金额) = abs(达人佣金列总和)，满足核对等式。
-    df['佣金金额'] = -df['net_amount']
-    return df.rename(columns={'name': '达人名称'})[['达人名称', '佣金金额', 'net_amount']]
+    grouped['佣金金额'] = -grouped['net_amount']
+    grouped = grouped.sort_values('net_amount', ascending=True)
+    return grouped.rename(columns={'name': '达人名称'})[['达人名称', '达人ID', '佣金金额', 'net_amount']]
 
 
-def _load_merchant_order_map(conn: sqlite3.Connection, config: ShopConfig) -> dict[str, str]:
+def _load_merchant_order_map(conn: sqlite3.Connection, config: ShopConfig) -> dict[str, dict[str, str]]:
     if not _table_exists(conn, config.merchant_table):
         return {}
     rows = conn.execute(
         f"""
-        SELECT order_id, issuing_institution
+        SELECT order_id, issuing_institution, group_campaign_id
         FROM {config.merchant_table}
         WHERE order_id IS NOT NULL
           AND TRIM(CAST(order_id AS TEXT)) <> ''
         """
     ).fetchall()
-    result: dict[str, str] = {}
+    result: dict[str, dict[str, str]] = {}
     for row in rows:
         order_id = _normalize_order_no(row['order_id'])
         leader_name = str(row['issuing_institution'] or '').strip()
+        leader_id = _normalize_summary_id(row['group_campaign_id'])
         if order_id and leader_name and leader_name != '-' and order_id not in result:
-            result[order_id] = leader_name
+            result[order_id] = {'name': leader_name, 'id': leader_id}
     return result
 
 
@@ -1222,24 +1248,33 @@ def _query_leader_summary(
 ) -> pd.DataFrame:
     merchant_map = _load_merchant_order_map(conn, config)
     if not merchant_map:
-        return pd.DataFrame(columns=['团长名称', '佣金金额', 'net_amount', 'matched_rows'])
+        return pd.DataFrame(columns=['团长名称', '团长ID', '佣金金额', 'net_amount', 'matched_rows'])
 
     rows_df = _query_leader_fee_rows(conn, start_text, end_text, config)
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows_df.itertuples(index=False):
-        leader_name = merchant_map.get(_normalize_order_no(row.order_no))
+        leader_info = merchant_map.get(_normalize_order_no(row.order_no)) or {}
+        leader_name = leader_info.get('name', '')
         if not leader_name or not _name_matches_keyword(leader_name, keyword, alias_nicknames):
             continue
-        bucket = grouped.setdefault(leader_name, {'团长名称': leader_name, 'net_amount': 0.0, 'matched_rows': 0})
+        bucket = grouped.setdefault(
+            leader_name,
+            {'团长名称': leader_name, '_ids': set(), 'net_amount': 0.0, 'matched_rows': 0},
+        )
+        leader_id = leader_info.get('id', '')
+        if leader_id:
+            bucket['_ids'].add(leader_id)
         bucket['net_amount'] += float(row.merchant_recruitment_fee or 0)
         bucket['matched_rows'] += 1
 
     if not grouped:
-        return pd.DataFrame(columns=['团长名称', '佣金金额', 'net_amount', 'matched_rows'])
+        return pd.DataFrame(columns=['团长名称', '团长ID', '佣金金额', 'net_amount', 'matched_rows'])
+    for bucket in grouped.values():
+        bucket['团长ID'] = ';'.join(sorted(bucket.pop('_ids')))
     df = pd.DataFrame(grouped.values())
     # 取反：同达人逻辑。sum(佣金金额) = abs(招商服务费列已匹配部分总和)，差额 = 未匹配行的绝对值。
     df['佣金金额'] = -pd.to_numeric(df['net_amount'], errors='coerce').fillna(0)
-    return df.sort_values('佣金金额', ascending=False)[['团长名称', '佣金金额', 'net_amount', 'matched_rows']]
+    return df.sort_values('佣金金额', ascending=False)[['团长名称', '团长ID', '佣金金额', 'net_amount', 'matched_rows']]
 
 
 def _query_unmatched_leader_rows(
@@ -1337,7 +1372,9 @@ def _query_leader_detail_rows(
     if rows_df.empty:
         return rows_df
 
-    rows_df['leader_name'] = rows_df['order_no'].map(lambda value: merchant_map.get(_normalize_order_no(value), ''))
+    rows_df['leader_name'] = rows_df['order_no'].map(
+        lambda value: (merchant_map.get(_normalize_order_no(value)) or {}).get('name', '')
+    )
     rows_df = rows_df[
         rows_df['leader_name'].map(lambda value: bool(value) and _name_matches_keyword(value, keyword, alias_nicknames))
     ].copy()
@@ -1377,11 +1414,11 @@ def export_commission_summary_zip(
 
     summary_excel = _write_dataframe_excel(
         [
-            ('达人汇总', creator_df[['达人名称', '佣金金额']]),
-            ('团长汇总', leader_df[['团长名称', '佣金金额']]),
+            ('达人汇总', creator_df[['达人名称', '达人ID', '佣金金额']]),
+            ('团长汇总', leader_df[['团长名称', '团长ID', '佣金金额']]),
         ],
         amount_columns={'佣金金额'},
-        text_columns={'达人名称', '团长名称'},
+        text_columns={'达人名称', '达人ID', '团长名称', '团长ID'},
     )
     invoice_df = _build_invoice_import_df(creator_df, leader_df)
     invoice_excel = _write_dataframe_excel(
