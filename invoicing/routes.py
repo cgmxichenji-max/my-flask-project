@@ -120,6 +120,8 @@ def _invoice_download_name(row):
     if diff_label:
         parts.append(diff_label)
     parts.append(type_name)
+    if row['online_invoice']:
+        parts.append('网传开票')
     return _sanitize_download_filename(' '.join(part for part in parts if part))
 
 
@@ -1035,7 +1037,7 @@ def invoices_download_selected():
             f"""
             SELECT i.id, i.invoice_number, i.amount, i.invoice_type, i.tax_rate,
                    i.alias_name, i.is_usable, i.pdf_file_path, i.period, i.platform,
-                   i.seller_name, i.buyer_name,
+                   i.seller_name, i.buyer_name, i.online_invoice,
                    c.short_name AS customer_short_name,
                    c.platform AS customer_platform,
                    COALESCE(

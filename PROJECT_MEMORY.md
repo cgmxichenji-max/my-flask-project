@@ -1,3 +1,11 @@
+## [2026-06-10 14:29] 修改记录
+- 修改内容：发票列表“下载选中发票”生成 ZIP 时，若发票记录已勾选“网上开票”，则 ZIP 内对应 PDF 文件名末尾追加“网传开票”标记。
+- 修改文件：invoicing/routes.py；PROJECT_MEMORY.md
+- 修改原因：用户需要区分网上开票发票下载文件，便于后续网传开票处理。
+- 影响范围：仅影响发票核对模块下载选中发票时 ZIP 内 PDF 文件命名；不影响发票列表展示、网上开票字段保存、PDF 原文件、导出 Excel、发票匹配和数据库结构。
+- 是否涉及数据库：否
+- 是否需要回滚：是
+
 ## [2026-06-10 13:18] 修改记录
 - 修改内容：修复抖音店铺佣金汇总/明细导出在页面已有日期时仍提示“请选择佣金导出的开始日期和结束日期”的问题。前端佣金导出读取专用日期输入框为空时，会回退读取原始数据处理区的日期；提交时同时带上 `start_date/end_date` 与 `dy_commission_start_date/dy_commission_end_date`。后端导出路由兼容 `start_date/end_date`、`dy_commission_start_date/dy_commission_end_date`、`date_start/date_end` 三组字段名。
 - 修改文件：douyin_shop_common/__init__.py；templates/douyin_shop.html；PROJECT_MEMORY.md
