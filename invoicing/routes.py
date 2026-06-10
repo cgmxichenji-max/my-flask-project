@@ -192,10 +192,12 @@ def _parse_expected_alias_match_value(raw_value):
 
 
 def _ensure_invoice_expected_match_table(conn):
-    # ensure tax_filed column exists for databases created before this feature
+    # ensure columns exist for databases created before these features
     existing = {row[1] for row in conn.execute("PRAGMA table_info(invoice)").fetchall()}
     if 'tax_filed' not in existing:
         conn.execute("ALTER TABLE invoice ADD COLUMN tax_filed INTEGER NOT NULL DEFAULT 0")
+    if 'online_invoice' not in existing:
+        conn.execute("ALTER TABLE invoice ADD COLUMN online_invoice INTEGER NOT NULL DEFAULT 0")
 
     conn.execute(
         """
@@ -967,7 +969,7 @@ def invoices_list():
                    i.invoice_type, i.tax_rate,
                    i.seller_name, i.buyer_name, i.project_name,
                    i.alias_name,
-                   i.pdf_remark, i.is_usable, i.tax_filed, i.customer_id, i.entity_id,
+                   i.pdf_remark, i.is_usable, i.tax_filed, i.online_invoice, i.customer_id, i.entity_id,
                    i.pdf_file_path, i.qr_content, i.created_at,
                    m.expected_amount_id AS matched_expected_amount_id,
                    c.short_name AS customer_short_name,
@@ -1745,8 +1747,23 @@ def invoice_delete(invoice_id):
 def invoice_toggle_tax_filed(invoice_id):
     next_url = request.form.get('next') or request.referrer or url_for('invoicing.invoices_list')
     with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
         conn.execute(
             "UPDATE invoice SET tax_filed = CASE WHEN tax_filed = 1 THEN 0 ELSE 1 END WHERE id = ?",
+            (invoice_id,)
+        )
+        conn.commit()
+    return redirect(next_url)
+
+
+@invoicing_bp.route('/invoices/<int:invoice_id>/toggle_online_invoice', methods=['POST'])
+@module_required('invoicing')
+def invoice_toggle_online_invoice(invoice_id):
+    next_url = request.form.get('next') or request.referrer or url_for('invoicing.invoices_list')
+    with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
+        conn.execute(
+            "UPDATE invoice SET online_invoice = CASE WHEN online_invoice = 1 THEN 0 ELSE 1 END WHERE id = ?",
             (invoice_id,)
         )
         conn.commit()

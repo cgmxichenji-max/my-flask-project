@@ -1,3 +1,11 @@
+## [2026-06-10 12:12] 修改记录
+- 修改内容：发票核对模块的发票列表新增“网上开票”列。代码在首次运行时检测 `invoice` 表是否存在 `online_invoice` 列；不存在时自动补列 `INTEGER NOT NULL DEFAULT 0`，已有发票默认“否”。发票列表每条记录显示“网上开票”复选框，点击后按与“已报税”标记一致的方式切换并保存到数据库。
+- 修改文件：invoicing/routes.py；templates/invoicing_invoices.html；PROJECT_MEMORY.md
+- 修改原因：需要在发票列表中标记每张发票是否属于网上开票，并允许人工维护该状态；线上真实数据库不能手工改表，需由代码首次运行自动迁移。
+- 影响范围：仅影响发票核对模块的发票列表展示与 `invoice` 表新增布尔字段；不影响发票 PDF 解析、上传、匹配、下载导出、应开金额与核对汇总逻辑。
+- 是否涉及数据库：是（`invoice` 表首次运行自动新增 `online_invoice` 列，默认 0）
+- 是否需要回滚：是
+
 ## [2026-06-08 20:46] 修改记录
 - 修改内容：新建快递费计算模块（courier_fee），完成第一阶段——底单记录导入功能。包含：新建 courier_fee Blueprint（__init__.py / routes.py / services.py / table_schemas.py）；新建 templates/courier_fee.html；注册蓝图至 app.py；首页 index.html 增加"快递费计算"入口按钮（受权限控制）。功能包括：底单记录多文件 Excel 上传导入（去重键：tracking_no；发货时间无效行自动跳过）、分页查询、多条件筛选、全字段导出为 Excel。
 - 修改文件：courier_fee/__init__.py（新增）、courier_fee/table_schemas.py（新增）、courier_fee/services.py（新增）、courier_fee/routes.py（新增）、templates/courier_fee.html（新增）、app.py（新增 import + register_blueprint）、templates/index.html（新增菜单入口）

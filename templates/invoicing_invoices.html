@@ -81,6 +81,7 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 <th class="sortable" data-sort="alias_name" data-type="text" data-unmatched-first="1">别名 <span class="sort-mark"></span></th>
 <th class="sortable" data-sort="is_usable" data-type="number">可用 <span class="sort-mark"></span></th>
 <th class="sortable" data-sort="tax_filed" data-type="number">已报税 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="online_invoice" data-type="number">网上开票 <span class="sort-mark"></span></th>
 <th>PDF</th><th>操作</th>
 </tr></thead>
 <tbody>
@@ -100,7 +101,8 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
     data-alias_name="{{ r.alias_name or '' }}"
     data-alias_unmatched="{{ 1 if not r.alias_name else 0 }}"
     data-is_usable="{{ r.is_usable or 0 }}"
-    data-tax_filed="{{ r.tax_filed or 0 }}">
+    data-tax_filed="{{ r.tax_filed or 0 }}"
+    data-online_invoice="{{ r.online_invoice or 0 }}">
 <td class="checkbox-col"><input type="checkbox" class="row-check" name="invoice_ids" value="{{ r.id }}" form="download-form"></td>
 <td>{{ r.invoice_number }}</td>
 <td>{{ r.invoice_date or '' }}</td>
@@ -136,6 +138,12 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 <form class="inline-form" method="post" action="{{ url_for('invoicing.invoice_toggle_tax_filed', invoice_id=r.id) }}">
 <input type="hidden" name="next" value="{{ request.full_path }}">
 <button type="submit" class="btn-mini {{ 'btn-del' if r.tax_filed else 'btn-save' }}">{{ '撤销' if r.tax_filed else '标记' }}</button>
+</form>
+</td>
+<td class="{{ 'usable-yes' if r.online_invoice else 'usable-no' }}">
+<form class="inline-form" method="post" action="{{ url_for('invoicing.invoice_toggle_online_invoice', invoice_id=r.id) }}">
+<input type="hidden" name="next" value="{{ request.full_path }}">
+<input type="checkbox" onchange="this.form.submit()" {% if r.online_invoice %}checked{% endif %}>
 </form>
 </td>
 <td><a class="btn-link" href="{{ url_for('invoicing.invoice_pdf', invoice_id=r.id) }}" target="_blank">查看</a></td>
