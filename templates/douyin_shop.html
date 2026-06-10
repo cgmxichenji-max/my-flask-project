@@ -467,8 +467,16 @@
         async function handleCommissionExport({ url, buttonElement, loadingText, defaultButtonText }) {
             if (!dyCommissionStartDateInput || !dyCommissionEndDateInput || !buttonElement) return;
 
-            const startDate = (dyCommissionStartDateInput.value || '').trim();
-            const endDate = (dyCommissionEndDateInput.value || '').trim();
+            const fallbackStartDateInput = document.getElementById('date_start');
+            const fallbackEndDateInput = document.getElementById('date_end');
+            const startDate = (
+                (dyCommissionStartDateInput.value || '').trim()
+                || (fallbackStartDateInput ? (fallbackStartDateInput.value || '').trim() : '')
+            );
+            const endDate = (
+                (dyCommissionEndDateInput.value || '').trim()
+                || (fallbackEndDateInput ? (fallbackEndDateInput.value || '').trim() : '')
+            );
             if (!startDate || !endDate) {
                 showMessage(dyCommissionExportResult, '请选择佣金导出的开始日期和结束日期', false);
                 return;
@@ -481,6 +489,8 @@
             const fd = new FormData();
             fd.append('start_date', startDate);
             fd.append('end_date', endDate);
+            fd.append('dy_commission_start_date', startDate);
+            fd.append('dy_commission_end_date', endDate);
             fd.append('nickname_query', dyCommissionNicknameQueryInput ? dyCommissionNicknameQueryInput.value : '');
             rememberDyCommissionDateRange(startDate, endDate);
 

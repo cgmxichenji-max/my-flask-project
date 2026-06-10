@@ -132,6 +132,17 @@ def create_douyin_blueprint(
         result = _attach_status(result)
         return jsonify(result)
 
+    def _get_commission_export_date(field_name: str) -> str | None:
+        aliases = {
+            'start_date': ('start_date', 'dy_commission_start_date', 'date_start'),
+            'end_date': ('end_date', 'dy_commission_end_date', 'date_end'),
+        }
+        for key in aliases[field_name]:
+            value = (request.form.get(key) or '').strip()
+            if value:
+                return value
+        return None
+
     # ---------- 路由 ----------
 
     @bp.route('/', strict_slashes=False)
@@ -215,8 +226,8 @@ def create_douyin_blueprint(
     def export_commission_summary():
         try:
             output, filename = export_commission_summary_zip(
-                start_date=request.form.get('start_date'),
-                end_date=request.form.get('end_date'),
+                start_date=_get_commission_export_date('start_date'),
+                end_date=_get_commission_export_date('end_date'),
                 nickname_query=request.form.get('nickname_query'),
                 config=config,
             )
@@ -229,8 +240,8 @@ def create_douyin_blueprint(
     def export_commission_details():
         try:
             output, filename = export_commission_detail_zip(
-                start_date=request.form.get('start_date'),
-                end_date=request.form.get('end_date'),
+                start_date=_get_commission_export_date('start_date'),
+                end_date=_get_commission_export_date('end_date'),
                 nickname_query=request.form.get('nickname_query'),
                 config=config,
             )
