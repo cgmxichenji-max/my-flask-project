@@ -19,6 +19,7 @@ MODULE_KEYS = (
     'invoicing',
     'label_print',
     'courier_fee',
+    'kuaishou_aoke',
 )
 MODULE_LABELS = {
     'inventory': '库存盘点',
@@ -31,6 +32,7 @@ MODULE_LABELS = {
     'invoicing': '发票核对',
     'label_print': '页头打印',
     'courier_fee': '快递费计算',
+    'kuaishou_aoke': '快手澳柯',
 }
 
 

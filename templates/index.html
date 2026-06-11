@@ -126,6 +126,9 @@
             {% if can_module(g.current_user, 'courier_fee') %}
             <a href="/courier_fee/" class="menu-card">快递费计算</a>
             {% endif %}
+            {% if can_module(g.current_user, 'kuaishou_aoke') %}
+            <a href="/kuaishou_aoke/" class="menu-card">快手澳柯</a>
+            {% endif %}
             {% if g.current_user.is_admin %}
             <a href="/vps-monitor" class="menu-card">VPS 监控</a>
             {% endif %}
