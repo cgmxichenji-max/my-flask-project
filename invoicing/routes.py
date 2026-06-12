@@ -263,7 +263,7 @@ def _replace_invoice_expected_match(conn, invoice_id, expected_amount_id, matche
 invoicing_bp = Blueprint('invoicing', __name__, template_folder='../templates')
 
 
-CUSTOMER_HEADERS = ('达人', '客户', '客户简称', '带货账号昵称', '团长', '账号昵称')
+CUSTOMER_HEADERS = ('达人/客户', '达人', '客户', '客户简称', '带货账号昵称', '团长', '账号昵称')
 AMOUNT_HEADERS = ('应开金额', '带货费用', '佣金', '求和项:带货费用', '金额')
 PLATFORM_HEADERS = ('平台', '平台名称', '店铺', '店铺名称')
 PERIOD_HEADERS = ('期间', '账期', '周期')
