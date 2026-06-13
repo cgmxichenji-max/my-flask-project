@@ -1,3 +1,11 @@
+## [2026-06-13 15:23] 修改记录
+- 修改内容：将页头打印 WPS 日期口径修复与快递费汇总导出功能提交并推送到 GitHub `main`，业务提交为 `051d42a`；随后在西班牙马德里服务器 `208.85.17.83` 的 `/root/my-flask-project` 执行 `git pull origin main` 同步到该提交并重启 Flask 服务。重启后服务进程监听 `0.0.0.0:5001`，服务器本机 `/`、`/courier_fee/`、`/label_print/` 均返回 302 登录跳转；服务器端自检 `/courier_fee/bill_download_summary_workbook` 路由已注册。
+- 修改文件：GitHub `main`；服务器 `/root/my-flask-project`；PROJECT_MEMORY.md
+- 修改原因：用户要求上传 GitHub 最新代码并更新西班牙服务器上运行的代码。
+- 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码；未修改业务数据库和服务器 `data/` 目录。
+- 是否涉及数据库：否
+- 是否需要回滚：是
+
 ## [2026-06-13 15:14] 修改记录
 - 修改内容：快递费计算工作台的快递费账单模块新增“生成快递费汇总表”下载按钮，按原 VBA 汇总口径读取当前年月已核查入库账单数据，生成固定格式 Excel，文件名为 `快递费汇总YYYYMM月.xlsx`。汇总表固定 A1:D15 结构，明细 sheet 包含申通抖音、申通微信澳柯、韵达抖音、韵达微信澳柯，默认不包含中通。
 - 修改文件：courier_fee/bill_services.py；courier_fee/routes.py；templates/courier_fee.html；PROJECT_MEMORY.md
