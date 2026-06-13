@@ -957,41 +957,87 @@ def query_bills(year_month, filter_type='all', search='',
 
 
 # ── OPT_07：费用写回 ──────────────────────────────────────────────
-def run_opt07(year_month, ok_row_ids):
+def _is_correction_candidate(row):
+    """需要按用户勾选状态决定是否修正的异常行。"""
+    if row['check_result'] in ('不正确', '重量异常'):
+        return True
+    return not str(row['ship_content'] or '').strip()
+
+
+def _correction_amount_for_row(row):
     """
-    对本月所有价格异常（check_result='不正确'）且未被用户标为 OK 的行，
-    将 corrected_fee = std_fee，is_corrected = 1。
-    （发货内容为空的行暂时视为正确，不处理）
-    返回 {'success', 'message', 'corrected_count'}
+    返回异常行应写回的正确费用。
+    价格异常/空白异常按标准费用，重量异常优先按预估应收费用。
+    """
+    if row['check_result'] == '重量异常':
+        if row['est_max_fee'] is not None:
+            return float(row['est_max_fee'])
+        raise ValueError(f'快递单号 {row["tracking_no"]} 为重量异常，但缺少预估应收费用，无法自动修正')
+    if row['std_fee'] is not None:
+        return float(row['std_fee'])
+    raise ValueError(f'快递单号 {row["tracking_no"]} 缺少标准费用，无法自动修正')
+
+
+def _apply_unchecked_corrections(conn, year_month, ok_row_ids):
+    """
+    勾选行视为正确：清除修正标记并保留原始费用。
+    未勾选异常行视为需要修正：写入 corrected_fee，并标记 is_corrected=1。
     """
     ok_set = set(int(i) for i in (ok_row_ids or []))
 
+    rows = conn.execute(
+        f"SELECT id, tracking_no, actual_fee, std_fee, check_result, "
+        f"       ship_content, est_max_fee "
+        f"FROM {BILLS_TABLE_NAME} "
+        f"WHERE bill_year_month=? AND is_verified=0 "
+        f"AND (check_result IN ('不正确', '重量异常') "
+        f"     OR ship_content IS NULL OR ship_content='' "
+        f"     OR is_corrected=1)",
+        (year_month,),
+    ).fetchall()
+
+    corrected = 0
+    ok_count = 0
+    for r in rows:
+        if not _is_correction_candidate(r):
+            continue
+        if r['id'] in ok_set:
+            conn.execute(
+                f'UPDATE {BILLS_TABLE_NAME} '
+                f'SET is_corrected=0, corrected_fee=NULL, fee_diff=0, check_result=? '
+                f'WHERE id=?',
+                ('正确', r['id']),
+            )
+            ok_count += 1
+            continue
+
+        corrected_fee = round(_correction_amount_for_row(r), 2)
+        conn.execute(
+            f'UPDATE {BILLS_TABLE_NAME} SET is_corrected=1, corrected_fee=? WHERE id=?',
+            (corrected_fee, r['id']),
+        )
+        corrected += 1
+
+    return corrected, ok_count
+
+
+def run_opt07(year_month, ok_row_ids):
+    """
+    对本月未核查异常行按用户勾选状态写回费用：
+    - 勾选行视为正确，不修正；
+    - 未勾选价格/空白/重量异常行写入 corrected_fee。
+    返回 {'success', 'message', 'corrected_count'}
+    """
     with get_db_connection() as conn:
         _ensure_bill_tables(conn)
-        rows = conn.execute(
-            f"SELECT id, std_fee FROM {BILLS_TABLE_NAME} "
-            f"WHERE bill_year_month=? AND is_verified=0 AND check_result='不正确'",
-            (year_month,),
-        ).fetchall()
-
-        corrected = 0
-        for r in rows:
-            if r['id'] in ok_set:
-                continue
-            if r['std_fee'] is None:
-                continue
-            conn.execute(
-                f'UPDATE {BILLS_TABLE_NAME} SET is_corrected=1, corrected_fee=? WHERE id=?',
-                (r['std_fee'], r['id']),
-            )
-            corrected += 1
-
+        corrected, ok_count = _apply_unchecked_corrections(conn, year_month, ok_row_ids)
         conn.commit()
 
     return {
         'success':         True,
-        'message':         f'OPT_07 完成：已修正 {corrected} 行费用',
+        'message':         f'OPT_07 完成：已修正 {corrected} 行费用，保留勾选正确行 {ok_count} 行',
         'corrected_count': corrected,
+        'ok_count':        ok_count,
     }
 
 
@@ -1075,7 +1121,7 @@ def _apply_corrections_openpyxl(stored_path, corrections, original_fees):
     return buf
 
 
-def generate_corrected_zip(year_month):
+def generate_corrected_zip(year_month, ok_row_ids=None):
     """
     为本月未核查批次中有修正行的账单文件生成修正副本并打包 ZIP。
     - 只处理 is_verified=0 行对应的文件（当前批次，不含已核查旧批次）
@@ -1085,6 +1131,8 @@ def generate_corrected_zip(year_month):
     """
     with get_db_connection() as conn:
         _ensure_bill_tables(conn)
+        _apply_unchecked_corrections(conn, year_month, ok_row_ids)
+        conn.commit()
 
         # 仅取当前未核查批次的 file_id
         unverified_fids = {
@@ -1362,14 +1410,33 @@ def generate_summary_workbook(year_month):
     return buf, f'快递费汇总{ym}月.xlsx'
 
 
+def generate_summary_zip(year_month):
+    """将月度快递费汇总 Excel 放入 ZIP 下载。"""
+    workbook_buf, workbook_name = generate_summary_workbook(year_month)
+    ym = str(year_month or '').strip()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(workbook_name, workbook_buf.getvalue())
+    buf.seek(0)
+    return buf, f'快递费汇总{ym}月.zip'
+
+
 # ── 正式入库 / 丢弃 ───────────────────────────────────────────────
-def save_verified(year_month):
+def save_verified(year_month, ok_row_ids=None):
     """
     将本月所有未核查行标记为已核查（is_verified=1）。
     同时更新文件台账 status='verified'。
     """
     with get_db_connection() as conn:
         _ensure_bill_tables(conn)
+        _apply_unchecked_corrections(conn, year_month, ok_row_ids)
+        conn.execute(
+            f'UPDATE {BILLS_TABLE_NAME} '
+            f'SET actual_fee=corrected_fee, fee_diff=0, check_result=? '
+            f'WHERE bill_year_month=? AND is_verified=0 '
+            f'AND is_corrected=1 AND corrected_fee IS NOT NULL',
+            ('正确', year_month),
+        )
         cur = conn.execute(
             f'UPDATE {BILLS_TABLE_NAME} SET is_verified=1 '
             f'WHERE bill_year_month=? AND is_verified=0',

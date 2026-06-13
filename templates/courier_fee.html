@@ -1017,6 +1017,29 @@ let billSortDir     = 'ASC';
 let pendingFile     = null; // 待确认的 File 对象（重复弹窗使用）
 let pendingCarrier  = '';
 let pendingYM       = '';
+let selectedBillOkIds = new Set();
+
+function clearBillOkSelection() {
+    selectedBillOkIds.clear();
+}
+
+function updateBillOkSelection(rowId, checked) {
+    const id = parseInt(rowId);
+    if (!id) return;
+    if (checked) selectedBillOkIds.add(id);
+    else selectedBillOkIds.delete(id);
+}
+
+function syncCurrentPageSelections() {
+    document.querySelectorAll('.bill-row-cb').forEach(cb => {
+        updateBillOkSelection(cb.dataset.rid, cb.checked);
+    });
+}
+
+function getSelectedBillOkIds() {
+    syncCurrentPageSelections();
+    return [...selectedBillOkIds];
+}
 
 // ── 初始化月份选择器 ──────────────────────────────
 function initBillYmSelect() {
@@ -1076,6 +1099,7 @@ function applyYmFromInput() {
 }
 
 function setCurrentYM(ym) {
+    if (ym !== currentYM) clearBillOkSelection();
     currentYM = ym;
     document.getElementById('ym-tip').textContent = `当前：${ymDisplay(ym)}`;
     loadBillFiles(ym);
@@ -1134,7 +1158,7 @@ async function deleteBillFile(fid) {
         body: JSON.stringify({ file_id: fid, year_month: currentYM }),
     });
     const data = await resp.json();
-    if (data.success) { renderFileList(data.files); refreshAnomalyCounts(currentYM); }
+    if (data.success) { clearBillOkSelection(); renderFileList(data.files); refreshAnomalyCounts(currentYM); }
     else alert(data.message || '删除失败');
 }
 
@@ -1189,6 +1213,7 @@ async function doUpload(file, carrier, ym, action) {
             document.getElementById('btn-dup-add').textContent = `保存为第 ${data.next_seq} 份`;
             document.getElementById('dup-modal').classList.add('show');
         } else if (data.success) {
+            clearBillOkSelection();
             showMsg(document.getElementById('upload-result'), data.message, true);
             if (data.files)  renderFileList(data.files);
             if (data.months) refreshYmSelect(data.months);
@@ -1264,6 +1289,7 @@ function updateCountBadges(c) {
 
 // ── 横表筛选 ─────────────────────────────────────
 function setBillFilter(ftype, btn) {
+    syncCurrentPageSelections();
     billFilter = ftype;
     document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
@@ -1294,11 +1320,15 @@ function initBillTableHead() {
     thead.appendChild(tr);
     // 全选联动
     document.getElementById('bill-cb-all').onchange = function() {
-        document.querySelectorAll('.bill-row-cb').forEach(cb => cb.checked = this.checked);
+        document.querySelectorAll('.bill-row-cb').forEach(cb => {
+            cb.checked = this.checked;
+            updateBillOkSelection(cb.dataset.rid, cb.checked);
+        });
     };
 }
 
 function sortBillTable(col) {
+    syncCurrentPageSelections();
     if (billSortCol === col) billSortDir = billSortDir === 'ASC' ? 'DESC' : 'ASC';
     else { billSortCol = col; billSortDir = 'ASC'; }
     // 更新列头样式
@@ -1313,6 +1343,7 @@ function sortBillTable(col) {
 // ── 横表查询 ─────────────────────────────────────
 async function doBillQuery(page) {
     if (!currentYM) return;
+    syncCurrentPageSelections();
     billPage = page;
     initBillTableHead();
     const search = document.getElementById('bill-search').value;
@@ -1355,7 +1386,11 @@ function renderBillTable(data) {
             const tr = document.createElement('tr');
             // checkbox
             const tdCb = document.createElement('td');
-            tdCb.innerHTML = `<input type="checkbox" class="bill-row-cb bill-cb" data-rid="${row.id}">`;
+            const checked = selectedBillOkIds.has(parseInt(row.id)) ? ' checked' : '';
+            tdCb.innerHTML = `<input type="checkbox" class="bill-row-cb bill-cb" data-rid="${row.id}"${checked}>`;
+            tdCb.querySelector('input').onchange = function() {
+                updateBillOkSelection(this.dataset.rid, this.checked);
+            };
             tr.appendChild(tdCb);
             // 数据列
             for (const [field] of BILL_HEADERS) {
@@ -1389,23 +1424,30 @@ function renderBillTable(data) {
     document.getElementById('bill-page-info').textContent     = `第 ${page} / ${totalPages} 页`;
     document.getElementById('bill-btn-prev').disabled         = page <= 1;
     document.getElementById('bill-btn-next').disabled         = page >= totalPages;
+    const cbAll = document.getElementById('bill-cb-all');
+    if (cbAll) {
+        const rowCbs = [...document.querySelectorAll('.bill-row-cb')];
+        cbAll.checked = rowCbs.length > 0 && rowCbs.every(cb => cb.checked);
+    }
 }
 
 function toggleSelectAllBills() {
     const cbs  = document.querySelectorAll('.bill-row-cb');
     const allChecked = [...cbs].every(cb => cb.checked);
-    cbs.forEach(cb => cb.checked = !allChecked);
+    cbs.forEach(cb => {
+        cb.checked = !allChecked;
+        updateBillOkSelection(cb.dataset.rid, cb.checked);
+    });
 }
 
 function getCheckedRowIds() {
-    return [...document.querySelectorAll('.bill-row-cb:checked')]
-        .map(cb => parseInt(cb.dataset.rid));
+    return getSelectedBillOkIds();
 }
 
 // ── OPT_07 ───────────────────────────────────────
 async function runOpt07() {
     if (!currentYM) { alert('请先选择年月'); return; }
-    const okIds = getCheckedRowIds();
+    const okIds = getSelectedBillOkIds();
     const res   = document.getElementById('ops-result');
     const btn   = document.getElementById('btn-opt07');
     btn.disabled = true; btn.textContent = 'OPT_07 执行中…';
@@ -1427,13 +1469,14 @@ async function runOpt07() {
 // ── 下载修正 ZIP ─────────────────────────────────
 async function downloadCorrectedZip() {
     if (!currentYM) { alert('请先选择年月'); return; }
+    const okIds = getSelectedBillOkIds();
     const btn = document.getElementById('btn-dl-corr');
     btn.disabled = true; btn.textContent = '生成中…';
     try {
         const resp = await fetch('/courier_fee/bill_download_corrected_zip', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            body: JSON.stringify({ year_month: currentYM }),
+            body: JSON.stringify({ year_month: currentYM, ok_ids: okIds }),
         });
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
@@ -1461,7 +1504,7 @@ async function downloadSummaryWorkbook() {
             showMsg(document.getElementById('ops-result'), err.message || '生成失败', false);
             return;
         }
-        await triggerDownload(resp, `快递费汇总${currentYM}月.xlsx`);
+        await triggerDownload(resp, `快递费汇总${currentYM}月.zip`);
     } catch(e) { showMsg(document.getElementById('ops-result'), '请求失败：' + e.message, false); }
     finally { btn.disabled = false; btn.textContent = '生成快递费汇总表'; }
 }
@@ -1469,6 +1512,7 @@ async function downloadSummaryWorkbook() {
 // ── 正式入库 ─────────────────────────────────────
 async function saveVerified() {
     if (!currentYM) { alert('请先选择年月'); return; }
+    const okIds = getSelectedBillOkIds();
     if (!confirm(`确认将 ${ymDisplay(currentYM)} 所有未核查数据标记为已核查并正式入库？`)) return;
     const res = document.getElementById('ops-result');
     const btn = document.getElementById('btn-save-vf');
@@ -1478,11 +1522,11 @@ async function saveVerified() {
         const resp = await fetch('/courier_fee/bill_save_verified', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            body: JSON.stringify({ year_month: currentYM }),
+            body: JSON.stringify({ year_month: currentYM, ok_ids: okIds }),
         });
         const data = await resp.json();
         showMsg(res, data.message || (data.success ? '入库完成' : '失败'), data.success);
-        if (data.success) { refreshAnomalyCounts(currentYM); loadBillFiles(currentYM); doBillQuery(1); }
+        if (data.success) { clearBillOkSelection(); refreshAnomalyCounts(currentYM); loadBillFiles(currentYM); doBillQuery(1); }
     } catch(e) { showMsg(res, '请求失败：' + e.message, false); }
     finally { btn.disabled = false; btn.textContent = '✓ 正式入库（标记已核查）'; }
 }
@@ -1505,6 +1549,7 @@ async function discardUnverified() {
         showMsg(res, data.message || (data.success ? '已丢弃' : '失败'), data.success);
         if (data.months) refreshYmSelect(data.months);
         if (data.success) {
+            clearBillOkSelection();
             renderFileList([]);
             document.getElementById('bill-table-wrap').style.display = 'none';
             document.getElementById('bill-pagination').style.display = 'none';

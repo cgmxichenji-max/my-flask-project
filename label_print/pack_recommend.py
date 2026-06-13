@@ -26,6 +26,7 @@ import re
 
 # 与 label_print.html 中的硬编码常量保持一致
 WAREHOUSE_BOX_SAMPLES = {
+    "702×1": "10",
     "140×1+702×2": "8",
     "702×2": "7.5",
     "155×1": "11",
@@ -36,9 +37,28 @@ WAREHOUSE_BOX_SAMPLES = {
     "140×3": "7.5",
     "A113×6": "11",
     "A160×1": "10.5",
+    "705×1": "10",
     "140×1+184×1": "7.5",
     "139×1+140×1": "11",
+    "113B×1": "10.5",
+    "113B×2": "10.5",
+    "113B×1+164×1": "7.5",
+    "113B×2+140×1": "10",
+    "113B×2+139×1+140×1+164×1": "7",
+    "113B×2+140×2+161×2": "7",
+    "113B×2+139×2+164×1+165×1": "6",
+    "145×1": "10.5",
+    "145×2": "10.5",
+    "145×3": "10",
+    "145×4": "10",
+    "139×1+164×1+165×1": "6",
+    "140×1+164×1+165×1": "6",
+    "140×4": "6.5",
+    "164×1": "7.5",
+    "164×1+165×1": "7",
     "164×2+165×1": "6",
+    "164×2+165×2": "6",
+    "164×1+165×1+184×1": "7",
     "163×1": "11",
     "164×1+184×1": "6.5",
     "112×1": "6.5",
@@ -190,10 +210,16 @@ class PackRecommender:
         l, w, h = d
         return [[l, w, h], [l, h, w], [w, l, h], [w, h, l], [h, l, w], [h, w, l]]
 
-    def _box_cap(self, box, item, buf):
+    @staticmethod
+    def _stack_rots(d):
+        l, w, h = d
+        return [[l, w, h], [w, l, h]]
+
+    def _box_cap(self, box, item, buf, lock_height=False):
         BL, BW, BH = box
         best = 0
-        for l, w, h in self._rots(item):
+        rots = self._stack_rots(item) if lock_height else self._rots(item)
+        for l, w, h in rots:
             if l <= 0 or w <= 0 or h <= 0:
                 continue
             c = math.floor(BL / l) * math.floor(BW / w) * math.floor(BH / h)
@@ -231,21 +257,26 @@ class PackRecommender:
         dims = item['dims']
         if not item['ir'] or item['qty'] <= 1:
             return {'dims': dims, 'qty': item['qty'],
-                    'volume': dims[0] * dims[1] * dims[2] * item['qty']}
-        sorted_d = sorted(dims, reverse=True)
-        long_, mid, high = sorted_d[0], sorted_d[1], sorted_d[2]
-        step = max(5, math.ceil(high * (irr_fac - 1)))
-        stacked_high = high + step * (item['qty'] - 1)
+                    'volume': dims[0] * dims[1] * dims[2] * item['qty'],
+                    'lock_height': False}
+        long_, mid, high = dims[0], dims[1], dims[2]
+        low = max(5, math.floor(high * max(irr_fac - 1, 0)))
+        pair_high = high + low
+        pairs, odd = divmod(int(item['qty']), 2)
+        stacked_high = pair_high * pairs + (high if odd else 0)
+        # 异形货物按一正一反成对堆叠：如 184 两端约 35/5mm，2 件按 40mm，
+        # 奇数多出的 1 件再按原始高度补上，避免数量增加但箱型长期不变。
         compact_dims = [long_, mid, stacked_high]
         raw_vol = dims[0] * dims[1] * dims[2] * item['qty']
         compact_vol = long_ * mid * stacked_high
         return {'dims': compact_dims, 'qty': 1,
-                'volume': max(raw_vol * 0.55, compact_vol)}
+                'volume': max(raw_vol * 0.55, compact_vol),
+                'lock_height': True}
 
     def _single_item_box_index(self, item, buf, irr_fac):
         eff = self._effective_box_item(item, irr_fac)
         for i, box in enumerate(self.boxes):
-            if self._box_cap(box['dims'], eff['dims'], buf) >= eff['qty']:
+            if self._box_cap(box['dims'], eff['dims'], buf, eff.get('lock_height', False)) >= eff['qty']:
                 return i
         return -1
 
@@ -267,7 +298,7 @@ class PackRecommender:
         total_vol = 0
         for item in items:
             eff = self._effective_box_item(item, irr_fac)
-            if self._box_cap(box['dims'], eff['dims'], buf) < eff['qty']:
+            if self._box_cap(box['dims'], eff['dims'], buf, eff.get('lock_height', False)) < eff['qty']:
                 return False
             total_vol += eff['volume']
         return len(items) == 1 or total_vol <= self._box_volume(box) * fill_rate
@@ -424,7 +455,7 @@ class PackRecommender:
         if len(items) == 1:
             eff = self._effective_box_item(items[0], irr_fac)
             for box in self.boxes:
-                if self._box_cap(box['dims'], eff['dims'], buf) >= eff['qty']:
+                if self._box_cap(box['dims'], eff['dims'], buf, eff.get('lock_height', False)) >= eff['qty']:
                     rec_box = box['n']
                     break
         else:
@@ -439,11 +470,12 @@ class PackRecommender:
                 if min_box_index >= 0 and bi < min_box_index:
                     continue
                 vol = box['dims'][0] * box['dims'][1] * box['dims'][2]
-                caps_ok = all(
-                    self._box_cap(box['dims'], self._effective_box_item(it, irr_fac)['dims'], buf)
-                    >= self._effective_box_item(it, irr_fac)['qty']
-                    for it in items
-                )
+                caps_ok = True
+                for it in items:
+                    eff = self._effective_box_item(it, irr_fac)
+                    if self._box_cap(box['dims'], eff['dims'], buf, eff.get('lock_height', False)) < eff['qty']:
+                        caps_ok = False
+                        break
                 if caps_ok and self._fits_box(box['dims'], largest_item, buf) and \
                    total_vol <= vol * fill_m:
                     rec_box = box['n']

@@ -22,7 +22,7 @@ from .bill_services import (
     discard_unverified,
     generate_corrected_zip,
     generate_raw_zip,
-    generate_summary_workbook,
+    generate_summary_zip,
     get_bill_anomaly_counts,
     get_bill_file_meta,
     get_bill_files,
@@ -401,7 +401,8 @@ def bill_download_corrected_zip_route():
     if not ym:
         return jsonify({'success': False, 'message': '请指定年月'}), 400
     try:
-        buf, filename = generate_corrected_zip(ym)
+        ok_ids = data.get('ok_ids') or []
+        buf, filename = generate_corrected_zip(ym, ok_ids)
         return send_file(
             buf,
             mimetype='application/zip',
@@ -421,8 +422,13 @@ def bill_download_summary_workbook_route():
     if not ym:
         return jsonify({'success': False, 'message': '请指定年月'}), 400
     try:
-        buf, filename = generate_summary_workbook(ym)
-        return send_excel_download(buf, filename)
+        buf, filename = generate_summary_zip(ym)
+        return send_file(
+            buf,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=filename,
+        )
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 400
 
@@ -436,7 +442,8 @@ def bill_save_verified_route():
     if not ym:
         return jsonify({'success': False, 'message': '请指定年月'}), 400
     try:
-        result = save_verified(ym)
+        ok_ids = data.get('ok_ids') or []
+        result = save_verified(ym, ok_ids)
         return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 400
