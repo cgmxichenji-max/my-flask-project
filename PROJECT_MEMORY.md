@@ -1565,3 +1565,10 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：页头打印模块和快递费模块共用的包装推荐、预估重量箱型选择；不修改数据库结构，不改货物尺寸原始数据，不影响 WPS 读取和打印版式。
 - 是否涉及数据库：否
 - 是否需要回滚：是
+## [2026-06-13 16:48] 修改记录
+- 修改内容：将包装推荐与快递费账单修正相关最新本地改动提交并推送到 GitHub `main`，业务提交为 `b17a932`；随后在西班牙马德里服务器 `208.85.17.83` 的 `/root/my-flask-project` 执行 `git pull origin main`，从 `76bf2c9` 快进到 `b17a932` 并重启 Flask 服务。重启后新进程 `482433` 监听 `0.0.0.0:5001`，服务器本机 `/`、`/courier_fee/`、`/label_print/` 均返回 302 登录跳转。
+- 修改文件：GitHub `main`；服务器 `/root/my-flask-project`；`PROJECT_MEMORY.md`
+- 修改原因：用户要求将当前最新代码推送 GitHub 仓库，并更新西班牙服务器运行新代码。
+- 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未提交本地 `AGENTS.md`、`flask_local.out.log`，未覆盖服务器 `data/` 业务数据。
+- 是否涉及数据库：否
+- 是否需要回滚：是
