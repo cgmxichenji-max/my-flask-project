@@ -13,6 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for, current_app, g
 import sqlite3
@@ -39,6 +40,7 @@ KDOCS_QR_SESSIONS = {}
 KDOCS_SOURCE_KEY = 'kdocs_main'
 KDOCS_DBT_PAGE_SIZE = 500
 KDOCS_CONTENT_FIELD_HINTS = ('箱唛', '规格*数量', '规格', '数量')
+BUSINESS_TZ = ZoneInfo('Asia/Shanghai')
 
 # ─────────────────────────────── 数据库工具 ───────────────────────────────
 
@@ -326,6 +328,10 @@ def _parse_date_cell(value):
         return date_parser.parse(text, fuzzy=True).date()
     except Exception:
         return None
+
+
+def _business_today():
+    return datetime.now(BUSINESS_TZ).date()
 
 
 def _rows_from_delimited_text(text):
@@ -826,7 +832,7 @@ def _save_kdocs_cookie(cookie):
 
 
 def _extract_today_submit_text(rows, target_date=None):
-    target_date = target_date or datetime.now().date()
+    target_date = target_date or _business_today()
     if not rows:
         raise ValueError('没有可解析的数据')
 
@@ -879,7 +885,7 @@ def _find_kdocs_content_column(header):
 
 def _today_kdocs_record_rows(rows, target_date=None, source=None):
     source = source or KDOCS_SOURCES[0]
-    target_date = target_date or datetime.now().date()
+    target_date = target_date or _business_today()
     header_idx, submit_idx = _find_kdocs_header(rows)
     header = rows[header_idx] if header_idx < len(rows) else []
     target_idx = _find_kdocs_content_column(header)
@@ -920,7 +926,7 @@ def _record_row_to_dict(row):
 
 
 def _list_today_wps_records(conn, target_date=None):
-    target_date = target_date or datetime.now().date()
+    target_date = target_date or _business_today()
     source_keys = [source['key'] for source in KDOCS_SOURCES]
     placeholders = ','.join('?' for _ in source_keys)
     rows = conn.execute(

@@ -600,6 +600,7 @@
                 <div class="ops-row">
                     <button class="btn btn-primary"   id="btn-opt07"   onclick="runOpt07()">运行 OPT_07（写回未勾选异常行）</button>
                     <button class="btn btn-info"      id="btn-dl-corr" onclick="downloadCorrectedZip()">下载修正文件（ZIP）</button>
+                    <button class="btn btn-info"      id="btn-dl-summary" onclick="downloadSummaryWorkbook()">生成快递费汇总表</button>
                     <button class="btn btn-secondary" id="btn-save-vf" onclick="saveVerified()">✓ 正式入库（标记已核查）</button>
                     <button class="btn btn-danger"    id="btn-discard" onclick="discardUnverified()">× 丢弃本月未核查数据</button>
                 </div>
@@ -1442,6 +1443,27 @@ async function downloadCorrectedZip() {
         await triggerDownload(resp, `快递账单修正_${currentYM}.zip`);
     } catch(e) { showMsg(document.getElementById('ops-result'), '请求失败：' + e.message, false); }
     finally { btn.disabled = false; btn.textContent = '下载修正文件（ZIP）'; }
+}
+
+// ── 下载快递费汇总表 ───────────────────────────────
+async function downloadSummaryWorkbook() {
+    if (!currentYM) { alert('请先选择年月'); return; }
+    const btn = document.getElementById('btn-dl-summary');
+    btn.disabled = true; btn.textContent = '生成中…';
+    try {
+        const resp = await fetch('/courier_fee/bill_download_summary_workbook', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ year_month: currentYM }),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            showMsg(document.getElementById('ops-result'), err.message || '生成失败', false);
+            return;
+        }
+        await triggerDownload(resp, `快递费汇总${currentYM}月.xlsx`);
+    } catch(e) { showMsg(document.getElementById('ops-result'), '请求失败：' + e.message, false); }
+    finally { btn.disabled = false; btn.textContent = '生成快递费汇总表'; }
 }
 
 // ── 正式入库 ─────────────────────────────────────

@@ -22,6 +22,7 @@ from .bill_services import (
     discard_unverified,
     generate_corrected_zip,
     generate_raw_zip,
+    generate_summary_workbook,
     get_bill_anomaly_counts,
     get_bill_file_meta,
     get_bill_files,
@@ -407,6 +408,21 @@ def bill_download_corrected_zip_route():
             as_attachment=True,
             download_name=filename,
         )
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+
+
+@courier_fee_bp.route('/bill_download_summary_workbook', methods=['POST'])
+@module_required('courier_fee')
+def bill_download_summary_workbook_route():
+    """基于当前年月已核查入库数据生成快递费汇总表。"""
+    data = request.get_json(silent=True) or {}
+    ym = (data.get('year_month') or '').strip()
+    if not ym:
+        return jsonify({'success': False, 'message': '请指定年月'}), 400
+    try:
+        buf, filename = generate_summary_workbook(ym)
+        return send_excel_download(buf, filename)
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 400
 

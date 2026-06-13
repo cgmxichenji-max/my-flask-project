@@ -1156,6 +1156,212 @@ def generate_corrected_zip(year_month):
     return buf, f'快递账单修正_{year_month}.zip'
 
 
+_SUMMARY_HEADERS = ['快递公司', '业务时间', '快递单号', '结算对象', '目的省份', '结算重量', '结算费用', '寄件人', '发货内容']
+_SUMMARY_SHEETS = ('申通抖音', '申通微信澳柯', '韵达抖音', '韵达微信澳柯')
+_CN_DIGITS = '〇一二三四五六七八九'
+_CN_MONTHS = ('', '一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月')
+
+
+def _year_month_cn(year_month):
+    """202605 -> 二〇二六年五月。"""
+    ym = str(year_month or '').strip()
+    if not re.fullmatch(r'\d{6}', ym):
+        return ym
+    year = ''.join(_CN_DIGITS[int(ch)] for ch in ym[:4])
+    month = int(ym[4:])
+    month_text = _CN_MONTHS[month] if 1 <= month <= 12 else f'{month}月'
+    return f'{year}年{month_text}'
+
+
+def _excel_datetime(value):
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    parsed = pd.to_datetime(text, errors='coerce')
+    if pd.isna(parsed):
+        return text
+    return parsed.to_pydatetime()
+
+
+def _summary_amount(row):
+    if row['is_corrected'] and row['corrected_fee'] is not None:
+        return float(row['corrected_fee'] or 0)
+    return float(row['actual_fee'] or 0)
+
+
+def _summary_bucket(carrier_name, sender):
+    carrier = str(carrier_name or '')
+    sender = str(sender or '').strip()
+    if '申通' in carrier:
+        return '申通微信澳柯' if sender == '澳柯微信' else '申通抖音'
+    if '韵达' in carrier:
+        return '韵达微信澳柯' if '澳' in sender else '韵达抖音'
+    return ''
+
+
+def _apply_summary_sheet_style(ws):
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    thin = Side(style='thin', color='000000')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    red_fill = PatternFill('solid', fgColor='C8323C')
+    light_fill = PatternFill('solid', fgColor='FADADE')
+    white_font = Font(color='FFFFFF', bold=True)
+    bold_font = Font(bold=True)
+
+    ws.merge_cells('A2:A3')
+    ws.merge_cells('A4:A5')
+    ws.column_dimensions['A'].width = 18.7166666666667
+    ws.column_dimensions['B'].width = 17.775
+    ws.column_dimensions['C'].width = 13
+    ws.column_dimensions['D'].width = 20.9666666666667
+    ws.row_dimensions[1].height = 24
+
+    for row in ws.iter_rows(min_row=1, max_row=15, min_col=1, max_col=4):
+        for cell in row:
+            cell.border = border
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+    for cell in ws[1]:
+        cell.fill = red_fill
+        cell.font = white_font
+    for row_idx in (2, 4, 7, 11, 15):
+        for col_idx in range(1, 5):
+            ws.cell(row_idx, col_idx).fill = light_fill
+    for cell in ws['A'][1:15]:
+        cell.fill = red_fill
+        cell.font = white_font
+
+    for row_idx in (7, 8, 12, 15):
+        ws.cell(row_idx, 2).font = bold_font
+        ws.cell(row_idx, 3).font = bold_font
+    for row_idx in range(1, 16):
+        ws.cell(row_idx, 3).number_format = '#,##0.00'
+        ws.cell(row_idx, 3).alignment = Alignment(horizontal='right', vertical='center')
+
+
+def _write_summary_sheet(ws, year_month, sums):
+    ws.title = '汇总表'
+    ws['A1'] = _year_month_cn(year_month)
+    ws['B1'] = '店 铺'
+    ws['C1'] = '运费金额'
+
+    ws['A2'] = '抖音老店'
+    ws['B2'] = '申 通'
+    ws['C2'] = round(sums['申通抖音'], 2)
+    ws['B3'] = '韵 达 '
+    ws['C3'] = round(sums['韵达抖音'], 2)
+
+    ws['A4'] = '视频号澳柯'
+    ws['B4'] = '申 通'
+    ws['C4'] = round(sums['申通微信澳柯'], 2)
+    ws['B5'] = '韵 达 '
+    ws['C5'] = round(sums['韵达微信澳柯'], 2)
+
+    ws['B6'] = '理 赔'
+    ws['C6'] = 0
+    ws['D6'] = ' '
+    ws['B7'] = '小 计'
+    ws['C7'] = '=SUM(C2:C6)'
+    ws['B8'] = '含税价'
+    ws['C8'] = '=C7*1.06'
+
+    ws['B10'] = 'Eric 垫付费用'
+    ws['C10'] = 0
+    ws['D10'] = ' '
+    ws['B11'] = 'Eric 垫付运费'
+    ws['C11'] = 0
+    ws['D11'] = ' '
+    ws['B12'] = '含税价'
+    ws['C12'] = '=(N(C10)+N(C11))*1.06'
+
+    ws['B15'] = '合计含税价'
+    ws['C15'] = '=C8+C12'
+    ws['D15'] = ' '
+    _apply_summary_sheet_style(ws)
+
+
+def _write_detail_sheet(ws, rows):
+    from openpyxl.styles import Font
+
+    ws.append(_SUMMARY_HEADERS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    for row in rows:
+        fee = _summary_amount(row)
+        ws.append([
+            row['carrier_name'] or '',
+            _excel_datetime(row['bill_date']),
+            str(row['tracking_no'] or ''),
+            row['settle_object'] or '',
+            row['dest_province'] or '',
+            row['settle_weight'] or 0,
+            round(fee, 2),
+            row['sender'] or '',
+            row['ship_content_key'] or row['ship_content'] or '',
+        ])
+
+    for cell in ws['B'][1:]:
+        cell.number_format = 'yyyy-mm-dd'
+    for cell in ws['C']:
+        cell.number_format = '@'
+    for cell in ws['F']:
+        cell.number_format = '0.00'
+    for cell in ws['G']:
+        cell.number_format = '0.00'
+    for column_cells in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in column_cells)
+        ws.column_dimensions[column_cells[0].column_letter].width = min(max(max_len + 2, 10), 32)
+    ws.freeze_panes = 'A2'
+
+
+def generate_summary_workbook(year_month):
+    """按 VBA 月度汇总口径，基于当前年月已核查账单生成快递费汇总表。"""
+    ym = str(year_month or '').strip()
+    if not re.fullmatch(r'\d{6}', ym):
+        raise ValueError('请指定正确的年月')
+
+    with get_db_connection() as conn:
+        _ensure_bill_tables(conn)
+        rows = conn.execute(
+            f'''
+            SELECT carrier_name, bill_date, tracking_no, settle_object, dest_province,
+                   settle_weight, actual_fee, sender, ship_content, ship_content_key,
+                   is_corrected, corrected_fee
+            FROM {BILLS_TABLE_NAME}
+            WHERE bill_year_month=? AND is_verified=1
+            ORDER BY carrier_name, bill_date, tracking_no
+            ''',
+            (ym,),
+        ).fetchall()
+
+    if not rows:
+        raise ValueError(f'{ym} 没有已核查入库数据，请先正式入库后再生成汇总表')
+
+    grouped = {name: [] for name in _SUMMARY_SHEETS}
+    sums = {name: 0.0 for name in _SUMMARY_SHEETS}
+    for row in rows:
+        bucket = _summary_bucket(row['carrier_name'], row['sender'])
+        if not bucket:
+            continue
+        grouped[bucket].append(row)
+        sums[bucket] += _summary_amount(row)
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    _write_summary_sheet(wb.active, ym, sums)
+    for sheet_name in _SUMMARY_SHEETS:
+        ws = wb.create_sheet(sheet_name)
+        _write_detail_sheet(ws, grouped[sheet_name])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf, f'快递费汇总{ym}月.xlsx'
+
+
 # ── 正式入库 / 丢弃 ───────────────────────────────────────────────
 def save_verified(year_month):
     """
