@@ -1588,3 +1588,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅页头打印模块选中 WPS 今日记录后的打印流程；不影响手工货物录入打印、不修改 WPS 数据、不修改数据库结构。
 - 是否涉及数据库：否
 - 是否需要回滚：是
+
+## [2026-06-16 15:57] 修改记录
+- 修改内容：将页头打印 WPS 重复记录修复、WPS 来源改名、WPS 解析打印默认 1 票等改动提交并推送到 GitHub `main`，业务提交为 `f3fc59b`；随后在西班牙马德里服务器 `208.85.17.83` 的 `/root/my-flask-project` 执行 `git pull --ff-only origin main`，从 `e30cb23` 快进到 `f3fc59b`，并用 `.venv/bin/python` 重启 Flask 服务。重启后服务器 HEAD 为 `f3fc59b`，新进程 `645918` 监听 `0.0.0.0:5001`，服务器本机 `/` 与 `/label_print/` 均返回 302 登录跳转。
+- 修改文件：GitHub `main`；服务器 `/root/my-flask-project`；PROJECT_MEMORY.md
+- 修改原因：用户要求将页头打印相关修复上传 GitHub，并通过仓库更新西班牙服务器运行新代码。
+- 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未覆盖服务器 `data/` 业务数据。
+- 是否涉及数据库：否（代码部署；新代码访问 WPS 今日记录时可能按业务指纹合并页头打印 WPS 重复记录）
+- 是否需要回滚：是
