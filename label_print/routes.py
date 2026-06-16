@@ -27,8 +27,8 @@ label_print_bp = Blueprint('label_print', __name__)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KDOCS_SOURCE_URL = 'https://kdocs.cn/l/cnaogtuBWmXW'
 KDOCS_SOURCES = [
-    {'key': 'kdocs_main', 'name': 'WPS主表', 'url': 'https://kdocs.cn/l/cnaogtuBWmXW'},
-    {'key': 'kdocs_extra', 'name': 'WPS补充表', 'url': 'https://kdocs.cn/l/cqUIdRBp3yCl'},
+    {'key': 'kdocs_main', 'name': '主播样品', 'url': 'https://kdocs.cn/l/cnaogtuBWmXW'},
+    {'key': 'kdocs_extra', 'name': '售后补发', 'url': 'https://kdocs.cn/l/cqUIdRBp3yCl'},
 ]
 KDOCS_SOURCE_BY_KEY = {item['key']: item for item in KDOCS_SOURCES}
 KDOCS_COOKIE_PATH = os.path.join(BASE_DIR, 'data', 'kdocs_cookie.txt')
@@ -883,6 +883,48 @@ def _find_kdocs_content_column(header):
     return 5
 
 
+def _normalize_wps_record_time(text):
+    text = _clean_cell(text)
+    if not text:
+        return ''
+    try:
+        return date_parser.parse(text, fuzzy=True).strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return re.sub(r'\s+', ' ', text)
+
+
+def _normalize_wps_record_content(text):
+    segments = _split_wps_content_segments(text)
+    if segments:
+        normalized = []
+        for item in segments:
+            item = re.sub(r'[.\-—_·…。．、，,;；:：\s]{6,}', ' ', item)
+            item = re.sub(r'\s+', ' ', item).strip()
+            if item:
+                normalized.append(item)
+        return '\n'.join(normalized)
+    return re.sub(r'\s+', ' ', _clean_cell(text))
+
+
+def _wps_business_key(source_key, submit_date, submit_time_text, content_text):
+    return (
+        _clean_cell(source_key),
+        _clean_cell(submit_date),
+        _normalize_wps_record_time(submit_time_text),
+        _normalize_wps_record_content(content_text),
+    )
+
+
+def _wps_record_hash(source_key, submit_date, submit_time_text, content_text):
+    payload = {
+        'source_key': _clean_cell(source_key),
+        'submit_date': _clean_cell(submit_date),
+        'submit_time_text': _normalize_wps_record_time(submit_time_text),
+        'content_text': _normalize_wps_record_content(content_text),
+    }
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()
+
+
 def _today_kdocs_record_rows(rows, target_date=None, source=None):
     source = source or KDOCS_SOURCES[0]
     target_date = target_date or _business_today()
@@ -897,14 +939,16 @@ def _today_kdocs_record_rows(rows, target_date=None, source=None):
         if submitted_on != target_date:
             continue
         row_payload = {'header': header, 'row': row, 'row_number': idx}
-        row_json = json.dumps(row_payload, ensure_ascii=False, sort_keys=True)
+        source_key = source.get('key') or KDOCS_SOURCE_KEY
+        submit_time_text = _clean_cell(row[submit_idx])
+        content_text = _clean_cell(row[target_idx])
         records.append({
-            'source_key': source.get('key') or KDOCS_SOURCE_KEY,
+            'source_key': source_key,
             'submit_date': target_date.isoformat(),
-            'submit_time_text': _clean_cell(row[submit_idx]),
-            'row_hash': hashlib.sha256(row_json.encode('utf-8')).hexdigest(),
+            'submit_time_text': submit_time_text,
+            'row_hash': _wps_record_hash(source_key, target_date.isoformat(), submit_time_text, content_text),
             'row_json': json.dumps(row_payload, ensure_ascii=False),
-            'content_text': _clean_cell(row[target_idx]),
+            'content_text': content_text,
         })
     return records
 
@@ -925,8 +969,147 @@ def _record_row_to_dict(row):
     return data
 
 
+def _row_value(row, key, default=''):
+    try:
+        return row[key]
+    except Exception:
+        return default
+
+
+def _row_business_key(row):
+    return _wps_business_key(
+        _row_value(row, 'source_key'),
+        _row_value(row, 'submit_date'),
+        _row_value(row, 'submit_time_text'),
+        _row_value(row, 'content_text'),
+    )
+
+
+def _row_rank(row):
+    printed_count = int(_row_value(row, 'printed_count', 0) or 0)
+    parsed_items = _row_value(row, 'parsed_items_json') or ''
+    parse_status = _row_value(row, 'parse_status') or ''
+    return (
+        1 if printed_count > 0 else 0,
+        1 if parse_status == 'parsed' else 0,
+        1 if parsed_items and parsed_items != '[]' else 0,
+        _row_value(row, 'last_printed_at') or '',
+        -int(_row_value(row, 'id', 0) or 0),
+    )
+
+
+def _merge_wps_duplicate_rows(conn, rows):
+    if len(rows) <= 1:
+        return rows[0] if rows else None
+
+    canonical = max(rows, key=_row_rank)
+    duplicate_ids = [int(row['id']) for row in rows if int(row['id']) != int(canonical['id'])]
+    if not duplicate_ids:
+        return canonical
+
+    total_printed = sum(int(_row_value(row, 'printed_count', 0) or 0) for row in rows)
+    latest_print_row = max(rows, key=lambda row: _row_value(row, 'last_printed_at') or '')
+    parsed_row = next(
+        (
+            row for row in sorted(rows, key=_row_rank, reverse=True)
+            if (_row_value(row, 'parse_status') == 'parsed')
+            and (_row_value(row, 'parsed_items_json') or '[]') != '[]'
+        ),
+        canonical,
+    )
+    parse_status = 'parsed' if any(_row_value(row, 'parse_status') == 'parsed' for row in rows) else canonical['parse_status']
+    row_hash = _wps_record_hash(
+        canonical['source_key'],
+        canonical['submit_date'],
+        canonical['submit_time_text'],
+        canonical['content_text'],
+    )
+    placeholders = ','.join('?' for _ in duplicate_ids)
+
+    conn.execute(
+        f'UPDATE label_print_history SET wps_record_id=? WHERE wps_record_id IN ({placeholders})',
+        (canonical['id'], *duplicate_ids),
+    )
+    conn.execute(
+        f'DELETE FROM label_wps_records WHERE id IN ({placeholders})',
+        duplicate_ids,
+    )
+    conn.execute(
+        '''
+        UPDATE label_wps_records
+        SET row_hash=?,
+            printed_count=?,
+            last_printed_at=?,
+            last_printed_by_user_id=?,
+            last_printed_by_username=?,
+            parsed_items_json=?,
+            parse_status=?,
+            updated_at=?
+        WHERE id=?
+        ''',
+        (
+            row_hash,
+            total_printed,
+            _row_value(latest_print_row, 'last_printed_at') or '',
+            _row_value(latest_print_row, 'last_printed_by_user_id'),
+            _row_value(latest_print_row, 'last_printed_by_username') or '',
+            _row_value(parsed_row, 'parsed_items_json') or '[]',
+            parse_status,
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            canonical['id'],
+        ),
+    )
+    return conn.execute('SELECT * FROM label_wps_records WHERE id=?', (canonical['id'],)).fetchone()
+
+
+def _dedupe_wps_records_for_date(conn, target_date):
+    source_keys = [source['key'] for source in KDOCS_SOURCES]
+    placeholders = ','.join('?' for _ in source_keys)
+    rows = conn.execute(
+        f'''
+        SELECT * FROM label_wps_records
+        WHERE source_key IN ({placeholders}) AND submit_date=?
+        ''',
+        (*source_keys, target_date.isoformat()),
+    ).fetchall()
+    groups = {}
+    for row in rows:
+        key = _row_business_key(row)
+        if key[-1]:
+            groups.setdefault(key, []).append(row)
+    for group in groups.values():
+        _merge_wps_duplicate_rows(conn, group)
+
+
+def _find_existing_wps_record(conn, record):
+    existing = conn.execute(
+        'SELECT * FROM label_wps_records WHERE source_key=? AND row_hash=?',
+        (record['source_key'], record['row_hash']),
+    ).fetchone()
+    if existing:
+        return existing
+
+    candidates = conn.execute(
+        '''
+        SELECT * FROM label_wps_records
+        WHERE source_key=? AND submit_date=?
+        ''',
+        (record['source_key'], record['submit_date']),
+    ).fetchall()
+    record_key = _wps_business_key(
+        record['source_key'],
+        record['submit_date'],
+        record['submit_time_text'],
+        record['content_text'],
+    )
+    matches = [row for row in candidates if _row_business_key(row) == record_key]
+    return _merge_wps_duplicate_rows(conn, matches) if matches else None
+
+
 def _list_today_wps_records(conn, target_date=None):
     target_date = target_date or _business_today()
+    _dedupe_wps_records_for_date(conn, target_date)
+    conn.commit()
     source_keys = [source['key'] for source in KDOCS_SOURCES]
     placeholders = ','.join('?' for _ in source_keys)
     rows = conn.execute(
@@ -945,20 +1128,17 @@ def _upsert_today_wps_records(conn, records):
     inserted = 0
     updated = 0
     for record in records:
-        existing = conn.execute(
-            'SELECT id FROM label_wps_records WHERE source_key=? AND row_hash=?',
-            (record['source_key'], record['row_hash']),
-        ).fetchone()
+        existing = _find_existing_wps_record(conn, record)
         if existing:
             conn.execute(
                 '''
                 UPDATE label_wps_records
-                SET submit_date=?, submit_time_text=?, row_json=?, content_text=?, updated_at=?
+                SET submit_date=?, submit_time_text=?, row_hash=?, row_json=?, content_text=?, updated_at=?
                 WHERE id=?
                 ''',
                 (
-                    record['submit_date'], record['submit_time_text'], record['row_json'],
-                    record['content_text'], now, existing['id']
+                    record['submit_date'], record['submit_time_text'], record['row_hash'],
+                    record['row_json'], record['content_text'], now, existing['id']
                 ),
             )
             updated += 1

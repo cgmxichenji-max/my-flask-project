@@ -1139,10 +1139,15 @@ function cancelKdocsQrLogin() {
 //  打印 + 保存历史
 // ══════════════════════════════════
 function doPrint() {
-    const tickets = parseInt(document.getElementById('global-tickets').value) || 0;
-    if (!tickets) { alert('请填写总票数'); document.getElementById('global-tickets').focus(); return; }
-    const rows = [];
     const wpsRecord = getSelectedWpsRecord();
+    const ticketsInput = document.getElementById('global-tickets');
+    let tickets = parseInt(ticketsInput.value) || 0;
+    if (!tickets && wpsRecord) {
+        tickets = 1;
+        ticketsInput.value = '1';
+    }
+    if (!tickets) { alert('请填写总票数'); ticketsInput.focus(); return; }
+    const rows = [];
     const wpsItems = wpsRecord ? collectWpsParsedItems() : [];
     if (wpsRecord && wpsItems.length) {
         wpsItems.forEach(item => {
