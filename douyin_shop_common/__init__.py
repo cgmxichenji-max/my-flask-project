@@ -170,14 +170,17 @@ def create_douyin_blueprint(
             data_status_rows=rows,
             export_field_config_json=json.dumps(export_field_config, ensure_ascii=False),
             export_date_ranges_json=json.dumps(export_date_ranges, ensure_ascii=False),
+            order_accept_exts='.csv,.xlsx,.xls,.zip' if config.order_format == 'overseas' else '.csv,.xlsx,.xls',
+            is_overseas_orders=(config.order_format == 'overseas'),
         )
 
     @bp.route('/import_orders', methods=['POST'])
     @module_required(module_key)
     def import_orders():
         files = request.files.getlist('files')
+        allowed_exts = ('.csv', '.xlsx', '.xls', '.zip') if config.order_format == 'overseas' else ('.csv', '.xlsx', '.xls')
         return _do_import(files, import_orders_files,
-                          f'{table_prefix}/orders', ('.csv', '.xlsx', '.xls'))
+                          f'{table_prefix}/orders', allowed_exts)
 
     @bp.route('/import_fund_flow', methods=['POST'])
     @module_required(module_key)

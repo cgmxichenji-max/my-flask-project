@@ -142,7 +142,7 @@
         <section class="section-card">
             <div class="section-title">数据导入</div>
             <div class="import-actions">
-                <input type="file" id="orders-input"     accept=".csv,.xlsx,.xls" multiple style="display:none">
+                <input type="file" id="orders-input"     accept="{{ order_accept_exts|default('.csv,.xlsx,.xls') }}" multiple style="display:none">
                 <input type="file" id="fund-flow-input"  accept=".csv,.xlsx,.xls" multiple style="display:none">
                 <input type="file" id="commission-input" accept=".xlsx,.xls"      multiple style="display:none">
                 <input type="file" id="merchant-input"   accept=".xlsx,.xls"      multiple style="display:none">
@@ -155,6 +155,11 @@
             <div id="import-fund-flow-result"  class="import-result-box"></div>
             <div id="import-commission-result" class="import-result-box"></div>
             <div id="import-merchant-result"   class="import-result-box"></div>
+            {% if is_overseas_orders %}
+            <div class="hint-box">
+                海外订单 CSV 较大时可先压缩为 ZIP 后上传；若订单 Excel 有打开密码，系统会自动使用文件名最后 6 位尝试读取。
+            </div>
+            {% endif %}
         </section>
 
         <!-- 佣金导出 -->

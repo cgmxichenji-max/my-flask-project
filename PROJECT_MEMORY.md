@@ -1621,6 +1621,14 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 是否涉及数据库：是（海外旗舰首次打开或导入时会为 `dy_overseas_orders` 创建/补齐新增 4 个订单字段；本次验证仅使用临时 SQLite）
 - 是否需要回滚：是
 
+## [2026-06-18 12:27] 修改记录
+- 修改内容：修复海外旗舰抖音大订单文件上传失败问题。确认页面报错为 Cloudflare `413 Payload Too Large`，并非密码错误；为避开 Cloudflare 请求体大小限制，海外旗舰订单导入新增 `.zip` 压缩包上传支持，服务端会解压 ZIP 内的 `.csv/.xlsx/.xls` 后按原订单导入预检、防重、写库流程处理。海外订单 Excel 同步增加加密文件读取兼容：检测到 Office 加密时使用文件名去扩展名后的最后 6 位作为打开密码解密。页面订单文件选择器在海外旗舰模块显示 `.zip` 可选，并提示大 CSV 可压缩上传、加密 Excel 使用文件名最后 6 位密码。标准香娜露儿/幕莲蔓订单导入不开放 ZIP 上传。
+- 修改文件：douyin_shop_common/__init__.py；douyin_shop_common/services.py；templates/douyin_shop.html；PROJECT_MEMORY.md
+- 修改原因：用户反馈海外订单文件上传失败，截图显示请求被 Cloudflare 以 413 拦截；海外订单 CSV 示例文件最大约 124MB，直传可能超过 Cloudflare 限制，压缩后约 11MB，可安全通过上传链路。同时补齐用户怀疑的加密 Excel 文件名后 6 位密码读取逻辑。
+- 影响范围：仅海外旗舰抖音订单导入上传格式与 Excel 解密读取；不改变资金结算、佣金明细、招商明细导入规则，不改变香娜露儿/幕莲蔓订单导入格式。上传仍使用原有服务器暂存批次机制，成功/失败后清理暂存文件。
+- 是否涉及数据库：否（导入运行时仍按既有海外订单表写入数据，本次代码修改不改变表结构）
+- 是否需要回滚：是
+
 ## [2026-06-18 12:02] 修改记录
 - 修改内容：新增“豁免管理”模块，包含香娜露儿豁免管理与慕莲蔓豁免管理两个 TAB；新增 `creator_exemptions` 达人豁免数据表，使用 `brand` 字段区分香娜露儿和慕莲蔓；香娜露儿按截图初始化 60 条豁免数据，包含生效中和已结束记录；页面支持达人渠道/昵称/UID 模糊查询、状态筛选、生效日期和结束日期组合筛选、新增、编辑、停止和删除，暂不提供导入导出功能。
 - 修改文件：app.py；auth/services.py；templates/index.html；exemption_management/__init__.py；exemption_management/routes.py；exemption_management/services.py；templates/exemption_management.html；PROJECT_MEMORY.md

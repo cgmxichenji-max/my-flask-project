@@ -562,6 +562,73 @@ def _file_is_excel(filename: str) -> bool:
     return filename.lower().endswith(('.xlsx', '.xls'))
 
 
+def _file_is_zip(filename: str) -> bool:
+    return filename.lower().endswith('.zip')
+
+
+def _safe_password_from_filename(filename: str) -> str:
+    stem = Path(filename).stem
+    if len(stem) < 6:
+        raise ValueError(f'订单表文件名不足 6 位，无法提取打开密码：{filename}')
+    return stem[-6:]
+
+
+def _excel_buffer_from_upload(file_bytes: bytes, filename: str) -> BytesIO:
+    """读取 Excel；如文件加密，则使用文件名最后 6 位作为密码解密。"""
+    raw_buffer = BytesIO(file_bytes)
+    try:
+        import msoffcrypto
+        from msoffcrypto.exceptions import DecryptionError
+    except ImportError:
+        raw_buffer.seek(0)
+        return raw_buffer
+
+    try:
+        office_file = msoffcrypto.OfficeFile(raw_buffer)
+        if not office_file.is_encrypted():
+            raw_buffer.seek(0)
+            return raw_buffer
+
+        decrypted = BytesIO()
+        office_file.load_key(password=_safe_password_from_filename(filename))
+        office_file.decrypt(decrypted)
+        decrypted.seek(0)
+        return decrypted
+    except DecryptionError as exc:
+        raise ValueError(f'文件已加密但密码校验失败，请确认文件名最后 6 位是否为打开密码：{filename}') from exc
+    except Exception:
+        raw_buffer.seek(0)
+        return raw_buffer
+
+
+def _iter_order_upload_sources(file_obj: Any, config: ShopConfig) -> list[tuple[str, bytes]]:
+    filename = _get_upload_source_filename(file_obj)
+    file_bytes = _read_upload_source_bytes(file_obj)
+    if not _file_is_zip(filename):
+        return [(filename, file_bytes)]
+    if not _is_overseas_orders(config):
+        raise ValueError('只有海外旗舰订单表支持上传 ZIP 压缩包')
+
+    sources: list[tuple[str, bytes]] = []
+    try:
+        with zipfile.ZipFile(BytesIO(file_bytes)) as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                inner_name = info.filename.replace('\\', '/').split('/')[-1]
+                if not inner_name or inner_name.startswith('.') or inner_name.startswith('~$'):
+                    continue
+                if not (_file_is_csv(inner_name) or _file_is_excel(inner_name)):
+                    continue
+                sources.append((inner_name, zf.read(info)))
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f'ZIP 文件无法读取：{filename}') from exc
+
+    if not sources:
+        raise ValueError(f'ZIP 文件中未找到可导入的订单文件（支持 .csv/.xlsx/.xls）：{filename}')
+    return sources
+
+
 def _build_precheck_failed(title: str, summaries: list, invalid: list, failed: list) -> dict:
     parts = [f'{title}预检未通过，未写入数据库']
     for s in summaries:
@@ -596,7 +663,7 @@ def import_orders_files(files: list, config: ShopConfig) -> dict[str, Any]:
         if not fn:
             invalid.append('未命名文件')
             continue
-        if not (_file_is_csv(fn) or _file_is_excel(fn)):
+        if not (_file_is_csv(fn) or _file_is_excel(fn) or (_is_overseas_orders(config) and _file_is_zip(fn))):
             invalid.append(fn)
             continue
         valid.append(file_obj)
@@ -606,39 +673,38 @@ def import_orders_files(files: list, config: ShopConfig) -> dict[str, Any]:
                 'file_count': 0, 'files': [], 'invalid_files': invalid, 'failed_files': failed}
 
     for file_obj in valid:
-        fn = _get_upload_source_filename(file_obj)
         try:
-            file_bytes = _read_upload_source_bytes(file_obj)
-            if _file_is_csv(fn):
-                df = _read_orders_csv(file_bytes)
-            else:
-                buf = BytesIO(file_bytes)
-                df = pd.read_excel(buf)
-                df.columns = [_normalize_header(c) for c in df.columns]
+            for fn, file_bytes in _iter_order_upload_sources(file_obj, config):
+                if _file_is_csv(fn):
+                    df = _read_orders_csv(file_bytes)
+                else:
+                    buf = _excel_buffer_from_upload(file_bytes, fn)
+                    df = pd.read_excel(buf)
+                    df.columns = [_normalize_header(c) for c in df.columns]
 
-            cur_cols = df.columns.tolist()
-            missing_req = [c for c in required if c not in cur_cols]
-            if missing_req:
-                failed.append({'filename': fn, 'error': f'缺少必需字段：{", ".join(missing_req)}'})
-                continue
-
-            df = df.rename(columns=col_mapping)
-            summary = {'filename': fn, 'row_count': len(df), 'column_count': len(df.columns),
-                       'columns': df.columns.tolist()}
-
-            if base_cols is None:
-                base_cols = cur_cols
-                summaries.append(summary)
-                prepared.append(df)
-            else:
-                if set(cur_cols) != set(base_cols):
-                    failed.append({'filename': fn, 'error': '列结构与首个文件不一致'})
-                    summaries.append(summary)
+                cur_cols = df.columns.tolist()
+                missing_req = [c for c in required if c not in cur_cols]
+                if missing_req:
+                    failed.append({'filename': fn, 'error': f'缺少必需字段：{", ".join(missing_req)}'})
                     continue
-                summaries.append(summary)
-                prepared.append(df)
+
+                df = df.rename(columns=col_mapping)
+                summary = {'filename': fn, 'row_count': len(df), 'column_count': len(df.columns),
+                           'columns': df.columns.tolist()}
+
+                if base_cols is None:
+                    base_cols = cur_cols
+                    summaries.append(summary)
+                    prepared.append(df)
+                else:
+                    if set(cur_cols) != set(base_cols):
+                        failed.append({'filename': fn, 'error': '列结构与首个文件不一致'})
+                        summaries.append(summary)
+                        continue
+                    summaries.append(summary)
+                    prepared.append(df)
         except Exception as exc:
-            failed.append({'filename': fn, 'error': str(exc)})
+            failed.append({'filename': _get_upload_source_filename(file_obj), 'error': str(exc)})
         finally:
             _reset_upload_source(file_obj)
 
