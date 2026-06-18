@@ -1644,3 +1644,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅影响豁免管理模块首次初始化数据逻辑；不影响现有豁免数据的手工新增、编辑、停止、删除功能，不影响其他业务模块。
 - 是否涉及数据库：是
 - 是否需要回滚：是
+
+## [2026-06-18 12:30] 修改记录
+- 修改内容：将海外旗舰抖音订单上传修复提交并推送到 GitHub `main`，业务提交为 `b78ea75`；随后在西班牙服务器 `208.85.17.83` 的 `/root/my-flask-project` 执行 `git pull --ff-only origin main`，从 `c98a6ce` 快进到 `b78ea75`，并使用 `.venv/bin/python` 重启 Flask 服务。重启后新进程 `759374` 监听 `0.0.0.0:5001`，服务器本机 `/auth/login` 返回 200，`/douyin_shop_overseas/` 未登录访问返回 302 到登录页。
+- 修改文件：GitHub `main`；服务器 `/root/my-flask-project`；PROJECT_MEMORY.md
+- 修改原因：用户要求修复海外订单文件上传失败问题后上传 GitHub，并更新西班牙服务器运行最新代码。
+- 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未覆盖服务器 `data/` 业务数据，未处理服务器未跟踪的 `flask.log`。
+- 是否涉及数据库：否（代码部署；导入运行时仍按既有海外订单表写入数据，本次部署未直接改写业务数据）
+- 是否需要回滚：是
