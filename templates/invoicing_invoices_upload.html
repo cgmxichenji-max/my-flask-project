@@ -32,4 +32,6 @@ button{padding:10px 24px;background:#4CAF50;color:#fff;border:none;border-radius
 <p class="tip">单张上传，上传后进入复核页人工确认字段、客户、主体后才入库。</p>
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 </div>
-</main></body></html>
+</main>
+{% include '_reminder_broadcast.html' %}
+</body></html>

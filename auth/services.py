@@ -22,6 +22,7 @@ MODULE_KEYS = (
     'courier_fee',
     'kuaishou_aoke',
     'exemption_management',
+    'reminder_center',
 )
 MODULE_LABELS = {
     'inventory': '库存盘点',
@@ -37,6 +38,7 @@ MODULE_LABELS = {
     'courier_fee': '快递费计算',
     'kuaishou_aoke': '快手澳柯',
     'exemption_management': '豁免管理',
+    'reminder_center': '提醒中心',
 }
 
 

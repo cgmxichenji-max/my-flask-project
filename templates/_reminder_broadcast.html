@@ -1,0 +1,111 @@
+{% if g.current_user %}
+<div id="reminderBroadcast" class="reminder-broadcast" hidden>
+    <div class="reminder-broadcast__label">提醒</div>
+    <div class="reminder-broadcast__viewport">
+        <div id="reminderBroadcastTrack" class="reminder-broadcast__track"></div>
+    </div>
+</div>
+<style>
+    .reminder-broadcast {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 18px auto;
+        max-width: min(1600px, calc(100% - 48px));
+        min-height: 38px;
+        border: 1px solid #bfdbfe;
+        border-radius: 6px;
+        background: #eff6ff;
+        color: #1e3a8a;
+        box-sizing: border-box;
+        overflow: hidden;
+        font-family: "Microsoft YaHei", Arial, sans-serif;
+    }
+    .reminder-broadcast__label {
+        flex: 0 0 auto;
+        padding: 8px 12px;
+        background: #2563eb;
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 600;
+        align-self: stretch;
+        display: flex;
+        align-items: center;
+    }
+    .reminder-broadcast__viewport {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        white-space: nowrap;
+    }
+    .reminder-broadcast__track {
+        display: inline-block;
+        padding-left: 100%;
+        font-size: 14px;
+        line-height: 38px;
+        animation: reminder-marquee 26s linear infinite;
+    }
+    .reminder-broadcast__item {
+        display: inline-block;
+        margin-right: 56px;
+    }
+    .reminder-broadcast__title {
+        font-weight: 700;
+        margin-right: 6px;
+    }
+    @keyframes reminder-marquee {
+        0% {
+            transform: translateX(0);
+        }
+        100% {
+            transform: translateX(-100%);
+        }
+    }
+    @media (max-width: 720px) {
+        .reminder-broadcast {
+            max-width: calc(100% - 24px);
+            margin: 14px 12px;
+        }
+        .reminder-broadcast__label {
+            padding: 8px 10px;
+        }
+    }
+</style>
+<script>
+(function () {
+    const container = document.getElementById('reminderBroadcast');
+    const track = document.getElementById('reminderBroadcastTrack');
+    if (!container || !track) return;
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+    }
+
+    fetch('/reminder_center/api/active', {
+        headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+    })
+        .then(response => response.ok ? response.json() : null)
+        .then(data => {
+            if (!data || !data.success || !data.reminders || !data.reminders.length) {
+                return;
+            }
+            track.innerHTML = data.reminders.map(item => {
+                return '<span class="reminder-broadcast__item">' +
+                    '<span class="reminder-broadcast__title">【' + escapeHtml(item.title) + '】</span>' +
+                    escapeHtml(item.message) +
+                    '</span>';
+            }).join('');
+            container.hidden = false;
+        })
+        .catch(() => {});
+})();
+</script>
+{% endif %}

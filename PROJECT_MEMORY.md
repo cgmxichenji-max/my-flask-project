@@ -1668,3 +1668,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未覆盖服务器 `data/` 业务数据，未处理服务器未跟踪的 `flask.log`。
 - 是否涉及数据库：否（代码部署和导出验证仅读取业务数据）
 - 是否需要回滚：是
+
+## [2026-06-18 15:02] 修改记录
+- 修改内容：新增“提醒中心”模块与全站提醒广播。提醒中心新增广播总开关、豁免到期提醒设置和月度提醒维护；豁免到期提醒按北京时间判断，仅提醒“生效中”且结束日期位于提前天数窗口内的达人豁免记录，默认提前 7 天；月度提醒支持每月几号、提前几天、标题、内容和启停，提前窗口内每天都会广播。各登录后页面底部接入公共滚动广播条，广播数据通过 `/reminder_center/api/active` 异步读取，不影响页面原有操作。
+- 修改文件：app.py；auth/services.py；reminder_center/__init__.py；reminder_center/routes.py；reminder_center/services.py；templates/reminder_center.html；templates/_reminder_broadcast.html；templates/index.html；templates/admin_user_edit.html；templates/admin_users.html；templates/change_password.html；templates/courier_fee.html；templates/douyin_shop.html；templates/exemption_management.html；templates/inventory.html；templates/invoicing_billing_entities.html；templates/invoicing_customer_detail.html；templates/invoicing_customers.html；templates/invoicing_expected_amounts.html；templates/invoicing_index.html；templates/invoicing_invoice_match.html；templates/invoicing_invoices.html；templates/invoicing_invoices_review.html；templates/invoicing_invoices_upload.html；templates/invoicing_reconciliation.html；templates/kuaishou_aoke.html；templates/label_print.html；templates/logs.html；templates/purchase.html；templates/stock_in.html；templates/wechat_shop.html；PROJECT_MEMORY.md
+- 修改原因：用户需要一个通用提醒功能，既能在豁免记录临近到期前一周广播，也能通过独立模块配置每月几号等通用提醒，并要求日期统一使用北京时间、提醒中心权限与其他模块一致。
+- 影响范围：新增独立提醒中心模块、权限入口、提醒设置表和全站底部广播 UI；读取豁免管理数据用于生成到期提醒，不修改豁免业务数据，不影响现有导入、导出、计算和打印功能。
+- 是否涉及数据库：是
+- 是否需要回滚：是

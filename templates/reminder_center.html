@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>提醒中心</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+            background: #f4f7fb;
+            color: #1f2937;
+        }
+        header {
+            background: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 16px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+        main {
+            padding: 22px 28px 36px;
+            max-width: 1180px;
+            margin: 0 auto;
+        }
+        a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        .panel {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 18px;
+            margin-bottom: 16px;
+        }
+        .panel h2 {
+            margin: 0 0 14px;
+            font-size: 18px;
+        }
+        .form-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: end;
+        }
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .field label {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        input, textarea {
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 14px;
+            padding: 8px 10px;
+            box-sizing: border-box;
+        }
+        input[type="number"] {
+            width: 110px;
+        }
+        input[type="text"] {
+            width: 220px;
+        }
+        textarea {
+            width: 320px;
+            min-height: 38px;
+            resize: vertical;
+        }
+        .check-field {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 36px;
+        }
+        button {
+            border: 1px solid #2563eb;
+            background: #2563eb;
+            color: #ffffff;
+            min-height: 36px;
+            padding: 0 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button.secondary {
+            background: #ffffff;
+            color: #2563eb;
+        }
+        button.danger {
+            border-color: #dc2626;
+            background: #dc2626;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+        }
+        th, td {
+            border-bottom: 1px solid #edf0f4;
+            padding: 12px 10px;
+            text-align: left;
+            font-size: 14px;
+            vertical-align: top;
+        }
+        th {
+            background: #f9fafb;
+        }
+        .message {
+            min-height: 20px;
+            margin: 0 0 12px;
+            color: #2563eb;
+            font-size: 14px;
+        }
+        .message.error {
+            color: #dc2626;
+        }
+        .muted {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        @media (max-width: 760px) {
+            header {
+                padding: 14px 16px;
+            }
+            main {
+                padding: 16px;
+            }
+            .field, input[type="text"], textarea {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>提醒中心</h1>
+        <a href="/">返回首页</a>
+    </header>
+    <main>
+        <p id="message" class="message"></p>
+
+        <section class="panel">
+            <h2>广播总开关</h2>
+            <div class="form-row">
+                <label class="check-field">
+                    <input id="globalEnabled" type="checkbox">
+                    开启全站提醒广播
+                </label>
+                <button id="saveGlobalButton" type="button">保存</button>
+            </div>
+            <p class="muted">关闭后，所有页面底部都不显示提醒广播。</p>
+        </section>
+
+        <section class="panel">
+            <h2>豁免到期提醒</h2>
+            <div class="form-row">
+                <label class="check-field">
+                    <input id="exemptionEnabled" type="checkbox">
+                    开启豁免到期提醒
+                </label>
+                <div class="field">
+                    <label for="exemptionDaysBefore">提前天数</label>
+                    <input id="exemptionDaysBefore" type="number" min="0" max="365" value="7">
+                </div>
+                <button id="saveExemptionButton" type="button">保存</button>
+            </div>
+            <p class="muted">仅提醒“生效中”的豁免记录；日期使用北京时间。</p>
+        </section>
+
+        <section class="panel">
+            <h2>月度提醒</h2>
+            <form id="monthlyForm" class="form-row">
+                <input id="monthlyId" type="hidden">
+                <label class="check-field">
+                    <input id="monthlyEnabled" type="checkbox" checked>
+                    启用
+                </label>
+                <div class="field">
+                    <label for="monthlyTitle">标题</label>
+                    <input id="monthlyTitle" type="text" required placeholder="例如：每月核对">
+                </div>
+                <div class="field">
+                    <label for="monthlyMessage">内容</label>
+                    <textarea id="monthlyMessage" placeholder="广播中显示的内容"></textarea>
+                </div>
+                <div class="field">
+                    <label for="monthlyDay">每月几号</label>
+                    <input id="monthlyDay" type="number" min="1" max="31" value="1" required>
+                </div>
+                <div class="field">
+                    <label for="monthlyLeadDays">提前天数</label>
+                    <input id="monthlyLeadDays" type="number" min="0" max="31" value="0" required>
+                </div>
+                <button type="submit">保存月度提醒</button>
+                <button id="resetMonthlyButton" class="secondary" type="button">清空</button>
+            </form>
+            <table>
+                <thead>
+                    <tr>
+                        <th>状态</th>
+                        <th>标题</th>
+                        <th>内容</th>
+                        <th>每月几号</th>
+                        <th>提前天数</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="monthlyTableBody">
+                    <tr><td colspan="6">加载中</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </main>
+
+    {% include '_reminder_broadcast.html' %}
+
+    <script>
+        const state = {
+            settings: null,
+        };
+
+        const message = document.getElementById('message');
+
+        function setMessage(text, isError = false) {
+            message.textContent = text || '';
+            message.classList.toggle('error', Boolean(isError));
+        }
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }
+
+        async function requestJson(url, options = {}) {
+            const response = await fetch(url, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    ...(options.headers || {}),
+                },
+                ...options,
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || '操作失败');
+            }
+            return data;
+        }
+
+        async function loadSettings() {
+            try {
+                const data = await requestJson('/reminder_center/api/settings');
+                state.settings = data.settings;
+                renderSettings();
+                setMessage('');
+            } catch (error) {
+                setMessage(error.message, true);
+            }
+        }
+
+        function renderSettings() {
+            const global = state.settings.global || {};
+            const exemption = state.settings.exemption_expiry || {};
+            document.getElementById('globalEnabled').checked = Boolean(global.is_enabled);
+            document.getElementById('exemptionEnabled').checked = Boolean(exemption.is_enabled);
+            document.getElementById('exemptionDaysBefore').value =
+                (exemption.config && exemption.config.days_before) || 7;
+            renderMonthlyRows();
+        }
+
+        function renderMonthlyRows() {
+            const rows = state.settings.monthly || [];
+            const tbody = document.getElementById('monthlyTableBody');
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="6">暂无月度提醒</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rows.map(row => {
+                const config = row.config || {};
+                return `
+                    <tr>
+                        <td>${row.is_enabled ? '启用' : '关闭'}</td>
+                        <td>${escapeHtml(row.title)}</td>
+                        <td>${escapeHtml(row.message)}</td>
+                        <td>${escapeHtml(config.day_of_month)}</td>
+                        <td>${escapeHtml(config.lead_days || 0)}</td>
+                        <td>
+                            <button class="secondary" type="button" data-action="edit" data-id="${row.id}">编辑</button>
+                            <button class="danger" type="button" data-action="delete" data-id="${row.id}">删除</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        document.getElementById('saveGlobalButton').addEventListener('click', async () => {
+            try {
+                const data = await requestJson('/reminder_center/api/global', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        is_enabled: document.getElementById('globalEnabled').checked,
+                    }),
+                });
+                setMessage(data.message);
+                await loadSettings();
+            } catch (error) {
+                setMessage(error.message, true);
+            }
+        });
+
+        document.getElementById('saveExemptionButton').addEventListener('click', async () => {
+            try {
+                const data = await requestJson('/reminder_center/api/exemption', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        is_enabled: document.getElementById('exemptionEnabled').checked,
+                        days_before: document.getElementById('exemptionDaysBefore').value,
+                    }),
+                });
+                setMessage(data.message);
+                await loadSettings();
+            } catch (error) {
+                setMessage(error.message, true);
+            }
+        });
+
+        document.getElementById('monthlyForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const id = document.getElementById('monthlyId').value;
+            const url = id ? `/reminder_center/api/monthly/${id}` : '/reminder_center/api/monthly';
+            try {
+                const data = await requestJson(url, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        is_enabled: document.getElementById('monthlyEnabled').checked,
+                        title: document.getElementById('monthlyTitle').value,
+                        message: document.getElementById('monthlyMessage').value,
+                        day_of_month: document.getElementById('monthlyDay').value,
+                        lead_days: document.getElementById('monthlyLeadDays').value,
+                    }),
+                });
+                setMessage(data.message);
+                resetMonthlyForm();
+                await loadSettings();
+            } catch (error) {
+                setMessage(error.message, true);
+            }
+        });
+
+        function resetMonthlyForm() {
+            document.getElementById('monthlyId').value = '';
+            document.getElementById('monthlyEnabled').checked = true;
+            document.getElementById('monthlyTitle').value = '';
+            document.getElementById('monthlyMessage').value = '';
+            document.getElementById('monthlyDay').value = 1;
+            document.getElementById('monthlyLeadDays').value = 0;
+        }
+
+        document.getElementById('resetMonthlyButton').addEventListener('click', resetMonthlyForm);
+
+        document.getElementById('monthlyTableBody').addEventListener('click', async event => {
+            const button = event.target.closest('button[data-action]');
+            if (!button) return;
+            const id = Number(button.dataset.id);
+            const row = (state.settings.monthly || []).find(item => item.id === id);
+            if (!row) return;
+            if (button.dataset.action === 'edit') {
+                const config = row.config || {};
+                document.getElementById('monthlyId').value = row.id;
+                document.getElementById('monthlyEnabled').checked = Boolean(row.is_enabled);
+                document.getElementById('monthlyTitle').value = row.title || '';
+                document.getElementById('monthlyMessage').value = row.message || '';
+                document.getElementById('monthlyDay').value = config.day_of_month || 1;
+                document.getElementById('monthlyLeadDays').value = config.lead_days || 0;
+                window.scrollTo({top: 0, behavior: 'smooth'});
+            } else if (button.dataset.action === 'delete') {
+                if (!window.confirm('确认删除这条月度提醒？')) return;
+                try {
+                    const data = await requestJson(`/reminder_center/api/monthly/${id}/delete`, {
+                        method: 'POST',
+                        body: JSON.stringify({}),
+                    });
+                    setMessage(data.message);
+                    await loadSettings();
+                } catch (error) {
+                    setMessage(error.message, true);
+                }
+            }
+        });
+
+        loadSettings();
+    </script>
+</body>
+</html>

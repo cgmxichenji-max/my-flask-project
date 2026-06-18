@@ -135,11 +135,15 @@
             {% if can_module(g.current_user, 'exemption_management') %}
             <a href="/exemption_management/" class="menu-card">豁免管理</a>
             {% endif %}
+            {% if can_module(g.current_user, 'reminder_center') %}
+            <a href="/reminder_center/" class="menu-card">提醒中心</a>
+            {% endif %}
             {% if g.current_user.is_admin %}
             <a href="/vps-monitor" class="menu-card">VPS 监控</a>
             {% endif %}
         </div>
     </main>
+    {% include '_reminder_broadcast.html' %}
     <footer>© 2026 包材管理系统</footer>
 </body>
 </html>
