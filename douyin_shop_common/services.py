@@ -1321,6 +1321,30 @@ def _ensure_douyin_commission_tables(conn: sqlite3.Connection, config: ShopConfi
         raise ValueError(f'数据表不存在：{config.fund_flow_table}，请先导入资金结算表')
 
 
+def _overseas_creator_lookup_from_sql(config: ShopConfig) -> str:
+    return f"""
+        {config.fund_flow_table} f
+        LEFT JOIN (
+            SELECT
+                sub_order_no,
+                MAX(NULLIF(TRIM(influencer_nickname), '')) AS order_influencer_name,
+                MAX(NULLIF(TRIM(influencer_id), '')) AS order_influencer_id
+            FROM {config.orders_table}
+            WHERE COALESCE(sub_order_no, '') <> ''
+            GROUP BY sub_order_no
+        ) os ON f.sub_order_no = os.sub_order_no
+        LEFT JOIN (
+            SELECT
+                main_order_no,
+                MAX(NULLIF(TRIM(influencer_nickname), '')) AS order_influencer_name,
+                MAX(NULLIF(TRIM(influencer_id), '')) AS order_influencer_id
+            FROM {config.orders_table}
+            WHERE COALESCE(main_order_no, '') <> ''
+            GROUP BY main_order_no
+        ) om ON f.order_no = om.main_order_no
+    """
+
+
 def _query_creator_summary(
     conn: sqlite3.Connection,
     start_text: str,
@@ -1333,19 +1357,18 @@ def _query_creator_summary(
     table_sql = config.fund_flow_table
     name_expr = 'influencer_name'
     id_expr = 'influencer_id'
+    date_expr = _commission_date_expr()
+    commission_expr = 'influencer_commission'
     if _is_overseas_fund_flow(config) and _table_exists(conn, config.orders_table):
-        table_sql = f"""
-            {config.fund_flow_table} f
-            LEFT JOIN {config.orders_table} o
-              ON LTRIM(CAST(f.sub_order_no AS TEXT), '''') = LTRIM(CAST(o.sub_order_no AS TEXT), '''')
-              OR LTRIM(CAST(f.order_no AS TEXT), '''') = LTRIM(CAST(o.main_order_no AS TEXT), '''')
-        """
-        name_expr = "COALESCE(NULLIF(TRIM(f.influencer_name), ''), NULLIF(TRIM(o.influencer_nickname), ''))"
-        id_expr = "COALESCE(NULLIF(TRIM(f.influencer_id), ''), NULLIF(TRIM(o.influencer_id), ''))"
+        table_sql = _overseas_creator_lookup_from_sql(config)
+        name_expr = "COALESCE(NULLIF(TRIM(f.influencer_name), ''), os.order_influencer_name, om.order_influencer_name)"
+        id_expr = "COALESCE(NULLIF(TRIM(f.influencer_id), ''), os.order_influencer_id, om.order_influencer_id)"
+        date_expr = _commission_date_expr('f')
+        commission_expr = 'f.influencer_commission'
     where = [
-        f'{_commission_date_expr()} >= ?',
-        f'{_commission_date_expr()} <= ?',
-        'ABS(CAST(influencer_commission AS REAL)) > 0.0001',
+        f'{date_expr} >= ?',
+        f'{date_expr} <= ?',
+        f'ABS(CAST({commission_expr} AS REAL)) > 0.0001',
         f"{name_expr} IS NOT NULL",
         f"TRIM({name_expr}) <> ''",
         f"TRIM({name_expr}) <> '-'",
@@ -1356,11 +1379,11 @@ def _query_creator_summary(
         SELECT
             TRIM({name_expr}) AS name,
             {id_expr} AS influencer_id,
-            SUM(CAST(influencer_commission AS REAL)) AS net_amount
+            SUM(CAST({commission_expr} AS REAL)) AS net_amount
         FROM {table_sql}
         WHERE {' AND '.join(where)}
         GROUP BY TRIM({name_expr}), {id_expr}
-        ORDER BY SUM(CAST(influencer_commission AS REAL)) ASC
+        ORDER BY SUM(CAST({commission_expr} AS REAL)) ASC
     """
     df = pd.read_sql_query(sql, conn, params=params)
     if df.empty:
@@ -1526,15 +1549,14 @@ def _query_creator_detail_rows(
     table_sql = config.fund_flow_table
     name_expr = 'influencer_name'
     id_expr = 'influencer_id'
+    date_expr = _commission_date_expr()
+    commission_expr = 'influencer_commission'
     if _is_overseas_fund_flow(config) and _table_exists(conn, config.orders_table):
-        table_sql = f"""
-            {config.fund_flow_table} f
-            LEFT JOIN {config.orders_table} o
-              ON LTRIM(CAST(f.sub_order_no AS TEXT), '''') = LTRIM(CAST(o.sub_order_no AS TEXT), '''')
-              OR LTRIM(CAST(f.order_no AS TEXT), '''') = LTRIM(CAST(o.main_order_no AS TEXT), '''')
-        """
-        name_expr = "COALESCE(NULLIF(TRIM(f.influencer_name), ''), NULLIF(TRIM(o.influencer_nickname), ''))"
-        id_expr = "COALESCE(NULLIF(TRIM(f.influencer_id), ''), NULLIF(TRIM(o.influencer_id), ''))"
+        table_sql = _overseas_creator_lookup_from_sql(config)
+        name_expr = "COALESCE(NULLIF(TRIM(f.influencer_name), ''), os.order_influencer_name, om.order_influencer_name)"
+        id_expr = "COALESCE(NULLIF(TRIM(f.influencer_id), ''), os.order_influencer_id, om.order_influencer_id)"
+        date_expr = _commission_date_expr('f')
+        commission_expr = 'f.influencer_commission'
         select_parts: list[str] = []
         for col in column_types.keys():
             if col == 'influencer_name':
@@ -1545,9 +1567,9 @@ def _query_creator_detail_rows(
                 select_parts.append(f'f.{col}')
         columns_sql = ', '.join(select_parts)
     where = [
-        f'{_commission_date_expr()} >= ?',
-        f'{_commission_date_expr()} <= ?',
-        'ABS(CAST(influencer_commission AS REAL)) > 0.0001',
+        f'{date_expr} >= ?',
+        f'{date_expr} <= ?',
+        f'ABS(CAST({commission_expr} AS REAL)) > 0.0001',
         f"{name_expr} IS NOT NULL",
         f"TRIM({name_expr}) <> ''",
         f"TRIM({name_expr}) <> '-'",
