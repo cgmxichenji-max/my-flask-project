@@ -163,6 +163,29 @@ ORDERS_TEXT_SOURCE_COLUMNS = {
     '鲁班落地页ID', '达人ID', '所属门店ID', '仓库ID', '收件人手机号',
 }
 
+OVERSEAS_ORDERS_COLUMN_MAPPING = dict(ORDERS_COLUMN_MAPPING)
+OVERSEAS_ORDERS_COLUMN_MAPPING.update({
+    '货品ID': 'sku_id',
+    '序列号': 'serial_no',
+    '商品单价是否含税': 'is_product_unit_price_tax_included',
+    '税费': 'tax_fee',
+})
+
+OVERSEAS_ORDERS_COLUMN_TYPES = dict(ORDERS_COLUMN_TYPES)
+OVERSEAS_ORDERS_COLUMN_TYPES.update({
+    'sku_id': 'TEXT',
+    'serial_no': 'TEXT',
+    'is_product_unit_price_tax_included': 'TEXT',
+    'tax_fee': 'REAL',
+})
+
+OVERSEAS_ORDERS_REQUIRED_COLUMNS = ORDERS_REQUIRED_COLUMNS
+OVERSEAS_ORDERS_DEDUP_KEY_COLUMNS = ORDERS_DEDUP_KEY_COLUMNS
+
+OVERSEAS_ORDERS_TEXT_SOURCE_COLUMNS = set(ORDERS_TEXT_SOURCE_COLUMNS) | {
+    '货品ID', '序列号',
+}
+
 # ==================== 资金结算表 ====================
 
 FUND_FLOW_COLUMN_MAPPING = {
@@ -266,6 +289,65 @@ FUND_FLOW_DEDUP_KEY_COLUMNS = ['order_no', 'sub_order_no', 'settlement_time', 's
 
 FUND_FLOW_TEXT_SOURCE_COLUMNS = {
     '订单号', '子订单号', '商品ID', '达人ID',
+}
+
+OVERSEAS_FUND_FLOW_COLUMN_MAPPING = {
+    '动账时间': 'settlement_time',
+    '动账流水号': 'transaction_no',
+    '动账方向': 'transaction_direction',
+    '动账账户': 'transaction_account',
+    '动账金额': 'transaction_amount',
+    '动账摘要': 'settlement_type',
+    '订单号': 'order_no',
+    '子订单号': 'sub_order_no',
+    '下单时间': 'order_created_at',
+    '商品ID': 'product_id',
+    '税费': 'tax_fee',
+    '业务类型': 'business_type',
+    '结算金额(元)': 'settlement_amount',
+    '汇率': 'exchange_rate',
+    '币种': 'currency',
+    '结算外币金额': 'foreign_settlement_amount',
+    '订单实付(元)': 'user_actual_paid',
+    '达人补贴(元)': 'influencer_subsidy',
+    '平台补贴(元)': 'platform_subsidy',
+    '平台补贴外币金额': 'platform_subsidy_foreign_amount',
+    '退款(元)': 'refund_amount',
+    '平台服务费(元)': 'platform_service_fee',
+    '佣金(元)': 'influencer_commission',
+    '招商服务费(元)': 'merchant_recruitment_fee',
+    '供应链费用(元)': 'supply_chain_fee',
+    '预留税费(元)': 'reserved_tax_fee',
+    '站外推广费(元)': 'external_promotion_fee',
+    '供应链欠款抵扣(元)': 'supply_chain_debt_deduction',
+    '分期服务费(元)': 'installment_service_fee',
+    '是否免佣': 'is_commission_exempt',
+    '免佣金额': 'commission_exempt_amount',
+}
+
+OVERSEAS_FUND_FLOW_COLUMN_TYPES = dict(FUND_FLOW_COLUMN_TYPES)
+OVERSEAS_FUND_FLOW_COLUMN_TYPES.update({
+    'transaction_no': 'TEXT',
+    'transaction_direction': 'TEXT',
+    'transaction_account': 'TEXT',
+    'transaction_amount': 'REAL',
+    'tax_fee': 'REAL',
+    'exchange_rate': 'REAL',
+    'currency': 'TEXT',
+    'foreign_settlement_amount': 'REAL',
+    'platform_subsidy_foreign_amount': 'REAL',
+    'refund_amount': 'REAL',
+    'supply_chain_fee': 'REAL',
+    'reserved_tax_fee': 'REAL',
+    'supply_chain_debt_deduction': 'REAL',
+    'installment_service_fee': 'REAL',
+})
+
+OVERSEAS_FUND_FLOW_REQUIRED_COLUMNS = ['动账时间', '动账流水号', '订单号', '子订单号']
+OVERSEAS_FUND_FLOW_DEDUP_KEY_COLUMNS = ['transaction_no']
+
+OVERSEAS_FUND_FLOW_TEXT_SOURCE_COLUMNS = {
+    '动账流水号', '动账账户', '订单号', '子订单号', '商品ID',
 }
 
 # ==================== 佣金订单明细表 ====================

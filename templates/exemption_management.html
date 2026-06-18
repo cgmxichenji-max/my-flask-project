@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>豁免管理</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+            background: #f4f7fb;
+            color: #1f2937;
+        }
+        header {
+            background: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 16px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 650;
+        }
+        .back-link {
+            color: #2563eb;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        main {
+            padding: 22px 28px 34px;
+        }
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .tab-button {
+            border: 1px solid #d1d5db;
+            background: #ffffff;
+            color: #374151;
+            padding: 9px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .tab-button.active {
+            border-color: #2563eb;
+            color: #2563eb;
+            background: #eff6ff;
+            font-weight: 600;
+        }
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 12px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 14px;
+            margin-bottom: 14px;
+        }
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .field label {
+            font-size: 12px;
+            color: #6b7280;
+        }
+        input, select {
+            height: 34px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            padding: 0 10px;
+            font-size: 14px;
+            box-sizing: border-box;
+            background: #ffffff;
+        }
+        .keyword-input {
+            width: 280px;
+        }
+        .date-input {
+            width: 148px;
+        }
+        .button {
+            border: 1px solid #2563eb;
+            background: #2563eb;
+            color: #ffffff;
+            min-height: 34px;
+            padding: 0 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .button.secondary {
+            background: #ffffff;
+            color: #2563eb;
+        }
+        .button.danger {
+            border-color: #dc2626;
+            background: #dc2626;
+        }
+        .button.link {
+            border: 0;
+            background: transparent;
+            color: #2563eb;
+            padding: 0 6px;
+            min-height: auto;
+        }
+        .button.link.danger-text {
+            color: #dc2626;
+        }
+        .table-wrap {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 980px;
+        }
+        th, td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #edf0f4;
+            text-align: left;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        th {
+            background: #f9fafb;
+            color: #111827;
+            font-weight: 650;
+        }
+        tbody tr:hover {
+            background: #f8fbff;
+        }
+        .status-dot {
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        .status-active {
+            background: #34c759;
+        }
+        .status-ended {
+            background: #f43f5e;
+        }
+        .empty {
+            padding: 28px;
+            text-align: center;
+            color: #6b7280;
+        }
+        .message {
+            min-height: 20px;
+            margin: 0 0 10px;
+            font-size: 14px;
+            color: #2563eb;
+        }
+        .message.error {
+            color: #dc2626;
+        }
+        .modal-mask {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.38);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            padding: 18px;
+        }
+        .modal-mask.open {
+            display: flex;
+        }
+        .modal {
+            width: min(620px, 100%);
+            background: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 18px 60px rgba(15, 23, 42, 0.25);
+        }
+        .modal-header, .modal-footer {
+            padding: 16px 20px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-footer {
+            border-top: 1px solid #e5e7eb;
+            border-bottom: 0;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .modal-title {
+            font-size: 18px;
+            font-weight: 650;
+        }
+        .modal-body {
+            padding: 18px 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+        .modal-body .field.full {
+            grid-column: 1 / -1;
+        }
+        .close-button {
+            border: 0;
+            background: transparent;
+            font-size: 22px;
+            cursor: pointer;
+            color: #6b7280;
+        }
+        @media (max-width: 720px) {
+            header {
+                padding: 14px 16px;
+            }
+            main {
+                padding: 16px;
+            }
+            .keyword-input, .date-input {
+                width: 100%;
+            }
+            .field {
+                width: 100%;
+            }
+            .modal-body {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>豁免管理</h1>
+        <a class="back-link" href="/">返回首页</a>
+    </header>
+    <main>
+        <div class="tabs" id="brandTabs">
+            <button class="tab-button active" data-brand="chantelle">香娜露儿豁免管理</button>
+            <button class="tab-button" data-brand="mulianman">慕莲蔓豁免管理</button>
+        </div>
+
+        <div class="toolbar">
+            <div class="field">
+                <label for="keywordInput">达人信息</label>
+                <input id="keywordInput" class="keyword-input" type="text" placeholder="达人渠道 / 昵称 / UID">
+            </div>
+            <div class="field">
+                <label for="statusSelect">豁免状态</label>
+                <select id="statusSelect">
+                    <option value="">全部</option>
+                    <option value="active">生效中</option>
+                    <option value="ended">已结束</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="startFromInput">生效日期从</label>
+                <input id="startFromInput" class="date-input" type="date">
+            </div>
+            <div class="field">
+                <label for="startToInput">生效日期至</label>
+                <input id="startToInput" class="date-input" type="date">
+            </div>
+            <div class="field">
+                <label for="endFromInput">结束日期从</label>
+                <input id="endFromInput" class="date-input" type="date">
+            </div>
+            <div class="field">
+                <label for="endToInput">结束日期至</label>
+                <input id="endToInput" class="date-input" type="date">
+            </div>
+            <button class="button" id="searchButton" type="button">查询</button>
+            <button class="button secondary" id="resetButton" type="button">重置</button>
+            <button class="button" id="addButton" type="button">新增</button>
+        </div>
+
+        <p id="message" class="message"></p>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>达人渠道</th>
+                        <th>达人昵称</th>
+                        <th>达人UID</th>
+                        <th>豁免状态</th>
+                        <th>生效日期</th>
+                        <th>结束日期</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr><td colspan="7" class="empty">加载中</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <div class="modal-mask" id="editModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title" id="modalTitle">新增豁免</div>
+                <button class="close-button" id="closeModalButton" type="button">×</button>
+            </div>
+            <form id="editForm">
+                <div class="modal-body">
+                    <input type="hidden" id="recordId">
+                    <div class="field">
+                        <label for="brandInput">所属品牌</label>
+                        <select id="brandInput" required>
+                            <option value="chantelle">香娜露儿</option>
+                            <option value="mulianman">慕莲蔓</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="statusInput">豁免状态</label>
+                        <select id="statusInput" required>
+                            <option value="active">生效中</option>
+                            <option value="ended">已结束</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="channelInput">达人渠道</label>
+                        <input id="channelInput" type="text" required>
+                    </div>
+                    <div class="field">
+                        <label for="uidInput">达人UID</label>
+                        <input id="uidInput" type="text" required>
+                    </div>
+                    <div class="field full">
+                        <label for="nicknameInput">达人昵称</label>
+                        <input id="nicknameInput" type="text" required>
+                    </div>
+                    <div class="field">
+                        <label for="startDateInput">生效日期</label>
+                        <input id="startDateInput" type="date" required>
+                    </div>
+                    <div class="field">
+                        <label for="endDateInput">结束日期</label>
+                        <input id="endDateInput" type="date" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="button secondary" id="cancelModalButton" type="button">取消</button>
+                    <button class="button" type="submit">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const state = {
+            brand: 'chantelle',
+            rows: [],
+        };
+
+        const elements = {
+            tableBody: document.getElementById('tableBody'),
+            message: document.getElementById('message'),
+            keyword: document.getElementById('keywordInput'),
+            status: document.getElementById('statusSelect'),
+            startFrom: document.getElementById('startFromInput'),
+            startTo: document.getElementById('startToInput'),
+            endFrom: document.getElementById('endFromInput'),
+            endTo: document.getElementById('endToInput'),
+            modal: document.getElementById('editModal'),
+            modalTitle: document.getElementById('modalTitle'),
+            form: document.getElementById('editForm'),
+            recordId: document.getElementById('recordId'),
+            brandInput: document.getElementById('brandInput'),
+            statusInput: document.getElementById('statusInput'),
+            channelInput: document.getElementById('channelInput'),
+            uidInput: document.getElementById('uidInput'),
+            nicknameInput: document.getElementById('nicknameInput'),
+            startDateInput: document.getElementById('startDateInput'),
+            endDateInput: document.getElementById('endDateInput'),
+        };
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }
+
+        function setMessage(text, isError = false) {
+            elements.message.textContent = text || '';
+            elements.message.classList.toggle('error', Boolean(isError));
+        }
+
+        function buildQuery() {
+            const params = new URLSearchParams();
+            params.set('brand', state.brand);
+            if (elements.keyword.value.trim()) params.set('keyword', elements.keyword.value.trim());
+            if (elements.status.value) params.set('status', elements.status.value);
+            if (elements.startFrom.value) params.set('start_from', elements.startFrom.value);
+            if (elements.startTo.value) params.set('start_to', elements.startTo.value);
+            if (elements.endFrom.value) params.set('end_from', elements.endFrom.value);
+            if (elements.endTo.value) params.set('end_to', elements.endTo.value);
+            return params.toString();
+        }
+
+        async function requestJson(url, options = {}) {
+            const response = await fetch(url, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    ...(options.headers || {}),
+                },
+                ...options,
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || '操作失败');
+            }
+            return data;
+        }
+
+        async function loadRows() {
+            elements.tableBody.innerHTML = '<tr><td colspan="7" class="empty">加载中</td></tr>';
+            try {
+                const data = await requestJson(`/exemption_management/api/list?${buildQuery()}`, {
+                    method: 'GET',
+                });
+                state.rows = data.rows || [];
+                renderRows();
+                setMessage(`共 ${data.total || 0} 条记录`);
+            } catch (error) {
+                elements.tableBody.innerHTML = '<tr><td colspan="7" class="empty">加载失败</td></tr>';
+                setMessage(error.message, true);
+            }
+        }
+
+        function renderRows() {
+            if (!state.rows.length) {
+                elements.tableBody.innerHTML = '<tr><td colspan="7" class="empty">暂无数据</td></tr>';
+                return;
+            }
+            elements.tableBody.innerHTML = state.rows.map(row => {
+                const dotClass = row.status === 'active' ? 'status-active' : 'status-ended';
+                const stopButton = row.status === 'active'
+                    ? `<button class="button link" data-action="stop" data-id="${row.id}" type="button">停止</button>`
+                    : '';
+                return `
+                    <tr>
+                        <td>${escapeHtml(row.creator_channel)}</td>
+                        <td>${escapeHtml(row.creator_nickname)}</td>
+                        <td>${escapeHtml(row.creator_uid)}</td>
+                        <td><span class="status-dot ${dotClass}"></span>${escapeHtml(row.status_label)}</td>
+                        <td>${escapeHtml(row.start_date)}</td>
+                        <td>${escapeHtml(row.end_date)}</td>
+                        <td>
+                            <button class="button link" data-action="edit" data-id="${row.id}" type="button">编辑</button>
+                            ${stopButton}
+                            <button class="button link danger-text" data-action="delete" data-id="${row.id}" type="button">删除</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function openModal(row = null) {
+            elements.form.reset();
+            elements.recordId.value = row ? row.id : '';
+            elements.modalTitle.textContent = row ? '编辑豁免' : '新增豁免';
+            elements.brandInput.value = row ? row.brand : state.brand;
+            elements.statusInput.value = row ? row.status : 'active';
+            elements.channelInput.value = row ? row.creator_channel : '抖音火山';
+            elements.uidInput.value = row ? row.creator_uid : '';
+            elements.nicknameInput.value = row ? row.creator_nickname : '';
+            elements.startDateInput.value = row ? row.start_date : '';
+            elements.endDateInput.value = row ? row.end_date : '';
+            elements.modal.classList.add('open');
+        }
+
+        function closeModal() {
+            elements.modal.classList.remove('open');
+        }
+
+        function collectFormPayload() {
+            return {
+                brand: elements.brandInput.value,
+                status: elements.statusInput.value,
+                creator_channel: elements.channelInput.value,
+                creator_uid: elements.uidInput.value,
+                creator_nickname: elements.nicknameInput.value,
+                start_date: elements.startDateInput.value,
+                end_date: elements.endDateInput.value,
+            };
+        }
+
+        async function saveForm(event) {
+            event.preventDefault();
+            const id = elements.recordId.value;
+            const url = id
+                ? `/exemption_management/api/update/${id}`
+                : '/exemption_management/api/create';
+            try {
+                const data = await requestJson(url, {
+                    method: 'POST',
+                    body: JSON.stringify(collectFormPayload()),
+                });
+                closeModal();
+                setMessage(data.message || '保存成功');
+                state.brand = elements.brandInput.value;
+                syncActiveTab();
+                await loadRows();
+            } catch (error) {
+                setMessage(error.message, true);
+            }
+        }
+
+        function syncActiveTab() {
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.toggle('active', button.dataset.brand === state.brand);
+            });
+        }
+
+        async function stopRow(id) {
+            const today = new Date().toISOString().slice(0, 10);
+            const endDate = window.prompt('请输入结束日期', today);
+            if (endDate === null) return;
+            try {
+                const data = await requestJson(`/exemption_management/api/stop/${id}`, {
+                    method: 'POST',
+                    body: JSON.stringify({end_date: endDate}),
+                });
+                setMessage(data.message || '已停止');
+                await loadRows();
+            } catch (error) {
+                setMessage(error.message, true);
+            }
+        }
+
+        async function deleteRow(id) {
+            if (!window.confirm('确认删除这条豁免记录？')) return;
+            try {
+                const data = await requestJson(`/exemption_management/api/delete/${id}`, {
+                    method: 'POST',
+                    body: JSON.stringify({}),
+                });
+                setMessage(data.message || '删除成功');
+                await loadRows();
+            } catch (error) {
+                setMessage(error.message, true);
+            }
+        }
+
+        document.getElementById('brandTabs').addEventListener('click', event => {
+            const button = event.target.closest('.tab-button');
+            if (!button) return;
+            state.brand = button.dataset.brand;
+            syncActiveTab();
+            loadRows();
+        });
+
+        document.getElementById('searchButton').addEventListener('click', loadRows);
+        document.getElementById('resetButton').addEventListener('click', () => {
+            elements.keyword.value = '';
+            elements.status.value = '';
+            elements.startFrom.value = '';
+            elements.startTo.value = '';
+            elements.endFrom.value = '';
+            elements.endTo.value = '';
+            loadRows();
+        });
+        document.getElementById('addButton').addEventListener('click', () => openModal());
+        document.getElementById('closeModalButton').addEventListener('click', closeModal);
+        document.getElementById('cancelModalButton').addEventListener('click', closeModal);
+        elements.modal.addEventListener('click', event => {
+            if (event.target === elements.modal) closeModal();
+        });
+        elements.form.addEventListener('submit', saveForm);
+        elements.keyword.addEventListener('keydown', event => {
+            if (event.key === 'Enter') loadRows();
+        });
+
+        elements.tableBody.addEventListener('click', event => {
+            const button = event.target.closest('button[data-action]');
+            if (!button) return;
+            const id = Number(button.dataset.id);
+            const row = state.rows.find(item => item.id === id);
+            if (button.dataset.action === 'edit' && row) {
+                openModal(row);
+            } else if (button.dataset.action === 'stop') {
+                stopRow(id);
+            } else if (button.dataset.action === 'delete') {
+                deleteRow(id);
+            }
+        });
+
+        loadRows();
+    </script>
+</body>
+</html>

@@ -27,11 +27,21 @@ from .table_schemas import (
     ORDERS_REQUIRED_COLUMNS,
     ORDERS_DEDUP_KEY_COLUMNS,
     ORDERS_TEXT_SOURCE_COLUMNS,
+    OVERSEAS_ORDERS_COLUMN_MAPPING,
+    OVERSEAS_ORDERS_COLUMN_TYPES,
+    OVERSEAS_ORDERS_REQUIRED_COLUMNS,
+    OVERSEAS_ORDERS_DEDUP_KEY_COLUMNS,
+    OVERSEAS_ORDERS_TEXT_SOURCE_COLUMNS,
     FUND_FLOW_COLUMN_MAPPING,
     FUND_FLOW_COLUMN_TYPES,
     FUND_FLOW_REQUIRED_COLUMNS,
     FUND_FLOW_DEDUP_KEY_COLUMNS,
     FUND_FLOW_TEXT_SOURCE_COLUMNS,
+    OVERSEAS_FUND_FLOW_COLUMN_MAPPING,
+    OVERSEAS_FUND_FLOW_COLUMN_TYPES,
+    OVERSEAS_FUND_FLOW_REQUIRED_COLUMNS,
+    OVERSEAS_FUND_FLOW_DEDUP_KEY_COLUMNS,
+    OVERSEAS_FUND_FLOW_TEXT_SOURCE_COLUMNS,
     COMMISSION_COLUMN_MAPPING,
     COMMISSION_COLUMN_TYPES,
     COMMISSION_REQUIRED_COLUMNS,
@@ -53,6 +63,8 @@ class ShopConfig:
     display_name: str    # 页面显示名，如 '香娜露儿（抖音）'
     module_key: str      # 权限 key，如 'douyin_shop_chantelle'
     table_prefix: str    # 表名前缀，如 'dy_chantelle'
+    fund_flow_format: str = 'standard'
+    order_format: str = 'standard'
 
     @property
     def orders_table(self) -> str:
@@ -77,6 +89,84 @@ class ShopConfig:
 
 # ===================== 工具函数 =====================
 
+def _is_overseas_fund_flow(config: ShopConfig) -> bool:
+    return config.fund_flow_format == 'overseas'
+
+
+def _is_overseas_orders(config: ShopConfig) -> bool:
+    return config.order_format == 'overseas'
+
+
+def _orders_column_mapping(config: ShopConfig) -> dict[str, str]:
+    if _is_overseas_orders(config):
+        return OVERSEAS_ORDERS_COLUMN_MAPPING
+    return ORDERS_COLUMN_MAPPING
+
+
+def _orders_column_types(config: ShopConfig) -> dict[str, str]:
+    if _is_overseas_orders(config):
+        return OVERSEAS_ORDERS_COLUMN_TYPES
+    return ORDERS_COLUMN_TYPES
+
+
+def _orders_required_columns(config: ShopConfig) -> list[str]:
+    if _is_overseas_orders(config):
+        return OVERSEAS_ORDERS_REQUIRED_COLUMNS
+    return ORDERS_REQUIRED_COLUMNS
+
+
+def _orders_dedup_key_columns(config: ShopConfig) -> list[str]:
+    if _is_overseas_orders(config):
+        return OVERSEAS_ORDERS_DEDUP_KEY_COLUMNS
+    return ORDERS_DEDUP_KEY_COLUMNS
+
+
+def _orders_text_source_columns(config: ShopConfig) -> set[str]:
+    if _is_overseas_orders(config):
+        return OVERSEAS_ORDERS_TEXT_SOURCE_COLUMNS
+    return ORDERS_TEXT_SOURCE_COLUMNS
+
+
+def _fund_flow_column_mapping(config: ShopConfig) -> dict[str, str]:
+    if _is_overseas_fund_flow(config):
+        return OVERSEAS_FUND_FLOW_COLUMN_MAPPING
+    return FUND_FLOW_COLUMN_MAPPING
+
+
+def _fund_flow_column_types(config: ShopConfig) -> dict[str, str]:
+    if _is_overseas_fund_flow(config):
+        return OVERSEAS_FUND_FLOW_COLUMN_TYPES
+    return FUND_FLOW_COLUMN_TYPES
+
+
+def _fund_flow_required_columns(config: ShopConfig) -> list[str]:
+    if _is_overseas_fund_flow(config):
+        return OVERSEAS_FUND_FLOW_REQUIRED_COLUMNS
+    return FUND_FLOW_REQUIRED_COLUMNS
+
+
+def _fund_flow_dedup_key_columns(config: ShopConfig) -> list[str]:
+    if _is_overseas_fund_flow(config):
+        return OVERSEAS_FUND_FLOW_DEDUP_KEY_COLUMNS
+    return FUND_FLOW_DEDUP_KEY_COLUMNS
+
+
+def _fund_flow_text_source_columns(config: ShopConfig) -> set[str]:
+    if _is_overseas_fund_flow(config):
+        return OVERSEAS_FUND_FLOW_TEXT_SOURCE_COLUMNS
+    return FUND_FLOW_TEXT_SOURCE_COLUMNS
+
+
+def get_export_table_config(config: ShopConfig) -> dict[str, dict[str, Any]]:
+    export_config = {key: dict(value) for key, value in EXPORT_TABLE_CONFIG.items()}
+    export_config['orders'] = dict(export_config['orders'])
+    export_config['orders']['column_mapping'] = _orders_column_mapping(config)
+    export_config['orders']['column_types'] = _orders_column_types(config)
+    export_config['fund_flow'] = dict(export_config['fund_flow'])
+    export_config['fund_flow']['column_mapping'] = _fund_flow_column_mapping(config)
+    export_config['fund_flow']['column_types'] = _fund_flow_column_types(config)
+    return export_config
+
 def _normalize_header(value: Any) -> str:
     return unicodedata.normalize('NFKC', str(value)).strip()
 
@@ -90,7 +180,10 @@ def _clean_text_value(value: Any) -> Any:
         if value.is_integer():
             return format(value, '.0f')
         return format(value, 'f').rstrip('0').rstrip('.')
-    return str(value).strip()
+    text = str(value).strip()
+    if text.startswith("'"):
+        text = text[1:].strip()
+    return text
 
 
 def _clean_numeric_value(value: Any) -> Any:
@@ -210,8 +303,8 @@ def ensure_all_tables(config: ShopConfig) -> None:
     db_path = _get_database_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
-        _ensure_table(conn, config.orders_table, ORDERS_COLUMN_TYPES)
-        _ensure_table(conn, config.fund_flow_table, FUND_FLOW_COLUMN_TYPES)
+        _ensure_table(conn, config.orders_table, _orders_column_types(config))
+        _ensure_table(conn, config.fund_flow_table, _fund_flow_column_types(config))
         _ensure_table(conn, config.commission_table, COMMISSION_COLUMN_TYPES)
         _ensure_table(conn, config.merchant_table, MERCHANT_COLUMN_TYPES)
         _ensure_data_status_table(conn, config.data_status_table)
@@ -257,6 +350,10 @@ def get_data_status_rows(config: ShopConfig) -> list[dict]:
     try:
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
+            _ensure_table(conn, config.orders_table, _orders_column_types(config))
+            _ensure_table(conn, config.fund_flow_table, _fund_flow_column_types(config))
+            _ensure_table(conn, config.commission_table, COMMISSION_COLUMN_TYPES)
+            _ensure_table(conn, config.merchant_table, MERCHANT_COLUMN_TYPES)
             _ensure_data_status_table(conn, config.data_status_table)
             rows = conn.execute(f'''
                 SELECT table_key, table_name, record_count, min_date, max_date, last_import_time
@@ -375,14 +472,18 @@ def _read_orders_csv(file_bytes: bytes) -> pd.DataFrame:
     return df
 
 
-def _read_fund_flow_csv(file_bytes: bytes) -> pd.DataFrame:
-    """读取资金结算 CSV，跳过第2行（字段说明行），数据从第3行开始。"""
+def _read_fund_flow_csv(
+    file_bytes: bytes,
+    text_source_cols: set[str],
+    skip_description_row: bool = True,
+) -> pd.DataFrame:
+    """读取资金结算 CSV；标准抖音文件跳过第2行字段说明，海外文件不跳过。"""
     buf = BytesIO(file_bytes)
     header_df = pd.read_csv(buf, nrows=0, encoding='utf-8-sig')
     buf.seek(0)
-    dtype_map = _build_csv_dtype_mapping(header_df.columns.tolist(), FUND_FLOW_TEXT_SOURCE_COLUMNS)
-    # skiprows=[1] 跳过索引=1（第2行）的说明行，保留表头行
-    df = pd.read_csv(buf, skiprows=[1], dtype=dtype_map if dtype_map else None,
+    dtype_map = _build_csv_dtype_mapping(header_df.columns.tolist(), text_source_cols)
+    skiprows = [1] if skip_description_row else None
+    df = pd.read_csv(buf, skiprows=skiprows, dtype=dtype_map if dtype_map else None,
                      encoding='utf-8-sig', low_memory=False)
     df.columns = [_normalize_header(c) for c in df.columns]
     return df
@@ -479,10 +580,13 @@ def _build_precheck_failed(title: str, summaries: list, invalid: list, failed: l
 
 
 def import_orders_files(files: list, config: ShopConfig) -> dict[str, Any]:
-    col_mapping = {_normalize_header(k): v for k, v in ORDERS_COLUMN_MAPPING.items()}
-    required = [_normalize_header(c) for c in ORDERS_REQUIRED_COLUMNS]
-    text_fields = {v for k, v in ORDERS_COLUMN_MAPPING.items()
-                   if _normalize_header(k) in {_normalize_header(c) for c in ORDERS_TEXT_SOURCE_COLUMNS}}
+    source_mapping = _orders_column_mapping(config)
+    column_types = _orders_column_types(config)
+    text_source_cols = _orders_text_source_columns(config)
+    col_mapping = {_normalize_header(k): v for k, v in source_mapping.items()}
+    required = [_normalize_header(c) for c in _orders_required_columns(config)]
+    text_fields = {v for k, v in source_mapping.items()
+                   if _normalize_header(k) in {_normalize_header(c) for c in text_source_cols}}
 
     valid, invalid, failed, summaries, prepared = [], [], [], [], []
     base_cols: list[str] | None = None
@@ -547,8 +651,8 @@ def import_orders_files(files: list, config: ShopConfig) -> dict[str, Any]:
 
     try:
         written, msg = _write_df_to_table(
-            prepared, config, config.orders_table, ORDERS_COLUMN_TYPES,
-            ORDERS_DEDUP_KEY_COLUMNS, text_fields, 'orders', '订单',
+            prepared, config, config.orders_table, column_types,
+            _orders_dedup_key_columns(config), text_fields, 'orders', '订单',
         )
     except Exception as exc:
         return {'success': False, 'message': f'写入订单数据库失败：{exc}',
@@ -562,10 +666,13 @@ def import_orders_files(files: list, config: ShopConfig) -> dict[str, Any]:
 
 
 def import_fund_flow_files(files: list, config: ShopConfig) -> dict[str, Any]:
-    col_mapping = {_normalize_header(k): v for k, v in FUND_FLOW_COLUMN_MAPPING.items()}
-    required = [_normalize_header(c) for c in FUND_FLOW_REQUIRED_COLUMNS]
-    text_fields = {v for k, v in FUND_FLOW_COLUMN_MAPPING.items()
-                   if _normalize_header(k) in {_normalize_header(c) for c in FUND_FLOW_TEXT_SOURCE_COLUMNS}}
+    source_mapping = _fund_flow_column_mapping(config)
+    column_types = _fund_flow_column_types(config)
+    text_source_cols = _fund_flow_text_source_columns(config)
+    col_mapping = {_normalize_header(k): v for k, v in source_mapping.items()}
+    required = [_normalize_header(c) for c in _fund_flow_required_columns(config)]
+    text_fields = {v for k, v in source_mapping.items()
+                   if _normalize_header(k) in {_normalize_header(c) for c in text_source_cols}}
 
     valid, invalid, failed, summaries, prepared = [], [], [], [], []
 
@@ -588,11 +695,15 @@ def import_fund_flow_files(files: list, config: ShopConfig) -> dict[str, Any]:
         try:
             file_bytes = _read_upload_source_bytes(file_obj)
             if _file_is_csv(fn):
-                df = _read_fund_flow_csv(file_bytes)
+                df = _read_fund_flow_csv(
+                    file_bytes,
+                    text_source_cols,
+                    skip_description_row=not _is_overseas_fund_flow(config),
+                )
             else:
                 buf = BytesIO(file_bytes)
-                # xlsx 同样跳过第2行
-                df = pd.read_excel(buf, skiprows=[1])
+                skiprows = [1] if not _is_overseas_fund_flow(config) else None
+                df = pd.read_excel(buf, skiprows=skiprows)
                 df.columns = [_normalize_header(c) for c in df.columns]
 
             cur_cols = df.columns.tolist()
@@ -619,8 +730,8 @@ def import_fund_flow_files(files: list, config: ShopConfig) -> dict[str, Any]:
 
     try:
         written, msg = _write_df_to_table(
-            prepared, config, config.fund_flow_table, FUND_FLOW_COLUMN_TYPES,
-            FUND_FLOW_DEDUP_KEY_COLUMNS, text_fields, 'fund_flow', '资金结算',
+            prepared, config, config.fund_flow_table, column_types,
+            _fund_flow_dedup_key_columns(config), text_fields, 'fund_flow', '资金结算',
         )
     except Exception as exc:
         return {'success': False, 'message': f'写入资金结算数据库失败：{exc}',
@@ -908,7 +1019,7 @@ def export_data_to_excel(
     filter_conditions: list[dict] | None,
     config: ShopConfig,
 ) -> tuple[BytesIO, str]:
-    cfg = EXPORT_TABLE_CONFIG.get(table_key)
+    cfg = get_export_table_config(config).get(table_key)
     if not cfg:
         raise ValueError('不支持的导出表类型')
     if not selected_fields:
@@ -977,7 +1088,9 @@ def export_data_to_excel(
 
 # ===================== 佣金导出 =====================
 
-DOUYIN_COMMISSION_AMOUNT_COLUMNS = {'佣金金额', '应开金额', '达人佣金', '招商服务费'}
+DOUYIN_COMMISSION_AMOUNT_COLUMNS = {
+    '佣金金额', '应开金额', '达人佣金', '招商服务费', '佣金(元)', '招商服务费(元)',
+}
 
 
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
@@ -1151,24 +1264,36 @@ def _query_creator_summary(
     config: ShopConfig,
 ) -> pd.DataFrame:
     params: list[Any] = [start_text, end_text]
+    table_sql = config.fund_flow_table
+    name_expr = 'influencer_name'
+    id_expr = 'influencer_id'
+    if _is_overseas_fund_flow(config) and _table_exists(conn, config.orders_table):
+        table_sql = f"""
+            {config.fund_flow_table} f
+            LEFT JOIN {config.orders_table} o
+              ON LTRIM(CAST(f.sub_order_no AS TEXT), '''') = LTRIM(CAST(o.sub_order_no AS TEXT), '''')
+              OR LTRIM(CAST(f.order_no AS TEXT), '''') = LTRIM(CAST(o.main_order_no AS TEXT), '''')
+        """
+        name_expr = "COALESCE(NULLIF(TRIM(f.influencer_name), ''), NULLIF(TRIM(o.influencer_nickname), ''))"
+        id_expr = "COALESCE(NULLIF(TRIM(f.influencer_id), ''), NULLIF(TRIM(o.influencer_id), ''))"
     where = [
         f'{_commission_date_expr()} >= ?',
         f'{_commission_date_expr()} <= ?',
         'ABS(CAST(influencer_commission AS REAL)) > 0.0001',
-        "influencer_name IS NOT NULL",
-        "TRIM(influencer_name) <> ''",
-        "TRIM(influencer_name) <> '-'",
+        f"{name_expr} IS NOT NULL",
+        f"TRIM({name_expr}) <> ''",
+        f"TRIM({name_expr}) <> '-'",
     ]
     if keyword:
-        where.append(_build_name_filter_sql('influencer_name', keyword, alias_nicknames, params))
+        where.append(_build_name_filter_sql(name_expr, keyword, alias_nicknames, params))
     sql = f"""
         SELECT
-            TRIM(influencer_name) AS name,
-            influencer_id,
+            TRIM({name_expr}) AS name,
+            {id_expr} AS influencer_id,
             SUM(CAST(influencer_commission AS REAL)) AS net_amount
-        FROM {config.fund_flow_table}
+        FROM {table_sql}
         WHERE {' AND '.join(where)}
-        GROUP BY TRIM(influencer_name), influencer_id
+        GROUP BY TRIM({name_expr}), {id_expr}
         ORDER BY SUM(CAST(influencer_commission AS REAL)) ASC
     """
     df = pd.read_sql_query(sql, conn, params=params)
@@ -1316,8 +1441,8 @@ def _build_invoice_import_df(creator_df: pd.DataFrame, leader_df: pd.DataFrame) 
     return df
 
 
-def _fund_flow_chinese_columns(df: pd.DataFrame) -> pd.DataFrame:
-    reverse_map = {v: k for k, v in FUND_FLOW_COLUMN_MAPPING.items()}
+def _fund_flow_chinese_columns(df: pd.DataFrame, config: ShopConfig) -> pd.DataFrame:
+    reverse_map = {v: k for k, v in _fund_flow_column_mapping(config).items()}
     return df.rename(columns={col: reverse_map.get(col, col) for col in df.columns})
 
 
@@ -1329,21 +1454,43 @@ def _query_creator_detail_rows(
     alias_nicknames: list[str],
     config: ShopConfig,
 ) -> pd.DataFrame:
-    columns_sql = ', '.join(FUND_FLOW_COLUMN_TYPES.keys())
+    column_types = _fund_flow_column_types(config)
+    columns_sql = ', '.join(column_types.keys())
     params: list[Any] = [start_text, end_text]
+    table_sql = config.fund_flow_table
+    name_expr = 'influencer_name'
+    id_expr = 'influencer_id'
+    if _is_overseas_fund_flow(config) and _table_exists(conn, config.orders_table):
+        table_sql = f"""
+            {config.fund_flow_table} f
+            LEFT JOIN {config.orders_table} o
+              ON LTRIM(CAST(f.sub_order_no AS TEXT), '''') = LTRIM(CAST(o.sub_order_no AS TEXT), '''')
+              OR LTRIM(CAST(f.order_no AS TEXT), '''') = LTRIM(CAST(o.main_order_no AS TEXT), '''')
+        """
+        name_expr = "COALESCE(NULLIF(TRIM(f.influencer_name), ''), NULLIF(TRIM(o.influencer_nickname), ''))"
+        id_expr = "COALESCE(NULLIF(TRIM(f.influencer_id), ''), NULLIF(TRIM(o.influencer_id), ''))"
+        select_parts: list[str] = []
+        for col in column_types.keys():
+            if col == 'influencer_name':
+                select_parts.append(f'{name_expr} AS influencer_name')
+            elif col == 'influencer_id':
+                select_parts.append(f'{id_expr} AS influencer_id')
+            else:
+                select_parts.append(f'f.{col}')
+        columns_sql = ', '.join(select_parts)
     where = [
         f'{_commission_date_expr()} >= ?',
         f'{_commission_date_expr()} <= ?',
         'ABS(CAST(influencer_commission AS REAL)) > 0.0001',
-        "influencer_name IS NOT NULL",
-        "TRIM(influencer_name) <> ''",
-        "TRIM(influencer_name) <> '-'",
+        f"{name_expr} IS NOT NULL",
+        f"TRIM({name_expr}) <> ''",
+        f"TRIM({name_expr}) <> '-'",
     ]
     if keyword:
-        where.append(_build_name_filter_sql('influencer_name', keyword, alias_nicknames, params))
+        where.append(_build_name_filter_sql(name_expr, keyword, alias_nicknames, params))
     sql = f"""
         SELECT {columns_sql}
-        FROM {config.fund_flow_table}
+        FROM {table_sql}
         WHERE {' AND '.join(where)}
         ORDER BY influencer_name ASC, settlement_time ASC, order_no ASC
     """
@@ -1367,7 +1514,7 @@ def _query_leader_detail_rows(
         start_text,
         end_text,
         config,
-        selected_columns=list(FUND_FLOW_COLUMN_TYPES.keys()),
+        selected_columns=list(_fund_flow_column_types(config).keys()),
     )
     if rows_df.empty:
         return rows_df
@@ -1466,7 +1613,7 @@ def export_commission_detail_zip(
         if not creator_rows.empty:
             for name, group_df in creator_rows.groupby('influencer_name', sort=True):
                 amount_sum = float(pd.to_numeric(group_df['influencer_commission'], errors='coerce').fillna(0).sum())
-                detail_df = _fund_flow_chinese_columns(group_df.copy())
+                detail_df = _fund_flow_chinese_columns(group_df.copy(), config)
                 detail_excel = _write_dataframe_excel(
                     [('明细', detail_df)],
                     amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
@@ -1479,7 +1626,7 @@ def export_commission_detail_zip(
             for name, group_df in leader_rows.groupby('leader_name', sort=True):
                 amount_sum = float(pd.to_numeric(group_df['merchant_recruitment_fee'], errors='coerce').fillna(0).sum())
                 detail_df = group_df.copy().rename(columns={'leader_name': '团长名称'})
-                detail_df = _fund_flow_chinese_columns(detail_df)
+                detail_df = _fund_flow_chinese_columns(detail_df, config)
                 detail_excel = _write_dataframe_excel(
                     [('明细', detail_df)],
                     amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,

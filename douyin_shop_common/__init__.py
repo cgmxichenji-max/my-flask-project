@@ -20,6 +20,7 @@ from .services import (
     export_commission_summary_zip,
     export_data_to_excel,
     get_data_status_rows,
+    get_export_table_config,
 )
 from .services import (
     import_orders_files,
@@ -52,10 +53,10 @@ _STATUS_ROWS_TEMPLATE = '''
 '''
 
 
-def _build_export_field_config() -> dict:
+def _build_export_field_config(config: ShopConfig) -> dict:
     """构建前端字段选择器用的配置（与 wechat_shop 格式一致）。"""
     result = {}
-    for key, cfg in EXPORT_TABLE_CONFIG.items():
+    for key, cfg in get_export_table_config(config).items():
         col_mapping = cfg['column_mapping']
         col_types = cfg['column_types']
         rev_map = {v: k for k, v in col_mapping.items()}
@@ -78,6 +79,8 @@ def create_douyin_blueprint(
     display_name: str,
     module_key: str,
     table_prefix: str,
+    fund_flow_format: str = 'standard',
+    order_format: str = 'standard',
 ) -> Blueprint:
     """
     创建一个完整的抖音店铺蓝图。
@@ -94,8 +97,10 @@ def create_douyin_blueprint(
         display_name=display_name,
         module_key=module_key,
         table_prefix=table_prefix,
+        fund_flow_format=fund_flow_format,
+        order_format=order_format,
     )
-    export_field_config = _build_export_field_config()
+    export_field_config = _build_export_field_config(config)
 
     # ---------- 辅助函数（闭包捕获 config） ----------
 

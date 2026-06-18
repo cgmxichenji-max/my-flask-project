@@ -16,10 +16,12 @@ MODULE_KEYS = (
     'wechat_shop',
     'douyin_shop_chantelle',
     'douyin_shop_mulianman',
+    'douyin_shop_overseas',
     'invoicing',
     'label_print',
     'courier_fee',
     'kuaishou_aoke',
+    'exemption_management',
 )
 MODULE_LABELS = {
     'inventory': '库存盘点',
@@ -29,10 +31,12 @@ MODULE_LABELS = {
     'wechat_shop': '微信小店',
     'douyin_shop_chantelle': '香娜露儿（抖音）',
     'douyin_shop_mulianman': '幕莲蔓（抖音）',
+    'douyin_shop_overseas': '海外旗舰（抖音）',
     'invoicing': '发票核对',
     'label_print': '页头打印',
     'courier_fee': '快递费计算',
     'kuaishou_aoke': '快手澳柯',
+    'exemption_management': '豁免管理',
 }
 
 

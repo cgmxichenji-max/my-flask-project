@@ -117,6 +117,9 @@
             {% if can_module(g.current_user, 'douyin_shop_mulianman') %}
             <a href="/douyin_shop_mulianman/" class="menu-card">幕莲蔓（抖音）</a>
             {% endif %}
+            {% if can_module(g.current_user, 'douyin_shop_overseas') %}
+            <a href="/douyin_shop_overseas/" class="menu-card">海外旗舰（抖音）</a>
+            {% endif %}
             {% if can_module(g.current_user, 'invoicing') %}
             <a href="/invoicing/" class="menu-card">发票核对</a>
             {% endif %}
@@ -128,6 +131,9 @@
             {% endif %}
             {% if can_module(g.current_user, 'kuaishou_aoke') %}
             <a href="/kuaishou_aoke/" class="menu-card">快手澳柯</a>
+            {% endif %}
+            {% if can_module(g.current_user, 'exemption_management') %}
+            <a href="/exemption_management/" class="menu-card">豁免管理</a>
             {% endif %}
             {% if g.current_user.is_admin %}
             <a href="/vps-monitor" class="menu-card">VPS 监控</a>

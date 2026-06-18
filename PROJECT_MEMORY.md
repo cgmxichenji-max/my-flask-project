@@ -1596,3 +1596,43 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未覆盖服务器 `data/` 业务数据。
 - 是否涉及数据库：否（代码部署；新代码访问 WPS 今日记录时可能按业务指纹合并页头打印 WPS 重复记录）
 - 是否需要回滚：是
+
+## [2026-06-17 15:30] 修改记录
+- 修改内容：新增“海外旗舰（抖音）”模块，复用抖音店铺公共页面、四表导入、原始数据导出、佣金汇总导出和达人/团长明细导出能力。新增独立蓝图 `/douyin_shop_overseas/`、权限 key `douyin_shop_overseas`、首页入口和独立数据表前缀 `dy_overseas`。公共抖音服务层新增海外资金结算文件格式分支：`海外结算*.csv` 按“动账时间/动账流水号/动账方向/动账账户/动账金额/动账摘要/订单号/子订单号/下单时间/商品ID/税费/业务类型/结算金额(元)/汇率/币种/结算外币金额/订单实付(元)/达人补贴(元)/平台补贴(元)/平台补贴外币金额/退款(元)/平台服务费(元)/佣金(元)/招商服务费(元)/供应链费用(元)/预留税费(元)/站外推广费(元)/供应链欠款抵扣(元)/分期服务费(元)/是否免佣/免佣金额”映射入海外资金表，并以动账流水号防重；佣金汇总/明细导出在海外资金表不含达人名称时，按订单号/子订单号关联订单表补齐达人昵称和达人ID。同步清洗平台 CSV 文本前导单引号，避免海外动账时间无法按日期筛选。
+- 修改文件：app.py；auth/services.py；douyin_shop_overseas/__init__.py（新增）；douyin_shop_common/__init__.py；douyin_shop_common/services.py；douyin_shop_common/table_schemas.py；templates/index.html；templates/douyin_shop.html；PROJECT_MEMORY.md
+- 修改原因：用户需要仿照香娜露儿/幕莲蔓抖音模块新增“海外旗舰（抖音）”模块，四张表功能用途一致，但海外结算系列文件的资金流水格式与原两个抖音模块不同，需要单独适配。
+- 影响范围：新增海外旗舰抖音模块及其权限/首页入口/独立数据表；抖音公共服务层新增海外资金流水格式分支，并调整后续导入文本清洗去掉平台 CSV 前导单引号。香娜露儿和幕莲蔓仍默认使用标准资金结算格式。
+- 是否涉及数据库：是（首次访问/导入海外模块时会自动创建 `dy_overseas_orders`、`dy_overseas_fund_flow`、`dy_overseas_commission`、`dy_overseas_merchant`、`dy_overseas_data_status`；本次功能验证使用临时 SQLite，路由注册检查未导入海外业务数据）
+- 是否需要回滚：是
+
+## [2026-06-17 15:55] 修改记录
+- 修改内容：补强抖音店铺公共状态读取逻辑，进入模块首页读取数据状态时同步确保订单、资金结算、佣金订单明细、招商订单明细四张业务表存在并补齐字段；海外旗舰首次打开页面即可自动创建 `dy_overseas_orders`、`dy_overseas_fund_flow`、`dy_overseas_commission`、`dy_overseas_merchant` 与 `dy_overseas_data_status`，无需等到首次导入才建表。
+- 修改文件：douyin_shop_common/services.py；PROJECT_MEMORY.md
+- 修改原因：复核海外旗舰模块线上首次运行行为时发现原逻辑首次打开页面只创建数据状态表，业务表在首次导入时才自动创建；为确保线上第一次打开模块即可加载新表，补齐首页状态读取时的业务表建表保障。
+- 影响范围：香娜露儿、幕莲蔓、海外旗舰三个抖音店铺模块首页状态读取；使用 `CREATE TABLE IF NOT EXISTS` 与补列逻辑，既有表和数据不被覆盖。
+- 是否涉及数据库：是（首次打开抖音店铺模块页面时可能自动创建/补齐对应店铺的四张业务表和状态表；本次验证仅使用临时 SQLite）
+- 是否需要回滚：是
+
+## [2026-06-17 16:04] 修改记录
+- 修改内容：将海外旗舰抖音订单表从标准抖音订单 schema 中独立出来，新增海外订单专用字段 `sku_id`（货品ID）、`serial_no`（序列号）、`is_product_unit_price_tax_included`（商品单价是否含税）、`tax_fee`（税费）。`douyin_shop_overseas` 显式声明 `order_format='overseas'`，公共服务层按店铺配置选择订单表字段、建表补列、导入写库、防重和原始数据导出字段选择器；香娜露儿、幕莲蔓仍使用标准订单 schema。已用真实海外订单 CSV 抽样验证：首次建表生成 77 个业务字段（含新增 4 字段），导入后可读到货品ID、商品单价是否含税、税费，重复导入第二次写入 0。
+- 修改文件：douyin_shop_overseas/__init__.py；douyin_shop_common/__init__.py；douyin_shop_common/services.py；douyin_shop_common/table_schemas.py；PROJECT_MEMORY.md
+- 修改原因：用户确认海外订单 CSV 为 77 列，多出的 `货品ID`、`序列号`、`商品单价是否含税`、`税费` 需要入库并可导出，不能简单忽略或强行套用标准抖音订单 schema。
+- 影响范围：海外旗舰抖音订单表建表/补列/导入/导出字段；不改变香娜露儿、幕莲蔓订单表字段。海外结算文件仍按海外资金流水分支读取；标准抖音资金结算文件仍保留跳过第 2 行说明行的特例。
+- 是否涉及数据库：是（海外旗舰首次打开或导入时会为 `dy_overseas_orders` 创建/补齐新增 4 个订单字段；本次验证仅使用临时 SQLite）
+- 是否需要回滚：是
+
+## [2026-06-18 12:02] 修改记录
+- 修改内容：新增“豁免管理”模块，包含香娜露儿豁免管理与慕莲蔓豁免管理两个 TAB；新增 `creator_exemptions` 达人豁免数据表，使用 `brand` 字段区分香娜露儿和慕莲蔓；香娜露儿按截图初始化 60 条豁免数据，包含生效中和已结束记录；页面支持达人渠道/昵称/UID 模糊查询、状态筛选、生效日期和结束日期组合筛选、新增、编辑、停止和删除，暂不提供导入导出功能。
+- 修改文件：app.py；auth/services.py；templates/index.html；exemption_management/__init__.py；exemption_management/routes.py；exemption_management/services.py；templates/exemption_management.html；PROJECT_MEMORY.md
+- 修改原因：用户需要将达人豁免截图数据沉淀到系统中管理，并支持后续手工维护和查询。
+- 影响范围：新增独立豁免管理模块、权限入口和数据库表；不影响现有抖音店铺、快手澳柯、快递费、发票等模块。
+- 是否涉及数据库：是
+- 是否需要回滚：是
+
+## [2026-06-18 12:12] 修改记录
+- 修改内容：补充“豁免管理”模块慕莲蔓初始截图数据，新增 9 条慕莲蔓已结束豁免记录；同时将达人豁免初始化逻辑改为按品牌记录一次性 seed 标记，新增 `creator_exemption_seed_state` 标记表，确保每个品牌初始数据只在未初始化时写入，后续刷新、编辑或删除业务数据不会自动补回旧截图数据。
+- 修改文件：exemption_management/services.py；PROJECT_MEMORY.md
+- 修改原因：用户补充慕莲蔓豁免截图初始数据，并要求初始数据仅在首次运行添加数据表时保存，之后不得影响已有数据表。
+- 影响范围：仅影响豁免管理模块首次初始化数据逻辑；不影响现有豁免数据的手工新增、编辑、停止、删除功能，不影响其他业务模块。
+- 是否涉及数据库：是
+- 是否需要回滚：是
