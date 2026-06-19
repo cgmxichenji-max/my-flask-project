@@ -958,59 +958,6 @@ def _load_leader_name_map(conn: sqlite3.Connection) -> dict[str, str]:
     return _load_last_name_map(conn, 'leader_id', 'leader_nickname')
 
 
-def _load_order_leader_maps(conn: sqlite3.Connection) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
-    rows = conn.execute(
-        f"""
-        SELECT order_no, product_id, leader_id
-        FROM {KUAISHOU_ORDER_TABLE_NAME}
-        WHERE order_no IS NOT NULL
-          AND TRIM(CAST(order_no AS TEXT)) <> ''
-        ORDER BY id ASC
-        """
-    ).fetchall()
-    product_map: dict[tuple[str, str], str] = {}
-    leaders_by_order: dict[str, set[str]] = {}
-    for row in rows:
-        order_no = _normalize_lookup_id(row['order_no'])
-        product_id = _normalize_lookup_id(row['product_id'])
-        leader_id = _normalize_lookup_id(row['leader_id'])
-        if not order_no or not leader_id:
-            continue
-        if product_id:
-            product_map[(order_no, product_id)] = leader_id
-        leaders_by_order.setdefault(order_no, set()).add(leader_id)
-
-    order_map = {
-        order_no: next(iter(leader_ids))
-        for order_no, leader_ids in leaders_by_order.items()
-        if len(leader_ids) == 1
-    }
-    return product_map, order_map
-
-
-def _assign_other_fee_to_leader_from_orders(df: pd.DataFrame, conn: sqlite3.Connection) -> pd.DataFrame:
-    if df.empty or 'other_fee' not in df.columns:
-        return df
-
-    product_map, order_map = _load_order_leader_maps(conn)
-    result = df.copy()
-    for idx, row in result.iterrows():
-        other_fee = float(row.get('other_fee') or 0)
-        if abs(other_fee) <= 0.0001:
-            continue
-
-        leader_id = _normalize_lookup_id(row.get('leader_id'))
-        if leader_id:
-            continue
-
-        order_no = _normalize_lookup_id(row.get('order_no'))
-        product_id = _normalize_lookup_id(row.get('product_id'))
-        leader_id = product_map.get((order_no, product_id), '') or order_map.get(order_no, '')
-        if leader_id:
-            result.at[idx, 'leader_id'] = leader_id
-    return result
-
-
 def _read_commission_fund_rows(conn: sqlite3.Connection, start_text: str, end_text: str) -> pd.DataFrame:
     columns_sql = ', '.join(FUND_FLOW_COLUMN_TYPES.keys())
     sql = f"""
@@ -1032,7 +979,7 @@ def _read_commission_fund_rows(conn: sqlite3.Connection, start_text: str, end_te
     for col in ['creator_id', 'leader_id', 'order_no', 'product_id']:
         if col in df.columns:
             df[col] = df[col].fillna('').map(_normalize_lookup_id)
-    return _assign_other_fee_to_leader_from_orders(df, conn)
+    return df
 
 
 def _build_creator_summary_and_unmatched(
@@ -1044,21 +991,25 @@ def _build_creator_summary_and_unmatched(
     unmatched: list[dict[str, Any]] = []
     if df.empty:
         return (
-            pd.DataFrame(columns=['达人ID', '达人昵称', '达人佣金', '佣金合计']),
+            pd.DataFrame(columns=['达人ID', '达人昵称', '达人佣金', '其他收费', '佣金合计']),
             pd.DataFrame(columns=_unmatched_columns()),
         )
 
-    creator_df = df[df['creator_commission'].abs() > 0.0001].copy()
+    creator_df = df[
+        (df['creator_commission'].abs() > 0.0001)
+        | (df['other_fee'].abs() > 0.0001)
+    ].copy()
     grouped: dict[str, dict[str, Any]] = {}
     for row in creator_df.itertuples(index=False):
         creator_id = _normalize_lookup_id(getattr(row, 'creator_id', ''))
         creator_commission = float(getattr(row, 'creator_commission', 0) or 0)
+        other_fee = float(getattr(row, 'other_fee', 0) or 0)
         if not creator_id:
-            unmatched.append(_unmatched_row(row, '达人', '缺少达人ID', creator_commission, 0.0, 0.0))
+            unmatched.append(_unmatched_row(row, '达人', '缺少达人ID', creator_commission, 0.0, other_fee))
             continue
         creator_name = creator_name_map.get(creator_id, '')
         if not creator_name:
-            unmatched.append(_unmatched_row(row, '达人', '订单表未找到达人昵称', creator_commission, 0.0, 0.0))
+            unmatched.append(_unmatched_row(row, '达人', '订单表未找到达人昵称', creator_commission, 0.0, other_fee))
             continue
         if not _name_matches_keyword(creator_name, creator_id, keyword):
             continue
@@ -1068,17 +1019,19 @@ def _build_creator_summary_and_unmatched(
                 '达人ID': creator_id,
                 '达人昵称': creator_name,
                 '达人佣金': 0.0,
+                '其他收费': 0.0,
             },
         )
         # 名称映射本身已按订单表最后一次出现取值；这里保持 ID 汇总为一行。
         bucket['达人昵称'] = creator_name
         bucket['达人佣金'] += creator_commission
+        bucket['其他收费'] += other_fee
 
     for bucket in grouped.values():
-        bucket['佣金合计'] = float(bucket['达人佣金'])
+        bucket['佣金合计'] = float(bucket['达人佣金']) + float(bucket['其他收费'])
         rows.append(bucket)
 
-    summary = pd.DataFrame(rows, columns=['达人ID', '达人昵称', '达人佣金', '佣金合计'])
+    summary = pd.DataFrame(rows, columns=['达人ID', '达人昵称', '达人佣金', '其他收费', '佣金合计'])
     if not summary.empty:
         summary = summary.sort_values('佣金合计', ascending=False)
     return summary, pd.DataFrame(unmatched, columns=_unmatched_columns())
@@ -1093,43 +1046,35 @@ def _build_leader_summary_and_unmatched(
     unmatched: list[dict[str, Any]] = []
     if df.empty:
         return (
-            pd.DataFrame(columns=['团长ID', '团长昵称', '团长佣金', '其他收费', '佣金合计']),
+            pd.DataFrame(columns=['团长ID', '团长昵称', '团长佣金']),
             pd.DataFrame(columns=_unmatched_columns()),
         )
 
-    leader_df = df[
-        (df['leader_commission'].abs() > 0.0001)
-        | (df['other_fee'].abs() > 0.0001)
-    ].copy()
+    leader_df = df[df['leader_commission'].abs() > 0.0001].copy()
     grouped: dict[str, dict[str, Any]] = {}
     for row in leader_df.itertuples(index=False):
         leader_id = _normalize_lookup_id(getattr(row, 'leader_id', ''))
         leader_commission = float(getattr(row, 'leader_commission', 0) or 0)
-        other_fee = float(getattr(row, 'other_fee', 0) or 0)
         if not leader_id:
-            unmatched.append(_unmatched_row(row, '团长', '缺少团长ID', 0.0, leader_commission, other_fee))
+            unmatched.append(_unmatched_row(row, '团长', '缺少团长ID', 0.0, leader_commission, 0.0))
             continue
         leader_name = leader_name_map.get(leader_id, '')
         if not leader_name:
-            unmatched.append(_unmatched_row(row, '团长', '订单表未找到团长昵称', 0.0, leader_commission, other_fee))
+            unmatched.append(_unmatched_row(row, '团长', '订单表未找到团长昵称', 0.0, leader_commission, 0.0))
             continue
         if not _name_matches_keyword(leader_name, leader_id, keyword):
             continue
         bucket = grouped.setdefault(
             leader_id,
-            {'团长ID': leader_id, '团长昵称': leader_name, '团长佣金': 0.0, '其他收费': 0.0},
+            {'团长ID': leader_id, '团长昵称': leader_name, '团长佣金': 0.0},
         )
         bucket['团长昵称'] = leader_name
         bucket['团长佣金'] += leader_commission
-        bucket['其他收费'] += other_fee
 
-    for bucket in grouped.values():
-        bucket['佣金合计'] = float(bucket['团长佣金']) + float(bucket['其他收费'])
-        rows.append(bucket)
-
-    summary = pd.DataFrame(rows, columns=['团长ID', '团长昵称', '团长佣金', '其他收费', '佣金合计'])
+    rows.extend(grouped.values())
+    summary = pd.DataFrame(rows, columns=['团长ID', '团长昵称', '团长佣金'])
     if not summary.empty:
-        summary = summary.sort_values('佣金合计', ascending=False)
+        summary = summary.sort_values('团长佣金', ascending=False)
     return summary, pd.DataFrame(unmatched, columns=_unmatched_columns())
 
 
@@ -1179,8 +1124,7 @@ def _build_invoice_import_df(creator_df: pd.DataFrame, leader_df: pd.DataFrame) 
     for _idx, row in creator_df.iterrows():
         rows.append({'达人/客户': row['达人昵称'], '应开金额': float(row['佣金合计'] or 0)})
     for _idx, row in leader_df.iterrows():
-        amount = row['佣金合计'] if '佣金合计' in leader_df.columns else row['团长佣金']
-        rows.append({'达人/客户': row['团长昵称'], '应开金额': float(amount or 0)})
+        rows.append({'达人/客户': row['团长昵称'], '应开金额': float(row['团长佣金'] or 0)})
     df = pd.DataFrame(rows, columns=['达人/客户', '应开金额'])
     if not df.empty:
         df = df.sort_values('应开金额', ascending=False)
@@ -1232,7 +1176,10 @@ def _prepare_creator_detail_rows(
     creator_name_map: dict[str, str],
     keyword: str,
 ) -> pd.DataFrame:
-    rows = df[df['creator_commission'].abs() > 0.0001].copy()
+    rows = df[
+        (df['creator_commission'].abs() > 0.0001)
+        | (df['other_fee'].abs() > 0.0001)
+    ].copy()
     if rows.empty:
         return rows
     rows['creator_name'] = rows['creator_id'].map(lambda value: creator_name_map.get(_normalize_lookup_id(value), ''))
@@ -1251,10 +1198,7 @@ def _prepare_leader_detail_rows(
     leader_name_map: dict[str, str],
     keyword: str,
 ) -> pd.DataFrame:
-    rows = df[
-        (df['leader_commission'].abs() > 0.0001)
-        | (df['other_fee'].abs() > 0.0001)
-    ].copy()
+    rows = df[df['leader_commission'].abs() > 0.0001].copy()
     if rows.empty:
         return rows
     rows['leader_name'] = rows['leader_id'].map(lambda value: leader_name_map.get(_normalize_lookup_id(value), ''))
