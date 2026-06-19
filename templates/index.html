@@ -132,6 +132,9 @@
             {% if can_module(g.current_user, 'kuaishou_aoke') %}
             <a href="/kuaishou_aoke/" class="menu-card">快手澳柯</a>
             {% endif %}
+            {% if can_module(g.current_user, 'kuaishou_meizhuang') %}
+            <a href="/kuaishou_meizhuang/" class="menu-card">快手美妆</a>
+            {% endif %}
             {% if can_module(g.current_user, 'exemption_management') %}
             <a href="/exemption_management/" class="menu-card">豁免管理</a>
             {% endif %}

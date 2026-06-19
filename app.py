@@ -22,6 +22,7 @@ from douyin_shop_mulianman import douyin_mulianman_bp    # 幕莲蔓（抖音）
 from douyin_shop_overseas import douyin_overseas_bp      # 海外旗舰（抖音）
 from courier_fee import courier_fee_bp                   # 快递费计算
 from kuaishou_aoke import kuaishou_aoke_bp               # 快手澳柯
+from kuaishou_meizhuang import kuaishou_meizhuang_bp     # 快手美妆
 from exemption_management import exemption_management_bp  # 豁免管理
 from reminder_center import reminder_center_bp            # 提醒中心
 
@@ -96,6 +97,8 @@ app.register_blueprint(douyin_overseas_bp, url_prefix='/douyin_shop_overseas')
 app.register_blueprint(courier_fee_bp, url_prefix='/courier_fee')
 # /kuaishou_aoke -> 快手澳柯
 app.register_blueprint(kuaishou_aoke_bp, url_prefix='/kuaishou_aoke')
+# /kuaishou_meizhuang -> 快手美妆
+app.register_blueprint(kuaishou_meizhuang_bp, url_prefix='/kuaishou_meizhuang')
 # /exemption_management -> 豁免管理
 app.register_blueprint(exemption_management_bp, url_prefix='/exemption_management')
 # /reminder_center -> 提醒中心

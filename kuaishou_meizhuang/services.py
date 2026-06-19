@@ -55,6 +55,7 @@ TEXT_SOURCE_COLUMNS = {
     'MCN机构ID',
     '服务商ID',
     '结算商户号',
+    '结算批次号',
     '售后单号',
     '订单编号',
     '买家ID',
@@ -815,8 +816,12 @@ KUAISHOU_COMMISSION_AMOUNT_COLUMNS = {
     '佣金合计',
     '应开金额',
     '达人佣金(元)',
+    '推广者佣金(元)',
     '团长佣金(元)',
     '实际结算金额(元)',
+    '人民币结算金额(元)',
+    '境外结算金额',
+    '其他收费金额',
 }
 
 KUAISHOU_COMMISSION_TEXT_COLUMNS = {
@@ -1000,14 +1005,15 @@ def _assign_other_fee_to_leader_from_orders(df: pd.DataFrame, conn: sqlite3.Conn
             continue
 
         leader_id = _normalize_lookup_id(row.get('leader_id'))
-        if leader_id:
-            continue
+        if not leader_id:
+            order_no = _normalize_lookup_id(row.get('order_no'))
+            product_id = _normalize_lookup_id(row.get('product_id'))
+            leader_id = product_map.get((order_no, product_id), '') or order_map.get(order_no, '')
+            if leader_id:
+                result.at[idx, 'leader_id'] = leader_id
 
-        order_no = _normalize_lookup_id(row.get('order_no'))
-        product_id = _normalize_lookup_id(row.get('product_id'))
-        leader_id = product_map.get((order_no, product_id), '') or order_map.get(order_no, '')
-        if leader_id:
-            result.at[idx, 'leader_id'] = leader_id
+        current_leader_commission = float(row.get('leader_commission') or 0)
+        result.at[idx, 'leader_commission'] = current_leader_commission + other_fee
     return result
 
 
@@ -1093,43 +1099,35 @@ def _build_leader_summary_and_unmatched(
     unmatched: list[dict[str, Any]] = []
     if df.empty:
         return (
-            pd.DataFrame(columns=['团长ID', '团长昵称', '团长佣金', '其他收费', '佣金合计']),
+            pd.DataFrame(columns=['团长ID', '团长昵称', '团长佣金']),
             pd.DataFrame(columns=_unmatched_columns()),
         )
 
-    leader_df = df[
-        (df['leader_commission'].abs() > 0.0001)
-        | (df['other_fee'].abs() > 0.0001)
-    ].copy()
+    leader_df = df[df['leader_commission'].abs() > 0.0001].copy()
     grouped: dict[str, dict[str, Any]] = {}
     for row in leader_df.itertuples(index=False):
         leader_id = _normalize_lookup_id(getattr(row, 'leader_id', ''))
         leader_commission = float(getattr(row, 'leader_commission', 0) or 0)
-        other_fee = float(getattr(row, 'other_fee', 0) or 0)
         if not leader_id:
-            unmatched.append(_unmatched_row(row, '团长', '缺少团长ID', 0.0, leader_commission, other_fee))
+            unmatched.append(_unmatched_row(row, '团长', '缺少团长ID', 0.0, leader_commission, 0.0))
             continue
         leader_name = leader_name_map.get(leader_id, '')
         if not leader_name:
-            unmatched.append(_unmatched_row(row, '团长', '订单表未找到团长昵称', 0.0, leader_commission, other_fee))
+            unmatched.append(_unmatched_row(row, '团长', '订单表未找到团长昵称', 0.0, leader_commission, 0.0))
             continue
         if not _name_matches_keyword(leader_name, leader_id, keyword):
             continue
         bucket = grouped.setdefault(
             leader_id,
-            {'团长ID': leader_id, '团长昵称': leader_name, '团长佣金': 0.0, '其他收费': 0.0},
+            {'团长ID': leader_id, '团长昵称': leader_name, '团长佣金': 0.0},
         )
         bucket['团长昵称'] = leader_name
         bucket['团长佣金'] += leader_commission
-        bucket['其他收费'] += other_fee
 
-    for bucket in grouped.values():
-        bucket['佣金合计'] = float(bucket['团长佣金']) + float(bucket['其他收费'])
-        rows.append(bucket)
-
-    summary = pd.DataFrame(rows, columns=['团长ID', '团长昵称', '团长佣金', '其他收费', '佣金合计'])
+    rows.extend(grouped.values())
+    summary = pd.DataFrame(rows, columns=['团长ID', '团长昵称', '团长佣金'])
     if not summary.empty:
-        summary = summary.sort_values('佣金合计', ascending=False)
+        summary = summary.sort_values('团长佣金', ascending=False)
     return summary, pd.DataFrame(unmatched, columns=_unmatched_columns())
 
 
@@ -1137,7 +1135,7 @@ def _unmatched_columns() -> list[str]:
     return [
         '未匹配类型',
         '未匹配原因',
-        '实际结算时间',
+        '结算时间',
         '订单号',
         '商品ID',
         '商品名称',
@@ -1161,7 +1159,7 @@ def _unmatched_row(
     return {
         '未匹配类型': kind,
         '未匹配原因': reason,
-        '实际结算时间': getattr(row, 'actual_settlement_time', ''),
+        '结算时间': getattr(row, 'actual_settlement_time', ''),
         '订单号': getattr(row, 'order_no', ''),
         '商品ID': getattr(row, 'product_id', ''),
         '商品名称': getattr(row, 'product_name', ''),
@@ -1179,8 +1177,7 @@ def _build_invoice_import_df(creator_df: pd.DataFrame, leader_df: pd.DataFrame) 
     for _idx, row in creator_df.iterrows():
         rows.append({'达人/客户': row['达人昵称'], '应开金额': float(row['佣金合计'] or 0)})
     for _idx, row in leader_df.iterrows():
-        amount = row['佣金合计'] if '佣金合计' in leader_df.columns else row['团长佣金']
-        rows.append({'达人/客户': row['团长昵称'], '应开金额': float(amount or 0)})
+        rows.append({'达人/客户': row['团长昵称'], '应开金额': float(row['团长佣金'] or 0)})
     df = pd.DataFrame(rows, columns=['达人/客户', '应开金额'])
     if not df.empty:
         df = df.sort_values('应开金额', ascending=False)
@@ -1251,10 +1248,7 @@ def _prepare_leader_detail_rows(
     leader_name_map: dict[str, str],
     keyword: str,
 ) -> pd.DataFrame:
-    rows = df[
-        (df['leader_commission'].abs() > 0.0001)
-        | (df['other_fee'].abs() > 0.0001)
-    ].copy()
+    rows = df[df['leader_commission'].abs() > 0.0001].copy()
     if rows.empty:
         return rows
     rows['leader_name'] = rows['leader_id'].map(lambda value: leader_name_map.get(_normalize_lookup_id(value), ''))
@@ -1332,7 +1326,7 @@ def export_commission_summary_zip(
             )
             zf.writestr(f'{safe_month}未匹配佣金.xlsx', unmatched_excel.getvalue())
     archive.seek(0)
-    return archive, _build_commission_zip_name('快手澳柯佣金汇总', start_text, end_text)
+    return archive, _build_commission_zip_name('快手美妆佣金汇总', start_text, end_text)
 
 
 def export_commission_detail_zip(
@@ -1355,7 +1349,7 @@ def export_commission_detail_zip(
         for _idx, row in creator_df.iterrows()
     }
     amount_by_leader_id = {
-        str(row['团长ID']): float(row['佣金合计'] or 0)
+        str(row['团长ID']): float(row['团长佣金'] or 0)
         for _idx, row in leader_df.iterrows()
     }
 
@@ -1406,4 +1400,4 @@ def export_commission_detail_zip(
             zf.writestr('无佣金明细.xlsx', empty_excel.getvalue())
 
     archive.seek(0)
-    return archive, _build_commission_zip_name('快手澳柯佣金明细', start_text, end_text)
+    return archive, _build_commission_zip_name('快手美妆佣金明细', start_text, end_text)

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>快手澳柯 - 包材管理系统</title>
+    <title>快手美妆 - 包材管理系统</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -253,7 +253,7 @@
     <div class="topbar">包材管理系统</div>
 
     <div class="page-wrap">
-        <div class="page-title">快手澳柯工作台</div>
+        <div class="page-title">快手美妆工作台</div>
 
         <section class="section-card">
             <div class="section-title">当前数据状态</div>
@@ -327,7 +327,7 @@
             </div>
             <div id="commission-export-result" class="import-result-box" style="width:100%;"></div>
             <div class="hint-box">
-                说明：佣金按资金流水表“实际结算时间”筛选。达人佣金按“达人ID”汇总；团长佣金和其他收费按“团长ID”汇总到团长侧。昵称从订单表匹配，同一 ID 多个昵称时取最后一次出现的昵称；无法匹配的记录会单独导出未匹配表。
+                说明：佣金按资金流水表“结算时间”筛选。推广者佣金按“达人ID”汇总到达人侧；其他收费金额按订单表“团长ID/团长昵称”汇总到团长侧。昵称从订单表匹配，同一 ID 多个昵称时取最后一次出现的昵称；无法匹配的记录会单独导出未匹配表。
             </div>
         </section>
 
@@ -408,7 +408,7 @@
 <script>
     const exportFieldConfigs = JSON.parse(document.getElementById('export-field-config-data')?.textContent || '{}');
     const exportDateRanges = JSON.parse(document.getElementById('export-date-ranges-data')?.textContent || '{}');
-    const exportFieldStorageKeyPrefix = 'kuaishou_aoke_export_fields_';
+    const exportFieldStorageKeyPrefix = 'kuaishou_meizhuang_export_fields_';
 
     const sourceTableSelect = document.getElementById('source_table');
     const dateStartInput = document.getElementById('date_start');
@@ -680,7 +680,7 @@
         btnExportExcel.disabled = true;
         btnExportExcel.textContent = '正在导出...';
         try {
-            const response = await fetch('/kuaishou_aoke/export_data', {
+            const response = await fetch('/kuaishou_meizhuang/export_data', {
                 method: 'POST',
                 body: formData,
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
@@ -778,9 +778,9 @@
         }
     }
 
-    bindImport('btn-import-orders', 'order-files-input', 'import-orders-result', '/kuaishou_aoke/import_orders', '正在导入文件...', '导入订单表');
-    bindImport('btn-import-fund-flow', 'fund-flow-files-input', 'import-fund-flow-result', '/kuaishou_aoke/import_fund_flow', '正在导入资金流水...', '导入资金流水表');
-    bindImport('btn-import-after-sales', 'after-sales-files-input', 'import-after-sales-result', '/kuaishou_aoke/import_after_sales', '正在导入售后文件...', '导入售后表');
+    bindImport('btn-import-orders', 'order-files-input', 'import-orders-result', '/kuaishou_meizhuang/import_orders', '正在导入文件...', '导入订单表');
+    bindImport('btn-import-fund-flow', 'fund-flow-files-input', 'import-fund-flow-result', '/kuaishou_meizhuang/import_fund_flow', '正在导入资金流水...', '导入资金流水表');
+    bindImport('btn-import-after-sales', 'after-sales-files-input', 'import-after-sales-result', '/kuaishou_meizhuang/import_after_sales', '正在导入售后文件...', '导入售后表');
 
     document.getElementById('btn-fields-select-all').addEventListener('click', () => applyFieldSelection('all'));
     document.getElementById('btn-fields-clear-all').addEventListener('click', () => applyFieldSelection('none'));
@@ -792,10 +792,10 @@
     });
     btnExportExcel.addEventListener('click', handleExportExcel);
     btnExportCommissionSummary.addEventListener('click', () => {
-        handleCommissionExport('/kuaishou_aoke/export_commission_summary', btnExportCommissionSummary, '正在导出汇总...', '佣金汇总导出');
+        handleCommissionExport('/kuaishou_meizhuang/export_commission_summary', btnExportCommissionSummary, '正在导出汇总...', '佣金汇总导出');
     });
     btnExportCommissionDetails.addEventListener('click', () => {
-        handleCommissionExport('/kuaishou_aoke/export_commission_details', btnExportCommissionDetails, '正在导出明细...', '达人/团长明细导出');
+        handleCommissionExport('/kuaishou_meizhuang/export_commission_details', btnExportCommissionDetails, '正在导出明细...', '达人/团长明细导出');
     });
     sourceTableSelect.addEventListener('change', () => {
         applyExportDateRange(sourceTableSelect.value);

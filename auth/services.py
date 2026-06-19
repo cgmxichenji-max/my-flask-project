@@ -21,6 +21,7 @@ MODULE_KEYS = (
     'label_print',
     'courier_fee',
     'kuaishou_aoke',
+    'kuaishou_meizhuang',
     'exemption_management',
     'reminder_center',
 )
@@ -37,6 +38,7 @@ MODULE_LABELS = {
     'label_print': '页头打印',
     'courier_fee': '快递费计算',
     'kuaishou_aoke': '快手澳柯',
+    'kuaishou_meizhuang': '快手美妆',
     'exemption_management': '豁免管理',
     'reminder_center': '提醒中心',
 }
