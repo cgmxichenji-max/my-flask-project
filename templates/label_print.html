@@ -1214,14 +1214,15 @@ function doPrint() {
             ? `<span class="weight">预估重量：无法预估（缺少：${esc(_lastRec.detail.missing.join('、'))}）</span>`
             : '');
     const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>页头</title>
-<style>@page{size:76mm 130mm;margin:0}html,body{margin:0;padding:0;background:#fff;font-family:"Microsoft YaHei",Arial,sans-serif}
-.wrap{width:76mm;padding:14mm 5mm 5mm}.item-row{display:flex;align-items:baseline;gap:3mm;margin-bottom:4mm;flex-wrap:wrap}
-.sn{font-size:27px;font-weight:700}.pcs{font-size:25.5px;font-weight:700;white-space:nowrap}
-.bx{font-size:11px;color:#444;white-space:nowrap}hr{border:none;border-top:1px solid #999;margin:4mm 0}
-.sum{font-size:14px;font-weight:700;line-height:1.6;display:flex;align-items:baseline;gap:3mm;flex-wrap:wrap}.weight{font-size:12px;font-weight:400;color:#333}.rec{font-size:11px;color:#555;margin-top:1mm;padding-top:1mm;border-top:1px dashed #bbb}</style></head>
-<body><div class="wrap">${items}<hr>
-<div class="sum"><span>共计：${tickets}&nbsp;单</span><span>总数量：${totalQty}&nbsp;个</span>${weightLine}</div>${recLine}</div>
-<scr`+`ipt>window.onload=function(){window.print();setTimeout(window.close,500)}<\/scr`+`ipt></body></html>`;
+<style>@page{size:76mm 130mm;margin:0}html,body{width:76mm;height:130mm;margin:0;padding:0;overflow:hidden;background:#fff;font-family:"Microsoft YaHei",Arial,sans-serif}
+.wrap{width:76mm;height:130mm;box-sizing:border-box;padding:12mm 5mm 4mm;overflow:hidden;page-break-after:avoid}
+.print-content{transform-origin:top left}.item-row{display:flex;align-items:baseline;gap:3mm;margin-bottom:3.2mm;flex-wrap:wrap;break-inside:avoid;page-break-inside:avoid}
+.sn{font-size:25.5px;font-weight:700}.pcs{font-size:24px;font-weight:700;white-space:nowrap}
+.bx{font-size:11px;color:#444;white-space:nowrap}hr{border:none;border-top:1px solid #999;margin:3mm 0}
+.sum{font-size:14px;font-weight:700;line-height:1.5;display:flex;align-items:baseline;gap:3mm;flex-wrap:wrap}.weight{font-size:12px;font-weight:400;color:#333}.rec{font-size:11px;color:#555;margin-top:1mm;padding-top:1mm;border-top:1px dashed #bbb}</style></head>
+<body><div class="wrap"><div class="print-content">${items}<hr>
+<div class="sum"><span>共计：${tickets}&nbsp;单</span><span>总数量：${totalQty}&nbsp;个</span>${weightLine}</div>${recLine}</div></div>
+<scr`+`ipt>function fitPrintContent(){var wrap=document.querySelector('.wrap');var content=document.querySelector('.print-content');if(!wrap||!content)return;content.style.transform='';content.style.width='';var scale=Math.min(1,wrap.clientHeight/content.scrollHeight,wrap.clientWidth/content.scrollWidth);if(scale<1){content.style.width=(100/scale)+'%';content.style.transform='scale('+scale+')';}}window.onload=function(){fitPrintContent();setTimeout(function(){window.print();setTimeout(window.close,500)},50)}<\/scr`+`ipt></body></html>`;
     const pw = window.open('', '_blank');
     if (!pw) { alert('请允许弹出窗口'); return; }
     pw.document.open(); pw.document.write(html); pw.document.close();

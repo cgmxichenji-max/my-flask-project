@@ -1331,12 +1331,11 @@ def _parse_wps_content_items(conn, content_text):
                 'status': 'matched' if matched_keyword == str(product['code']) else f'keyword:{matched_keyword}',
             })
         else:
-            text_qty = _parse_qty_from_text(line)
             items.append({
                 'kind': 'text',
                 'code': '',
                 'label': line,
-                'pcs': text_qty,
+                'pcs': 0,
                 'raw': line,
                 'status': 'text',
             })
