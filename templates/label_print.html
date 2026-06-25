@@ -975,21 +975,30 @@ function renderWpsParsedItems(items) {
 function addWpsItemRow(kind = 'product', item = null) {
     const tbody = document.getElementById('wps-items-tbody');
     const tr = document.createElement('tr');
+    const isManualText = kind === 'text' && (!item || item.manual === true);
+    if (isManualText) tr.dataset.manualText = '1';
     const value = item ? (item.kind === 'text' ? (item.label || item.raw || '') : (item.code || '')) : '';
     const pcs = item ? (item.pcs || '') : '';
     tr.innerHTML = `<td><select class="wps-kind" onchange="onWpsItemKindChange(this)">
             <option value="product" ${kind === 'product' ? 'selected' : ''}>编号</option>
             <option value="text" ${kind === 'text' ? 'selected' : ''}>自由文本</option>
         </select></td>
-        <td><input class="wps-value" value="${esc(value)}" oninput="syncWpsItemsToPrintRows()"></td>
-        <td><input class="wps-pcs" type="number" min="0" value="${esc(pcs)}" oninput="syncWpsItemsToPrintRows()"></td>
+        <td><input class="wps-value" value="${esc(value)}" oninput="onWpsItemInput(this)"></td>
+        <td><input class="wps-pcs" type="number" min="0" value="${esc(pcs)}" oninput="onWpsItemInput(this)"></td>
         <td class="wps-row-status">${esc((item && item.status) || (kind === 'text' ? 'text' : 'manual'))}</td>
         <td><button type="button" class="btn-del-sm" onclick="this.closest('tr').remove();syncWpsItemsToPrintRows()">删</button></td>`;
     tbody.appendChild(tr);
 }
 
+function onWpsItemInput(input) {
+    const tr = input.closest('tr');
+    if (tr && tr.querySelector('.wps-kind').value === 'text') return;
+    syncWpsItemsToPrintRows();
+}
+
 function onWpsItemKindChange(sel) {
     const tr = sel.closest('tr');
+    if (sel.value === 'text' && !tr.dataset.manualText) tr.dataset.manualText = '1';
     tr.querySelector('.wps-row-status').textContent = sel.value === 'text' ? 'text' : 'manual';
     syncWpsItemsToPrintRows();
 }
@@ -1002,7 +1011,7 @@ function collectWpsParsedItems() {
         const pcs = parseInt(tr.querySelector('.wps-pcs').value) || 0;
         if (!value) return;
         if (kind === 'text') {
-            items.push({ kind: 'text', code: '', label: value, pcs, raw: value, status: 'text' });
+            items.push({ kind: 'text', code: '', label: value, pcs, raw: value, status: 'text', manual: tr.dataset.manualText === '1' });
         } else {
             const prod = findProduct(value);
             items.push({ kind: 'product', code: prod ? prod.code : value, label: prod ? prod.short_name : value, pcs: pcs || 1, raw: value, status: prod ? 'matched' : 'manual' });
@@ -1152,7 +1161,7 @@ function doPrint() {
     if (wpsRecord && wpsItems.length) {
         wpsItems.forEach(item => {
             if (item.kind === 'text') {
-                rows.push({ kind: 'text', code: '', label: item.label || item.raw || '', pcs: parseInt(item.pcs) || 0, boxStr: '' });
+                rows.push({ kind: 'text', code: '', label: item.label || item.raw || '', pcs: parseInt(item.pcs) || 0, printPcs: item.manual === true, boxStr: '' });
                 return;
             }
             const prod = findProduct(item.code);
@@ -1193,7 +1202,7 @@ function doPrint() {
     const items = rows.map(r => r.kind === 'text' ? `
         <div class="item-row">
             <span class="sn">${esc(r.label)}</span>
-            ${parseInt(r.pcs) ? `<span class="pcs">*${parseInt(r.pcs)}</span>` : ''}
+            ${r.printPcs && parseInt(r.pcs) ? `<span class="pcs">*${parseInt(r.pcs)}</span>` : ''}
         </div>` : `
         <div class="item-row">
             <span class="sn">${esc(r.label)}</span>

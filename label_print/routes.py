@@ -1335,7 +1335,7 @@ def _parse_wps_content_items(conn, content_text):
                 'kind': 'text',
                 'code': '',
                 'label': line,
-                'pcs': 0,
+                'pcs': _parse_qty_from_text(line),
                 'raw': line,
                 'status': 'text',
             })
