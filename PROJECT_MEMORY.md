@@ -1756,3 +1756,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅影响页头打印模块 WPS 解析结果表中手工自由文本行的前端交互和打印显示；不修改后端解析、产品编号行同步、包装推荐、WPS 读取、打印历史表结构和其他业务模块。
 - 是否涉及数据库：否
 - 是否需要回滚：是
+
+## [2026-06-25 11:10] 修改记录
+- 修改内容：将页头打印 WPS 自由文本数量统计与手工自由文本打印修复提交并推送到 GitHub `main`，业务提交为 `f412da5`；随后在西班牙服务器 `208.85.17.83` 的 `/root/my-flask-project` 执行 `git pull --ff-only origin main`，从 `0120074` 快进到 `f412da5`，并用 `.venv/bin/python` 重启 Flask 服务。重启后新进程 `8542` 监听 `0.0.0.0:5001`，服务器本机 `/auth/login` 返回 200，`/` 与 `/label_print/` 未登录访问均返回 302。
+- 修改文件：GitHub `main`；服务器 `/root/my-flask-project`；PROJECT_MEMORY.md
+- 修改原因：用户要求将页头打印相关修复上传 GitHub 仓库，并更新西班牙服务器运行新代码。
+- 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未覆盖服务器 `data/` 业务数据，未处理服务器未跟踪的 `flask.log`。
+- 是否涉及数据库：否
+- 是否需要回滚：是
