@@ -1785,3 +1785,10 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅影响发票列表的只读弹窗展示和新增只读 JSON 查询接口；不修改发票匹配保存逻辑、不修改数据库结构、不写入业务数据、不改应开 vs 已开核对汇总逻辑。
 - 是否涉及数据库：否（仅读取 `customer`、`expected_amount`、`invoice_expected_match`、`invoice` 等已有数据）
 - 是否需要回滚：是
+## [2026-06-26 16:09] 修改记录
+- 修改内容：将发票列表达人/团长账单弹窗与账单发票明细弹窗功能提交并推送到 GitHub `main`，业务提交为 `93c295e`；随后在西班牙服务器 `208.85.17.83` 的 `/root/my-flask-project` 执行 `git pull --ff-only origin main`，从 `27cd84e` 快进到 `93c295e`，并用 `.venv/bin/python` 重启 Flask 服务。重启后新进程 `74168` 监听 `0.0.0.0:5001`，服务器本机 `/auth/login` 返回 200，`/invoicing/invoices` 未登录返回 302，两个新增只读 JSON 接口未登录返回 401；服务器 Flask 测试客户端带登录态验证发票列表、达人/团长账单接口、账单发票接口和发票匹配账单接口均返回 200。
+- 修改文件：GitHub `main`；服务器 `/root/my-flask-project`；PROJECT_MEMORY.md
+- 修改原因：用户要求将发票列表账单弹窗与余数修复推送 GitHub，并从仓库更新西班牙服务器运行代码。
+- 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未覆盖服务器 `data/` 业务数据，未修改发票匹配保存逻辑和数据库结构，未处理服务器未跟踪的 `flask.log`。
+- 是否涉及数据库：否（代码部署和接口验证仅读取业务数据）
+- 是否需要回滚：是
