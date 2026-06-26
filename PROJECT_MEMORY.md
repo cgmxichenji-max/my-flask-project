@@ -1771,3 +1771,10 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅影响发票列表展示和发票匹配明细只读查询；不修改发票匹配保存逻辑、数据库表结构、PDF 下载/导出和应开 vs 已开核对汇总计算。
 - 是否涉及数据库：否（只读已有 `invoice`、`invoice_expected_match`、`expected_amount` 等数据）
 - 是否需要回滚：是
+## [2026-06-26 15:36] 修改记录
+- 修改内容：将发票列表匹配账单弹窗功能提交并推送到 GitHub `main`，业务提交为 `3fbb0d0`；随后在西班牙服务器 `208.85.17.83` 的 `/root/my-flask-project` 执行 `git pull --ff-only origin main`，从 `f331e1b` 快进到 `3fbb0d0`，并用 `.venv/bin/python` 重启 Flask 服务。重启后新进程 `72995` 监听 `0.0.0.0:5001`，服务器本机 `/auth/login` 返回 200，`/invoicing/invoices` 未登录返回 302，新接口 `/invoicing/invoices/1/match-details` 未登录 JSON 请求返回 401；服务器 Flask 测试客户端带登录态请求最新发票明细返回 200 JSON。只读检查生产库 `invoice_expected_match` 当前未查到“一张发票多条匹配账单”的记录。
+- 修改文件：GitHub `main`；服务器 `/root/my-flask-project`；PROJECT_MEMORY.md
+- 修改原因：用户要求将发票列表匹配账单弹窗功能推送到西班牙服务器，以便查看线上已有匹配记录后再决定是否改造匹配保存逻辑。
+- 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未覆盖服务器 `data/` 业务数据，未修改发票匹配保存逻辑，未处理服务器未跟踪的 `flask.log`。
+- 是否涉及数据库：否（仅代码部署与只读查询验证）
+- 是否需要回滚：是
