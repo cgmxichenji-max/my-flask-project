@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, current_app, jsonify
 from copy import copy
 from datetime import datetime
 import json
@@ -974,6 +974,7 @@ def invoices_list():
                    i.pdf_remark, i.is_usable, i.tax_filed, i.online_invoice, i.customer_id, i.entity_id,
                    i.pdf_file_path, i.qr_content, i.created_at,
                    m.expected_amount_id AS matched_expected_amount_id,
+                   COALESCE(m.match_count, 0) AS matched_bill_count,
                    c.short_name AS customer_short_name,
                    c.platform AS customer_platform,
                    COALESCE(
@@ -989,7 +990,13 @@ def invoices_list():
                    ) AS matched_platform
               FROM invoice i
               LEFT JOIN customer c ON c.id = i.customer_id
-              LEFT JOIN invoice_expected_match m ON m.invoice_id = i.id
+              LEFT JOIN (
+                  SELECT invoice_id,
+                         MIN(expected_amount_id) AS expected_amount_id,
+                         COUNT(*) AS match_count
+                  FROM invoice_expected_match
+                  GROUP BY invoice_id
+              ) m ON m.invoice_id = i.id
               LEFT JOIN expected_amount me ON me.id = m.expected_amount_id
         """
         where_parts = []
@@ -1015,6 +1022,86 @@ def invoices_list():
         download_ok=download_ok,
         download_error=download_error,
     )
+
+
+@invoicing_bp.route('/invoices/<int:invoice_id>/match-details')
+@module_required('invoicing')
+def invoice_match_details(invoice_id):
+    with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
+        invoice = conn.execute(
+            """
+            SELECT id, invoice_number, amount
+            FROM invoice
+            WHERE id = ?
+            """,
+            (invoice_id,),
+        ).fetchone()
+        if not invoice:
+            return jsonify({'ok': False, 'message': '未找到该发票'}), 404
+
+        matches = conn.execute(
+            """
+            SELECT
+                m.id AS match_id,
+                m.expected_amount_id,
+                m.matched_amount,
+                e.amount AS expected_amount,
+                e.platform,
+                e.period,
+                e.period_start,
+                e.period_end,
+                c.short_name AS customer_short_name,
+                b.name AS entity_name
+            FROM invoice_expected_match m
+            LEFT JOIN expected_amount e ON e.id = m.expected_amount_id
+            LEFT JOIN customer c ON c.id = e.customer_id
+            LEFT JOIN billing_entity b ON b.id = e.entity_id
+            WHERE m.invoice_id = ?
+            ORDER BY m.id
+            """,
+            (invoice_id,),
+        ).fetchall()
+
+    match_items = []
+    bill_total = 0
+    matched_total = 0
+    for row in matches:
+        expected_amount = row['expected_amount'] or 0
+        matched_amount = row['matched_amount'] or 0
+        bill_total += expected_amount
+        matched_total += matched_amount
+        start_date = (row['period_start'] or '').strip()
+        end_date = (row['period_end'] or '').strip()
+        period_range = f'{start_date} ~ {end_date}' if start_date or end_date else ''
+        match_items.append({
+            'match_id': row['match_id'],
+            'expected_amount_id': row['expected_amount_id'],
+            'customer_short_name': row['customer_short_name'] or '',
+            'platform': row['platform'] or '',
+            'period': row['period'] or '',
+            'period_range': period_range,
+            'entity_name': row['entity_name'] or '',
+            'expected_amount': expected_amount,
+            'matched_amount': matched_amount,
+        })
+
+    invoice_amount = invoice['amount'] or 0
+    return jsonify({
+        'ok': True,
+        'invoice': {
+            'id': invoice['id'],
+            'invoice_number': invoice['invoice_number'] or '',
+            'amount': invoice_amount,
+        },
+        'summary': {
+            'match_count': len(match_items),
+            'bill_total': bill_total,
+            'matched_total': matched_total,
+            'remaining': invoice_amount - matched_total,
+        },
+        'matches': match_items,
+    })
 
 
 @invoicing_bp.route('/invoices/download-selected', methods=['POST'])

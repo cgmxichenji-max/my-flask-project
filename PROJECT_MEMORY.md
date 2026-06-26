@@ -1764,3 +1764,10 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未覆盖服务器 `data/` 业务数据，未处理服务器未跟踪的 `flask.log`。
 - 是否涉及数据库：否
 - 是否需要回滚：是
+## [2026-06-26 15:29] 修改记录
+- 修改内容：发票列表新增点击发票号码查看已匹配账单弹窗；后端新增只读 `/invoices/<invoice_id>/match-details` JSON 接口，返回发票金额、账单总额、该发票匹配金额合计、匹配后余数（发票金额 - 该发票匹配金额合计）及每条已匹配账单明细。发票列表查询改为按发票聚合 `invoice_expected_match`，避免一张发票存在多条匹配时列表被 JOIN 展开成重复行，并在发票号下方提示多条匹配数量。
+- 修改文件：invoicing/routes.py；templates/invoicing_invoices.html；PROJECT_MEMORY.md
+- 修改原因：用户希望在发票列表点击发票号码时弹窗查看该发票已匹配的所有账单、账单金额明细、账单总额和匹配后余数，同时本次不改动现有匹配保存流程。
+- 影响范围：仅影响发票列表展示和发票匹配明细只读查询；不修改发票匹配保存逻辑、数据库表结构、PDF 下载/导出和应开 vs 已开核对汇总计算。
+- 是否涉及数据库：否（只读已有 `invoice`、`invoice_expected_match`、`expected_amount` 等数据）
+- 是否需要回滚：是

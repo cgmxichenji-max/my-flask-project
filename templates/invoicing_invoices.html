@@ -35,6 +35,32 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 .notice{background:#fff;padding:10px 14px;border-radius:8px;margin-bottom:12px;box-shadow:0 2px 6px rgba(0,0,0,.06);font-size:13px;}
 .notice.ok{color:#2e7d32;border-left:4px solid #2e7d32;}
 .notice.err{color:#c62828;border-left:4px solid #c62828;}
+.invoice-number-btn{border:none;background:none;color:#1976d2;text-decoration:underline;cursor:pointer;padding:0;font:inherit;text-align:left;}
+.match-count{color:#666;font-size:12px;margin-top:2px;}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:20;display:flex;align-items:flex-start;justify-content:center;padding:48px 16px;overflow:auto;}
+.modal-backdrop[hidden]{display:none;}
+.match-modal{background:#fff;border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.24);width:min(960px,100%);max-height:calc(100vh - 96px);overflow:auto;}
+.match-modal-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid #eee;}
+.match-modal-header h2{font-size:18px;margin:0;}
+.modal-close{border:none;background:#eee;color:#333;border-radius:4px;padding:6px 12px;cursor:pointer;}
+.match-modal-body{padding:16px 18px;}
+.match-summary{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:10px;margin-bottom:14px;}
+.match-summary div{background:#f8f8f8;border:1px solid #eee;border-radius:6px;padding:8px 10px;}
+.match-summary label{display:block;color:#666;font-size:12px;margin-bottom:4px;}
+.match-summary strong{font-size:15px;}
+.match-table-wrap{overflow:auto;}
+.match-table{box-shadow:none;border-radius:0;}
+.match-table th,.match-table td{white-space:nowrap;}
+.modal-error{color:#c62828;background:#fff4f4;border-left:4px solid #c62828;padding:8px 10px;margin-bottom:12px;}
+.empty-row{text-align:center;color:#777;padding:18px;}
+@media(max-width:760px){
+  .modal-backdrop{padding:16px 8px;}
+  .match-modal{max-height:calc(100vh - 32px);}
+  .match-summary{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(max-width:420px){
+  .match-summary{grid-template-columns:1fr;}
+}
 </style></head>
 <body>
 <header>发票列表</header>
@@ -104,7 +130,10 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
     data-tax_filed="{{ r.tax_filed or 0 }}"
     data-online_invoice="{{ r.online_invoice or 0 }}">
 <td class="checkbox-col"><input type="checkbox" class="row-check" name="invoice_ids" value="{{ r.id }}" form="download-form"></td>
-<td>{{ r.invoice_number }}</td>
+<td>
+<button type="button" class="invoice-number-btn" data-detail-url="{{ url_for('invoicing.invoice_match_details', invoice_id=r.id) }}">{{ r.invoice_number }}</button>
+{% if r.matched_bill_count and r.matched_bill_count > 1 %}<div class="match-count">{{ r.matched_bill_count }} 条匹配</div>{% endif %}
+</td>
 <td>{{ r.invoice_date or '' }}</td>
 <td>{{ r.invoice_type or '' }}</td>
 <td>{{ r.tax_rate or '' }}</td>
@@ -156,6 +185,39 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 {% endfor %}
 </tbody>
 </table>
+<div id="match-modal" class="modal-backdrop" hidden aria-hidden="true">
+<div class="match-modal" role="dialog" aria-modal="true" aria-labelledby="match-modal-title">
+<div class="match-modal-header">
+<h2 id="match-modal-title">匹配账单明细</h2>
+<button type="button" class="modal-close" id="match-modal-close">关闭</button>
+</div>
+<div class="match-modal-body">
+<div class="match-summary">
+<div><label>发票金额</label><strong id="match-invoice-amount">¥0.00</strong></div>
+<div><label>账单总额</label><strong id="match-bill-total">¥0.00</strong></div>
+<div><label>本发票匹配金额</label><strong id="match-matched-total">¥0.00</strong></div>
+<div><label>匹配后余数</label><strong id="match-remaining">¥0.00</strong></div>
+<div><label>匹配账单数</label><strong id="match-count">0</strong></div>
+</div>
+<div id="match-modal-error" class="modal-error" hidden></div>
+<div class="match-table-wrap">
+<table class="match-table">
+<thead><tr>
+<th>账单ID</th>
+<th>达人/团长</th>
+<th>平台</th>
+<th>期间</th>
+<th>账期范围</th>
+<th>开票主体</th>
+<th>账单金额</th>
+<th>本发票匹配金额</th>
+</tr></thead>
+<tbody id="match-modal-rows"></tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
 </main>
 <script>
 (function(){
@@ -168,6 +230,103 @@ var selectAll=document.getElementById('select-all');
 var downloadBtn=document.getElementById('download-selected-btn');
 var exportBtn=document.getElementById('export-selected-btn');
 var currentSort={key:null,dir:'asc'};
+var modal=document.getElementById('match-modal');
+var modalTitle=document.getElementById('match-modal-title');
+var modalClose=document.getElementById('match-modal-close');
+var modalError=document.getElementById('match-modal-error');
+var modalRows=document.getElementById('match-modal-rows');
+var invoiceAmountEl=document.getElementById('match-invoice-amount');
+var billTotalEl=document.getElementById('match-bill-total');
+var matchedTotalEl=document.getElementById('match-matched-total');
+var remainingEl=document.getElementById('match-remaining');
+var matchCountEl=document.getElementById('match-count');
+
+function money(value){
+  var n=parseFloat(value);
+  if(isNaN(n)) n=0;
+  return '¥'+n.toFixed(2);
+}
+
+function setModalOpen(open){
+  modal.hidden=!open;
+  modal.setAttribute('aria-hidden',open?'false':'true');
+}
+
+function appendCell(tr,value,cls){
+  var td=document.createElement('td');
+  if(cls) td.className=cls;
+  td.textContent=value==null?'':String(value);
+  tr.appendChild(td);
+}
+
+function showModalMessage(message){
+  modalRows.innerHTML='';
+  var tr=document.createElement('tr');
+  var td=document.createElement('td');
+  td.className='empty-row';
+  td.colSpan=8;
+  td.textContent=message;
+  tr.appendChild(td);
+  modalRows.appendChild(tr);
+}
+
+function renderMatchDetails(data){
+  var invoice=data.invoice||{};
+  var summary=data.summary||{};
+  modalTitle.textContent='匹配账单明细：'+(invoice.invoice_number||'');
+  invoiceAmountEl.textContent=money(invoice.amount);
+  billTotalEl.textContent=money(summary.bill_total);
+  matchedTotalEl.textContent=money(summary.matched_total);
+  remainingEl.textContent=money(summary.remaining);
+  matchCountEl.textContent=String(summary.match_count||0);
+  modalError.hidden=true;
+  modalError.textContent='';
+  modalRows.innerHTML='';
+  if(!data.matches||data.matches.length===0){
+    showModalMessage('暂无已匹配账单');
+    return;
+  }
+  data.matches.forEach(function(item){
+    var tr=document.createElement('tr');
+    appendCell(tr,item.expected_amount_id||'');
+    appendCell(tr,item.customer_short_name||'');
+    appendCell(tr,item.platform||'');
+    appendCell(tr,item.period||'');
+    appendCell(tr,item.period_range||'');
+    appendCell(tr,item.entity_name||'');
+    appendCell(tr,money(item.expected_amount));
+    appendCell(tr,money(item.matched_amount));
+    modalRows.appendChild(tr);
+  });
+}
+
+function loadMatchDetails(button){
+  var url=button.getAttribute('data-detail-url');
+  setModalOpen(true);
+  modalTitle.textContent='匹配账单明细';
+  invoiceAmountEl.textContent='¥0.00';
+  billTotalEl.textContent='¥0.00';
+  matchedTotalEl.textContent='¥0.00';
+  remainingEl.textContent='¥0.00';
+  matchCountEl.textContent='0';
+  modalError.hidden=true;
+  modalError.textContent='';
+  showModalMessage('加载中...');
+  fetch(url,{credentials:'same-origin',headers:{'Accept':'application/json'}})
+    .then(function(response){
+      if(!response.ok) throw new Error('读取匹配明细失败');
+      return response.json();
+    })
+    .then(function(data){
+      if(!data.ok) throw new Error(data.message||'读取匹配明细失败');
+      renderMatchDetails(data);
+    })
+    .catch(function(err){
+      modalError.hidden=false;
+      modalError.textContent=err.message||'读取匹配明细失败';
+      showModalMessage('无法显示匹配账单');
+    });
+}
 
 function updateDownloadButton(){
   var checked=tbody.querySelectorAll('.row-check:checked').length;
@@ -260,6 +419,20 @@ tbody.querySelectorAll('.row-check').forEach(function(box){
     selectAll.checked=visibleBoxes.length>0 && visibleBoxes.every(function(item){ return item.checked; });
     updateDownloadButton();
   });
+});
+document.querySelectorAll('.invoice-number-btn').forEach(function(button){
+  button.addEventListener('click',function(){
+    loadMatchDetails(button);
+  });
+});
+modalClose.addEventListener('click',function(){
+  setModalOpen(false);
+});
+modal.addEventListener('click',function(event){
+  if(event.target===modal) setModalOpen(false);
+});
+document.addEventListener('keydown',function(event){
+  if(event.key==='Escape'&&!modal.hidden) setModalOpen(false);
 });
 applyFilter();
 updateDownloadButton();
