@@ -1024,6 +1024,15 @@ def invoices_list():
     )
 
 
+def _match_status(expected_amount, matched_total):
+    diff = (expected_amount or 0) - (matched_total or 0)
+    if abs(diff) < 0.01:
+        return 'equal', '账票相符', diff
+    if diff > 0:
+        return 'bill_greater', '账单金额大于发票金额', diff
+    return 'invoice_greater', '发票金额大于账单金额', diff
+
+
 @invoicing_bp.route('/invoices/<int:invoice_id>/match-details')
 @module_required('invoicing')
 def invoice_match_details(invoice_id):
@@ -1098,9 +1107,207 @@ def invoice_match_details(invoice_id):
             'match_count': len(match_items),
             'bill_total': bill_total,
             'matched_total': matched_total,
-            'remaining': invoice_amount - matched_total,
+            'remaining': bill_total - matched_total,
         },
         'matches': match_items,
+    })
+
+
+@invoicing_bp.route('/customers/<int:customer_id>/expected-match-details')
+@module_required('invoicing')
+def customer_expected_match_details(customer_id):
+    with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
+        customer = conn.execute(
+            """
+            SELECT id, short_name, platform
+            FROM customer
+            WHERE id = ?
+            """,
+            (customer_id,),
+        ).fetchone()
+        if not customer:
+            return jsonify({'ok': False, 'message': '未找到该达人/团长'}), 404
+
+        rows = conn.execute(
+            """
+            SELECT
+                e.id,
+                e.platform,
+                e.period,
+                e.period_start,
+                e.period_end,
+                e.amount,
+                b.name AS entity_name,
+                COUNT(m.id) AS invoice_count,
+                SUM(CASE WHEN i.is_usable = 1 THEN 1 ELSE 0 END) AS usable_invoice_count,
+                COALESCE(SUM(m.matched_amount), 0) AS matched_total,
+                COALESCE(SUM(CASE WHEN i.is_usable = 1 THEN m.matched_amount ELSE 0 END), 0) AS usable_matched_total
+            FROM expected_amount e
+            LEFT JOIN billing_entity b ON b.id = e.entity_id
+            LEFT JOIN invoice_expected_match m ON m.expected_amount_id = e.id
+            LEFT JOIN invoice i ON i.id = m.invoice_id
+            WHERE e.customer_id = ?
+              AND e.amount <> 0
+            GROUP BY e.id
+            ORDER BY COALESCE(e.period_start, '') DESC, e.id DESC
+            """,
+            (customer_id,),
+        ).fetchall()
+
+    bills = []
+    total_expected = 0
+    total_usable_matched = 0
+    for row in rows:
+        amount = row['amount'] or 0
+        usable_matched_total = row['usable_matched_total'] or 0
+        total_expected += amount
+        total_usable_matched += usable_matched_total
+        status, status_text, diff = _match_status(amount, usable_matched_total)
+        start_date = (row['period_start'] or '').strip()
+        end_date = (row['period_end'] or '').strip()
+        period_range = f'{start_date} ~ {end_date}' if start_date or end_date else ''
+        bills.append({
+            'id': row['id'],
+            'platform': row['platform'] or '',
+            'period': row['period'] or '',
+            'period_range': period_range,
+            'entity_name': row['entity_name'] or '',
+            'amount': amount,
+            'invoice_count': row['invoice_count'] or 0,
+            'usable_invoice_count': row['usable_invoice_count'] or 0,
+            'matched_total': row['matched_total'] or 0,
+            'usable_matched_total': usable_matched_total,
+            'diff': diff,
+            'status': status,
+            'status_text': status_text,
+        })
+
+    return jsonify({
+        'ok': True,
+        'customer': {
+            'id': customer['id'],
+            'short_name': customer['short_name'] or '',
+            'platform': customer['platform'] or '',
+        },
+        'summary': {
+            'bill_count': len(bills),
+            'expected_total': total_expected,
+            'usable_matched_total': total_usable_matched,
+            'diff': total_expected - total_usable_matched,
+        },
+        'bills': bills,
+    })
+
+
+@invoicing_bp.route('/expected-amounts/match-details')
+@module_required('invoicing')
+def expected_amount_match_details():
+    expected_amount_id_raw = (request.args.get('expected_amount_id') or '').strip()
+    if not expected_amount_id_raw.isdigit():
+        return jsonify({'ok': False, 'message': '账单 ID 无效'}), 400
+    expected_amount_id = int(expected_amount_id_raw)
+
+    with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
+        bill = conn.execute(
+            """
+            SELECT
+                e.id,
+                e.platform,
+                e.period,
+                e.period_start,
+                e.period_end,
+                e.amount,
+                c.short_name AS customer_short_name,
+                b.name AS entity_name
+            FROM expected_amount e
+            LEFT JOIN customer c ON c.id = e.customer_id
+            LEFT JOIN billing_entity b ON b.id = e.entity_id
+            WHERE e.id = ?
+            """,
+            (expected_amount_id,),
+        ).fetchone()
+        if not bill:
+            return jsonify({'ok': False, 'message': '未找到该账单'}), 404
+
+        rows = conn.execute(
+            """
+            SELECT
+                m.id AS match_id,
+                m.matched_amount,
+                i.id AS invoice_id,
+                i.invoice_number,
+                i.invoice_date,
+                i.amount AS invoice_amount,
+                i.invoice_type,
+                i.tax_rate,
+                i.seller_name,
+                i.buyer_name,
+                i.project_name,
+                i.is_usable,
+                i.alias_name,
+                c.short_name AS customer_short_name
+            FROM invoice_expected_match m
+            JOIN invoice i ON i.id = m.invoice_id
+            LEFT JOIN customer c ON c.id = i.customer_id
+            WHERE m.expected_amount_id = ?
+            ORDER BY COALESCE(i.invoice_date, ''), i.id
+            """,
+            (expected_amount_id,),
+        ).fetchall()
+
+    invoices = []
+    matched_total = 0
+    usable_matched_total = 0
+    for row in rows:
+        matched_amount = row['matched_amount'] or 0
+        matched_total += matched_amount
+        if row['is_usable']:
+            usable_matched_total += matched_amount
+        invoices.append({
+            'match_id': row['match_id'],
+            'invoice_id': row['invoice_id'],
+            'invoice_number': row['invoice_number'] or '',
+            'invoice_date': row['invoice_date'] or '',
+            'invoice_amount': row['invoice_amount'] or 0,
+            'matched_amount': matched_amount,
+            'invoice_type': row['invoice_type'] or '',
+            'tax_rate': row['tax_rate'] or '',
+            'seller_name': row['seller_name'] or '',
+            'buyer_name': row['buyer_name'] or '',
+            'project_name': row['project_name'] or '',
+            'is_usable': row['is_usable'] or 0,
+            'alias_name': row['alias_name'] or '',
+            'customer_short_name': row['customer_short_name'] or '',
+            'pdf_url': url_for('invoicing.invoice_pdf', invoice_id=row['invoice_id']),
+        })
+
+    amount = bill['amount'] or 0
+    status, status_text, diff = _match_status(amount, usable_matched_total)
+    start_date = (bill['period_start'] or '').strip()
+    end_date = (bill['period_end'] or '').strip()
+    period_range = f'{start_date} ~ {end_date}' if start_date or end_date else ''
+    return jsonify({
+        'ok': True,
+        'bill': {
+            'id': bill['id'],
+            'customer_short_name': bill['customer_short_name'] or '',
+            'platform': bill['platform'] or '',
+            'period': bill['period'] or '',
+            'period_range': period_range,
+            'entity_name': bill['entity_name'] or '',
+            'amount': amount,
+        },
+        'summary': {
+            'invoice_count': len(invoices),
+            'matched_total': matched_total,
+            'usable_matched_total': usable_matched_total,
+            'diff': diff,
+            'status': status,
+            'status_text': status_text,
+        },
+        'invoices': invoices,
     })
 
 

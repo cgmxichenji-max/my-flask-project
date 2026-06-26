@@ -35,11 +35,12 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 .notice{background:#fff;padding:10px 14px;border-radius:8px;margin-bottom:12px;box-shadow:0 2px 6px rgba(0,0,0,.06);font-size:13px;}
 .notice.ok{color:#2e7d32;border-left:4px solid #2e7d32;}
 .notice.err{color:#c62828;border-left:4px solid #c62828;}
-.invoice-number-btn{border:none;background:none;color:#1976d2;text-decoration:underline;cursor:pointer;padding:0;font:inherit;text-align:left;}
+.invoice-number-btn,.customer-bills-btn{border:none;background:none;color:#1976d2;text-decoration:underline;cursor:pointer;padding:0;font:inherit;text-align:left;}
 .match-count{color:#666;font-size:12px;margin-top:2px;}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:20;display:flex;align-items:flex-start;justify-content:center;padding:48px 16px;overflow:auto;}
 .modal-backdrop[hidden]{display:none;}
 .match-modal{background:#fff;border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.24);width:min(960px,100%);max-height:calc(100vh - 96px);overflow:auto;}
+.match-modal.wide{width:min(1180px,100%);}
 .match-modal-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid #eee;}
 .match-modal-header h2{font-size:18px;margin:0;}
 .modal-close{border:none;background:#eee;color:#333;border-radius:4px;padding:6px 12px;cursor:pointer;}
@@ -53,6 +54,16 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 .match-table th,.match-table td{white-space:nowrap;}
 .modal-error{color:#c62828;background:#fff4f4;border-left:4px solid #c62828;padding:8px 10px;margin-bottom:12px;}
 .empty-row{text-align:center;color:#777;padding:18px;}
+.status-badge{display:inline-block;border-radius:4px;padding:2px 7px;font-size:12px;font-weight:bold;}
+.status-equal{background:#e8f5e9;color:#1b5e20;}
+.status-bill-greater{background:#fff8e1;color:#8a5a00;}
+.status-invoice-greater{background:#ffebee;color:#b71c1c;}
+.bill-row{cursor:pointer;}
+.bill-row:hover{background:#f5f9ff;}
+.bill-row.active{outline:2px solid #1976d2;outline-offset:-2px;}
+.bill-invoices-panel{margin-top:16px;border-top:1px solid #eee;padding-top:14px;}
+.bill-invoices-panel h3{margin:0 0 10px;font-size:16px;}
+.link-btn{color:#1976d2;text-decoration:none;}
 @media(max-width:760px){
   .modal-backdrop{padding:16px 8px;}
   .match-modal{max-height:calc(100vh - 32px);}
@@ -142,7 +153,11 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 <td>{{ r.buyer_name or '' }}</td>
 <td>{{ r.project_name or '' }}</td>
 <td>
+{% if r.customer_id %}
+<button type="button" class="customer-bills-btn" data-detail-url="{{ url_for('invoicing.customer_expected_match_details', customer_id=r.customer_id) }}">{{ r.customer_short_name or '' }}</button>
+{% else %}
 {{ r.customer_short_name or '' }}
+{% endif %}
 {% if not r.customer_id %}<div class="unmatch">未匹配达人/团长</div>{% endif %}
 </td>
 <td>
@@ -196,7 +211,7 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 <div><label>发票金额</label><strong id="match-invoice-amount">¥0.00</strong></div>
 <div><label>账单总额</label><strong id="match-bill-total">¥0.00</strong></div>
 <div><label>本发票匹配金额</label><strong id="match-matched-total">¥0.00</strong></div>
-<div><label>匹配后余数</label><strong id="match-remaining">¥0.00</strong></div>
+<div><label>账单匹配后余数</label><strong id="match-remaining">¥0.00</strong></div>
 <div><label>匹配账单数</label><strong id="match-count">0</strong></div>
 </div>
 <div id="match-modal-error" class="modal-error" hidden></div>
@@ -214,6 +229,66 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 </tr></thead>
 <tbody id="match-modal-rows"></tbody>
 </table>
+</div>
+</div>
+</div>
+</div>
+<div id="customer-bills-modal" class="modal-backdrop" hidden aria-hidden="true">
+<div class="match-modal wide" role="dialog" aria-modal="true" aria-labelledby="customer-bills-title">
+<div class="match-modal-header">
+<h2 id="customer-bills-title">应开账单</h2>
+<button type="button" class="modal-close" id="customer-bills-close">关闭</button>
+</div>
+<div class="match-modal-body">
+<div class="match-summary">
+<div><label>账单数</label><strong id="customer-bill-count">0</strong></div>
+<div><label>账单合计</label><strong id="customer-expected-total">¥0.00</strong></div>
+<div><label>可用发票合计</label><strong id="customer-usable-total">¥0.00</strong></div>
+<div><label>差额</label><strong id="customer-diff">¥0.00</strong></div>
+<div><label>达人/团长</label><strong id="customer-name">-</strong></div>
+</div>
+<div id="customer-bills-error" class="modal-error" hidden></div>
+<div class="match-table-wrap">
+<table class="match-table">
+<thead><tr>
+<th>账单ID</th>
+<th>平台</th>
+<th>期间</th>
+<th>账期范围</th>
+<th>开票主体</th>
+<th>账单金额</th>
+<th>可用发票合计</th>
+<th>差额</th>
+<th>状态</th>
+<th>发票数</th>
+</tr></thead>
+<tbody id="customer-bill-rows"></tbody>
+</table>
+</div>
+<div id="bill-invoices-panel" class="bill-invoices-panel" hidden>
+<h3 id="bill-invoices-title">账单已匹配发票</h3>
+<div class="match-summary">
+<div><label>账单金额</label><strong id="bill-amount">¥0.00</strong></div>
+<div><label>可用发票合计</label><strong id="bill-usable-total">¥0.00</strong></div>
+<div><label>差额</label><strong id="bill-diff">¥0.00</strong></div>
+<div><label>状态</label><strong id="bill-status">-</strong></div>
+<div><label>发票数</label><strong id="bill-invoice-count">0</strong></div>
+</div>
+<div class="match-table-wrap">
+<table class="match-table">
+<thead><tr>
+<th>发票号</th>
+<th>日期</th>
+<th>发票金额</th>
+<th>本账单匹配金额</th>
+<th>可用</th>
+<th>销售方</th>
+<th>购买方</th>
+<th>PDF</th>
+</tr></thead>
+<tbody id="bill-invoice-rows"></tbody>
+</table>
+</div>
 </div>
 </div>
 </div>
@@ -240,6 +315,25 @@ var billTotalEl=document.getElementById('match-bill-total');
 var matchedTotalEl=document.getElementById('match-matched-total');
 var remainingEl=document.getElementById('match-remaining');
 var matchCountEl=document.getElementById('match-count');
+var customerBillsModal=document.getElementById('customer-bills-modal');
+var customerBillsTitle=document.getElementById('customer-bills-title');
+var customerBillsClose=document.getElementById('customer-bills-close');
+var customerBillsError=document.getElementById('customer-bills-error');
+var customerBillRows=document.getElementById('customer-bill-rows');
+var customerBillCount=document.getElementById('customer-bill-count');
+var customerExpectedTotal=document.getElementById('customer-expected-total');
+var customerUsableTotal=document.getElementById('customer-usable-total');
+var customerDiff=document.getElementById('customer-diff');
+var customerName=document.getElementById('customer-name');
+var billInvoicesPanel=document.getElementById('bill-invoices-panel');
+var billInvoicesTitle=document.getElementById('bill-invoices-title');
+var billAmount=document.getElementById('bill-amount');
+var billUsableTotal=document.getElementById('bill-usable-total');
+var billDiff=document.getElementById('bill-diff');
+var billStatus=document.getElementById('bill-status');
+var billInvoiceCount=document.getElementById('bill-invoice-count');
+var billInvoiceRows=document.getElementById('bill-invoice-rows');
+var billDetailUrl="{{ url_for('invoicing.expected_amount_match_details') }}";
 
 function money(value){
   var n=parseFloat(value);
@@ -252,10 +346,36 @@ function setModalOpen(open){
   modal.setAttribute('aria-hidden',open?'false':'true');
 }
 
+function setCustomerBillsOpen(open){
+  customerBillsModal.hidden=!open;
+  customerBillsModal.setAttribute('aria-hidden',open?'false':'true');
+}
+
+function statusClass(status){
+  if(status==='equal') return 'status-equal';
+  if(status==='bill_greater') return 'status-bill-greater';
+  if(status==='invoice_greater') return 'status-invoice-greater';
+  return '';
+}
+
+function statusBadge(status,statusText){
+  var span=document.createElement('span');
+  span.className='status-badge '+statusClass(status);
+  span.textContent=statusText||'';
+  return span;
+}
+
 function appendCell(tr,value,cls){
   var td=document.createElement('td');
   if(cls) td.className=cls;
   td.textContent=value==null?'':String(value);
+  tr.appendChild(td);
+}
+
+function appendNodeCell(tr,node,cls){
+  var td=document.createElement('td');
+  if(cls) td.className=cls;
+  td.appendChild(node);
   tr.appendChild(td);
 }
 
@@ -325,6 +445,168 @@ function loadMatchDetails(button){
       modalError.hidden=false;
       modalError.textContent=err.message||'读取匹配明细失败';
       showModalMessage('无法显示匹配账单');
+    });
+}
+
+function showCustomerBillsMessage(message){
+  customerBillRows.innerHTML='';
+  var tr=document.createElement('tr');
+  var td=document.createElement('td');
+  td.className='empty-row';
+  td.colSpan=10;
+  td.textContent=message;
+  tr.appendChild(td);
+  customerBillRows.appendChild(tr);
+}
+
+function showBillInvoicesMessage(message){
+  billInvoiceRows.innerHTML='';
+  var tr=document.createElement('tr');
+  var td=document.createElement('td');
+  td.className='empty-row';
+  td.colSpan=8;
+  td.textContent=message;
+  tr.appendChild(td);
+  billInvoiceRows.appendChild(tr);
+}
+
+function renderCustomerBills(data){
+  var customer=data.customer||{};
+  var summary=data.summary||{};
+  customerBillsTitle.textContent='应开账单：'+(customer.short_name||'');
+  customerName.textContent=customer.short_name||'-';
+  customerBillCount.textContent=String(summary.bill_count||0);
+  customerExpectedTotal.textContent=money(summary.expected_total);
+  customerUsableTotal.textContent=money(summary.usable_matched_total);
+  customerDiff.textContent=money(summary.diff);
+  customerBillsError.hidden=true;
+  customerBillsError.textContent='';
+  billInvoicesPanel.hidden=true;
+  customerBillRows.innerHTML='';
+  if(!data.bills||data.bills.length===0){
+    showCustomerBillsMessage('暂无应开账单');
+    return;
+  }
+  data.bills.forEach(function(item){
+    var tr=document.createElement('tr');
+    tr.className='bill-row';
+    tr.setAttribute('tabindex','0');
+    tr.setAttribute('data-expected-id',item.id);
+    appendCell(tr,item.id||'');
+    appendCell(tr,item.platform||'');
+    appendCell(tr,item.period||'');
+    appendCell(tr,item.period_range||'');
+    appendCell(tr,item.entity_name||'');
+    appendCell(tr,money(item.amount));
+    appendCell(tr,money(item.usable_matched_total));
+    appendCell(tr,money(item.diff));
+    appendNodeCell(tr,statusBadge(item.status,item.status_text));
+    appendCell(tr,String(item.usable_invoice_count||0)+' / '+String(item.invoice_count||0));
+    tr.addEventListener('click',function(){
+      customerBillRows.querySelectorAll('.bill-row').forEach(function(row){ row.classList.remove('active'); });
+      tr.classList.add('active');
+      loadBillInvoices(item.id);
+    });
+    tr.addEventListener('keydown',function(event){
+      if(event.key==='Enter'||event.key===' '){
+        event.preventDefault();
+        tr.click();
+      }
+    });
+    customerBillRows.appendChild(tr);
+  });
+}
+
+function renderBillInvoices(data){
+  var bill=data.bill||{};
+  var summary=data.summary||{};
+  billInvoicesPanel.hidden=false;
+  billInvoicesTitle.textContent='账单已匹配发票：'+(bill.customer_short_name||'')+' / '+(bill.platform||'')+' / '+(bill.period||'');
+  billAmount.textContent=money(bill.amount);
+  billUsableTotal.textContent=money(summary.usable_matched_total);
+  billDiff.textContent=money(summary.diff);
+  billStatus.textContent=summary.status_text||'-';
+  billStatus.className='status-badge '+statusClass(summary.status);
+  billInvoiceCount.textContent=String(summary.invoice_count||0);
+  billInvoiceRows.innerHTML='';
+  if(!data.invoices||data.invoices.length===0){
+    showBillInvoicesMessage('暂无已匹配发票');
+    return;
+  }
+  data.invoices.forEach(function(item){
+    var tr=document.createElement('tr');
+    var link=document.createElement('a');
+    link.className='link-btn';
+    link.href=item.pdf_url||'#';
+    link.target='_blank';
+    link.textContent=item.invoice_number||'';
+    appendNodeCell(tr,link);
+    appendCell(tr,item.invoice_date||'');
+    appendCell(tr,money(item.invoice_amount));
+    appendCell(tr,money(item.matched_amount));
+    appendCell(tr,item.is_usable?'是':'否',item.is_usable?'usable-yes':'usable-no');
+    appendCell(tr,item.seller_name||'');
+    appendCell(tr,item.buyer_name||'');
+    var pdfLink=document.createElement('a');
+    pdfLink.className='link-btn';
+    pdfLink.href=item.pdf_url||'#';
+    pdfLink.target='_blank';
+    pdfLink.textContent='查看';
+    appendNodeCell(tr,pdfLink);
+    billInvoiceRows.appendChild(tr);
+  });
+}
+
+function loadCustomerBills(button){
+  var url=button.getAttribute('data-detail-url');
+  setCustomerBillsOpen(true);
+  customerBillsTitle.textContent='应开账单';
+  customerName.textContent='-';
+  customerBillCount.textContent='0';
+  customerExpectedTotal.textContent='¥0.00';
+  customerUsableTotal.textContent='¥0.00';
+  customerDiff.textContent='¥0.00';
+  customerBillsError.hidden=true;
+  customerBillsError.textContent='';
+  billInvoicesPanel.hidden=true;
+  showCustomerBillsMessage('加载中...');
+  fetch(url,{credentials:'same-origin',headers:{'Accept':'application/json'}})
+    .then(function(response){
+      if(!response.ok) throw new Error('读取应开账单失败');
+      return response.json();
+    })
+    .then(function(data){
+      if(!data.ok) throw new Error(data.message||'读取应开账单失败');
+      renderCustomerBills(data);
+    })
+    .catch(function(err){
+      customerBillsError.hidden=false;
+      customerBillsError.textContent=err.message||'读取应开账单失败';
+      showCustomerBillsMessage('无法显示应开账单');
+    });
+}
+
+function loadBillInvoices(expectedAmountId){
+  billInvoicesPanel.hidden=false;
+  billInvoicesTitle.textContent='账单已匹配发票';
+  billAmount.textContent='¥0.00';
+  billUsableTotal.textContent='¥0.00';
+  billDiff.textContent='¥0.00';
+  billStatus.textContent='-';
+  billStatus.className='';
+  billInvoiceCount.textContent='0';
+  showBillInvoicesMessage('加载中...');
+  fetch(billDetailUrl+'?expected_amount_id='+encodeURIComponent(expectedAmountId),{credentials:'same-origin',headers:{'Accept':'application/json'}})
+    .then(function(response){
+      if(!response.ok) throw new Error('读取账单发票失败');
+      return response.json();
+    })
+    .then(function(data){
+      if(!data.ok) throw new Error(data.message||'读取账单发票失败');
+      renderBillInvoices(data);
+    })
+    .catch(function(err){
+      showBillInvoicesMessage(err.message||'无法显示账单发票');
     });
 }
 
@@ -425,14 +707,26 @@ document.querySelectorAll('.invoice-number-btn').forEach(function(button){
     loadMatchDetails(button);
   });
 });
+document.querySelectorAll('.customer-bills-btn').forEach(function(button){
+  button.addEventListener('click',function(){
+    loadCustomerBills(button);
+  });
+});
 modalClose.addEventListener('click',function(){
   setModalOpen(false);
+});
+customerBillsClose.addEventListener('click',function(){
+  setCustomerBillsOpen(false);
 });
 modal.addEventListener('click',function(event){
   if(event.target===modal) setModalOpen(false);
 });
+customerBillsModal.addEventListener('click',function(event){
+  if(event.target===customerBillsModal) setCustomerBillsOpen(false);
+});
 document.addEventListener('keydown',function(event){
   if(event.key==='Escape'&&!modal.hidden) setModalOpen(false);
+  if(event.key==='Escape'&&!customerBillsModal.hidden) setCustomerBillsOpen(false);
 });
 applyFilter();
 updateDownloadButton();
