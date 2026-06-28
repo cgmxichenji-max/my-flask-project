@@ -452,8 +452,8 @@ COMMISSION_COLUMN_TYPES = {
     'order_type': 'TEXT',
 }
 
-COMMISSION_REQUIRED_COLUMNS = ['订单id', '商品id', '付款时间']
-COMMISSION_DEDUP_KEY_COLUMNS = ['order_id']
+COMMISSION_REQUIRED_COLUMNS = ['订单id', '商品id', '订单结算时间']
+COMMISSION_DEDUP_KEY_COLUMNS = ['order_id', 'product_id', 'settlement_time', 'commission_type']
 
 COMMISSION_TEXT_SOURCE_COLUMNS = {
     '订单id', '商品id', '店铺id', '营销活动id', '阶梯计划ID',
@@ -532,8 +532,8 @@ MERCHANT_COLUMN_TYPES = {
     'order_type': 'TEXT',
 }
 
-MERCHANT_REQUIRED_COLUMNS = ['订单id', '商品名称', '付款时间']
-MERCHANT_DEDUP_KEY_COLUMNS = ['order_id']
+MERCHANT_REQUIRED_COLUMNS = ['订单id', '商品id', '结算时间']
+MERCHANT_DEDUP_KEY_COLUMNS = ['order_id', 'product_id', 'settlement_time', 'group_campaign_id']
 
 MERCHANT_TEXT_SOURCE_COLUMNS = {
     '订单id', '商品id', '店铺id', '团长活动id',

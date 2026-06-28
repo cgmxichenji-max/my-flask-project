@@ -1156,6 +1156,13 @@ def export_data_to_excel(
 
 DOUYIN_COMMISSION_AMOUNT_COLUMNS = {
     '佣金金额', '应开金额', '达人佣金', '招商服务费', '佣金(元)', '招商服务费(元)',
+    '实际佣金支出', '实际服务费收入',
+}
+
+DETAIL_EXPORT_MODE_LABELS = {
+    'all': '全部',
+    'exempt': '豁免',
+    'non_exempt': '不豁免',
 }
 
 
@@ -1535,6 +1542,374 @@ def _fund_flow_chinese_columns(df: pd.DataFrame, config: ShopConfig) -> pd.DataF
     return df.rename(columns={col: reverse_map.get(col, col) for col in df.columns})
 
 
+def _commission_chinese_columns(df: pd.DataFrame) -> pd.DataFrame:
+    reverse_map = {v: k for k, v in COMMISSION_COLUMN_MAPPING.items()}
+    return df.rename(columns={col: reverse_map.get(col, col) for col in df.columns})
+
+
+def _merchant_chinese_columns(df: pd.DataFrame) -> pd.DataFrame:
+    reverse_map = {v: k for k, v in MERCHANT_COLUMN_MAPPING.items()}
+    return df.rename(columns={col: reverse_map.get(col, col) for col in df.columns})
+
+
+def _normalize_detail_export_mode(value: str | None) -> str:
+    mode = str(value or 'all').strip() or 'all'
+    if mode not in DETAIL_EXPORT_MODE_LABELS:
+        raise ValueError('明细表导出口径不正确，请选择全部、豁免或不豁免')
+    return mode
+
+
+def _detail_export_mode_label(mode: str) -> str:
+    return DETAIL_EXPORT_MODE_LABELS.get(mode, DETAIL_EXPORT_MODE_LABELS['all'])
+
+
+def _detail_export_brand_key(config: ShopConfig) -> str | None:
+    if config.table_prefix == 'dy_chantelle':
+        return 'chantelle'
+    if config.table_prefix == 'dy_mulianman':
+        return 'mulianman'
+    return None
+
+
+def _ensure_douyin_detail_commission_tables(conn: sqlite3.Connection, config: ShopConfig) -> None:
+    if not _table_exists(conn, config.commission_table):
+        raise ValueError(f'数据表不存在：{config.commission_table}，请先导入佣金订单明细')
+
+
+def _load_exemption_ranges(conn: sqlite3.Connection, config: ShopConfig) -> dict[str, list[tuple[str, str]]]:
+    brand = _detail_export_brand_key(config)
+    if not brand or not _table_exists(conn, 'creator_exemptions'):
+        return {}
+    rows = conn.execute(
+        """
+        SELECT creator_uid, start_date, end_date
+        FROM creator_exemptions
+        WHERE brand = ?
+          AND TRIM(COALESCE(creator_uid, '')) <> ''
+          AND TRIM(COALESCE(start_date, '')) <> ''
+          AND TRIM(COALESCE(end_date, '')) <> ''
+        """,
+        (brand,),
+    ).fetchall()
+    result: dict[str, list[tuple[str, str]]] = {}
+    for row in rows:
+        uid = _normalize_summary_id(row['creator_uid'])
+        start_date = str(row['start_date'] or '').strip()[:10].replace('/', '-')
+        end_date = str(row['end_date'] or '').strip()[:10].replace('/', '-')
+        if uid and start_date and end_date:
+            result.setdefault(uid, []).append((start_date, end_date))
+    return result
+
+
+def _is_exempted_by_ranges(identity: Any, date_value: Any, ranges: dict[str, list[tuple[str, str]]]) -> bool:
+    identity_text = _normalize_summary_id(identity)
+    if not identity_text:
+        return False
+    date_text = str(date_value or '').strip()[:10].replace('/', '-')
+    if not date_text:
+        return False
+    return any(start_date <= date_text <= end_date for start_date, end_date in ranges.get(identity_text, []))
+
+
+def _apply_detail_exemption_filter(
+    df: pd.DataFrame,
+    identity_col: str,
+    date_col: str,
+    ranges: dict[str, list[tuple[str, str]]],
+    mode: str,
+) -> pd.DataFrame:
+    if df.empty:
+        out = df.copy()
+        out['exemption_status'] = []
+        return out
+    out = df.copy()
+    exempt_mask = out.apply(
+        lambda row: _is_exempted_by_ranges(row.get(identity_col), row.get(date_col), ranges),
+        axis=1,
+    )
+    out['exemption_status'] = exempt_mask.map(lambda value: '豁免' if value else '不豁免')
+    if mode == 'exempt':
+        out = out[exempt_mask].copy()
+    elif mode == 'non_exempt':
+        out = out[~exempt_mask].copy()
+    return out
+
+
+def _apply_detail_keyword_filter(
+    df: pd.DataFrame,
+    name_col: str,
+    identity_col: str,
+    keyword: str,
+    alias_nicknames: list[str],
+) -> pd.DataFrame:
+    if df.empty or not keyword:
+        return df
+    names = df[name_col].fillna('').astype(str)
+    identities = df[identity_col].fillna('').astype(str)
+    alias_set = set(alias_nicknames)
+    mask = (
+        names.str.contains(keyword, regex=False)
+        | identities.str.contains(keyword, regex=False)
+        | names.isin(alias_set)
+    )
+    return df[mask].copy()
+
+
+def _order_creator_lookup_join_sql(config: ShopConfig) -> str:
+    return f"""
+        LEFT JOIN (
+            SELECT
+                sub_order_no,
+                product_id,
+                MAX(NULLIF(TRIM(influencer_nickname), '')) AS order_influencer_name,
+                MAX(NULLIF(TRIM(influencer_id), '')) AS order_influencer_id
+            FROM {config.orders_table}
+            WHERE COALESCE(sub_order_no, '') <> ''
+            GROUP BY sub_order_no, product_id
+        ) os ON c.order_id = os.sub_order_no AND c.product_id = os.product_id
+        LEFT JOIN (
+            SELECT
+                main_order_no,
+                product_id,
+                MAX(NULLIF(TRIM(influencer_nickname), '')) AS order_influencer_name,
+                MAX(NULLIF(TRIM(influencer_id), '')) AS order_influencer_id
+            FROM {config.orders_table}
+            WHERE COALESCE(main_order_no, '') <> ''
+            GROUP BY main_order_no, product_id
+        ) om ON c.order_id = om.main_order_no AND c.product_id = om.product_id
+    """
+
+
+def _query_detail_source_creator_rows(
+    conn: sqlite3.Connection,
+    start_text: str,
+    end_text: str,
+    keyword: str,
+    alias_nicknames: list[str],
+    config: ShopConfig,
+) -> pd.DataFrame:
+    columns_sql = ', '.join(f'c.{col}' for col in COMMISSION_COLUMN_TYPES.keys())
+    if _table_exists(conn, config.orders_table):
+        join_sql = _order_creator_lookup_join_sql(config)
+        name_expr = "COALESCE(os.order_influencer_name, om.order_influencer_name, NULLIF(TRIM(c.author_account), ''))"
+        id_expr = "COALESCE(os.order_influencer_id, om.order_influencer_id)"
+    else:
+        join_sql = ''
+        name_expr = "NULLIF(TRIM(c.author_account), '')"
+        id_expr = "NULL"
+    sql = f"""
+        SELECT
+            {columns_sql},
+            {name_expr} AS detail_creator_name,
+            {id_expr} AS detail_creator_id
+        FROM {config.commission_table} c
+        {join_sql}
+        WHERE {_commission_date_expr('c')} >= ?
+          AND {_commission_date_expr('c')} <= ?
+          AND ABS(CAST(c.actual_commission AS REAL)) > 0.0001
+        ORDER BY detail_creator_name ASC, c.settlement_time ASC, c.order_id ASC
+    """
+    df = pd.read_sql_query(sql, conn, params=[start_text, end_text])
+    if df.empty:
+        return df
+    df['detail_creator_name'] = df['detail_creator_name'].fillna('').astype(str).str.strip()
+    df['detail_creator_id'] = df['detail_creator_id'].fillna('').astype(str).str.strip()
+    return _apply_detail_keyword_filter(df, 'detail_creator_name', 'detail_creator_id', keyword, alias_nicknames)
+
+
+def _query_detail_source_leader_rows(
+    conn: sqlite3.Connection,
+    start_text: str,
+    end_text: str,
+    keyword: str,
+    alias_nicknames: list[str],
+    config: ShopConfig,
+) -> pd.DataFrame:
+    if not _table_exists(conn, config.merchant_table):
+        return pd.DataFrame(columns=list(MERCHANT_COLUMN_TYPES.keys()) + ['detail_leader_name', 'detail_leader_id'])
+    columns_sql = ', '.join(f'm.{col}' for col in MERCHANT_COLUMN_TYPES.keys())
+    sql = f"""
+        SELECT
+            {columns_sql},
+            NULLIF(TRIM(m.issuing_institution), '') AS detail_leader_name,
+            NULLIF(TRIM(m.group_campaign_id), '') AS detail_leader_id
+        FROM {config.merchant_table} m
+        WHERE {_commission_date_expr('m')} >= ?
+          AND {_commission_date_expr('m')} <= ?
+          AND ABS(CAST(m.actual_service_income AS REAL)) > 0.0001
+        ORDER BY detail_leader_name ASC, m.settlement_time ASC, m.order_id ASC
+    """
+    df = pd.read_sql_query(sql, conn, params=[start_text, end_text])
+    if df.empty:
+        return df
+    df['detail_leader_name'] = df['detail_leader_name'].fillna('').astype(str).str.strip()
+    df['detail_leader_id'] = df['detail_leader_id'].fillna('').astype(str).str.strip()
+    return _apply_detail_keyword_filter(df, 'detail_leader_name', 'detail_leader_id', keyword, alias_nicknames)
+
+
+def _build_detail_creator_summary(rows_df: pd.DataFrame) -> pd.DataFrame:
+    if rows_df.empty:
+        return pd.DataFrame(columns=['达人名称', '达人ID', '佣金金额'])
+    work = rows_df[rows_df['detail_creator_name'].fillna('').astype(str).str.strip() != ''].copy()
+    if work.empty:
+        return pd.DataFrame(columns=['达人名称', '达人ID', '佣金金额'])
+    work['actual_commission'] = pd.to_numeric(work['actual_commission'], errors='coerce').fillna(0)
+    grouped = (
+        work.groupby('detail_creator_name', dropna=False)
+        .agg(
+            达人ID=('detail_creator_id', _join_summary_ids),
+            佣金金额=('actual_commission', 'sum'),
+        )
+        .reset_index()
+        .rename(columns={'detail_creator_name': '达人名称'})
+    )
+    return grouped.sort_values('佣金金额', ascending=False)[['达人名称', '达人ID', '佣金金额']]
+
+
+def _build_detail_leader_summary(rows_df: pd.DataFrame) -> pd.DataFrame:
+    if rows_df.empty:
+        return pd.DataFrame(columns=['团长名称', '团长ID', '佣金金额'])
+    work = rows_df[rows_df['detail_leader_name'].fillna('').astype(str).str.strip() != ''].copy()
+    if work.empty:
+        return pd.DataFrame(columns=['团长名称', '团长ID', '佣金金额'])
+    work['actual_service_income'] = pd.to_numeric(work['actual_service_income'], errors='coerce').fillna(0)
+    grouped = (
+        work.groupby('detail_leader_name', dropna=False)
+        .agg(
+            团长ID=('detail_leader_id', _join_summary_ids),
+            佣金金额=('actual_service_income', 'sum'),
+        )
+        .reset_index()
+        .rename(columns={'detail_leader_name': '团长名称'})
+    )
+    return grouped.sort_values('佣金金额', ascending=False)[['团长名称', '团长ID', '佣金金额']]
+
+
+def _build_detail_invoice_import_df(creator_df: pd.DataFrame, leader_df: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for _idx, row in creator_df.iterrows():
+        rows.append({'达人/客户': row['达人名称'], '应开金额': float(row['佣金金额'] or 0)})
+    for _idx, row in leader_df.iterrows():
+        rows.append({'达人/客户': row['团长名称'], '应开金额': float(row['佣金金额'] or 0)})
+    df = pd.DataFrame(rows, columns=['达人/客户', '应开金额'])
+    if not df.empty:
+        df = df.sort_values('应开金额', ascending=False)
+    return df
+
+
+def _build_unmatched_detail_creator_rows(rows_df: pd.DataFrame) -> pd.DataFrame:
+    if rows_df.empty:
+        return pd.DataFrame(columns=['结算时间', '订单id', '商品id', '达人名称', '实际佣金支出', '原因'])
+    mask = (
+        rows_df['detail_creator_id'].fillna('').astype(str).str.strip() == ''
+    ) | (
+        rows_df['detail_creator_name'].fillna('').astype(str).str.strip() == ''
+    )
+    work = rows_df[mask].copy()
+    if work.empty:
+        return pd.DataFrame(columns=['结算时间', '订单id', '商品id', '达人名称', '实际佣金支出', '原因'])
+    work['原因'] = work.apply(
+        lambda row: '缺少达人ID' if str(row.get('detail_creator_id') or '').strip() == '' else '缺少达人名称',
+        axis=1,
+    )
+    work = work.rename(
+        columns={
+            'settlement_time': '结算时间',
+            'order_id': '订单id',
+            'product_id': '商品id',
+            'detail_creator_name': '达人名称',
+            'actual_commission': '实际佣金支出',
+        }
+    )
+    return work[['结算时间', '订单id', '商品id', '达人名称', '实际佣金支出', '原因']]
+
+
+def _build_unmatched_detail_leader_rows(rows_df: pd.DataFrame) -> pd.DataFrame:
+    if rows_df.empty:
+        return pd.DataFrame(columns=['结算时间', '订单id', '商品id', '团长名称', '团长ID', '实际服务费收入', '原因'])
+    mask = (
+        rows_df['detail_leader_id'].fillna('').astype(str).str.strip() == ''
+    ) | (
+        rows_df['detail_leader_name'].fillna('').astype(str).str.strip() == ''
+    )
+    work = rows_df[mask].copy()
+    if work.empty:
+        return pd.DataFrame(columns=['结算时间', '订单id', '商品id', '团长名称', '团长ID', '实际服务费收入', '原因'])
+    work['原因'] = work.apply(
+        lambda row: '缺少团长ID' if str(row.get('detail_leader_id') or '').strip() == '' else '缺少团长名称',
+        axis=1,
+    )
+    work = work.rename(
+        columns={
+            'settlement_time': '结算时间',
+            'order_id': '订单id',
+            'product_id': '商品id',
+            'detail_leader_name': '团长名称',
+            'detail_leader_id': '团长ID',
+            'actual_service_income': '实际服务费收入',
+        }
+    )
+    return work[['结算时间', '订单id', '商品id', '团长名称', '团长ID', '实际服务费收入', '原因']]
+
+
+def _detail_creator_export_df(group_df: pd.DataFrame) -> pd.DataFrame:
+    detail_df = group_df.copy().rename(
+        columns={
+            'detail_creator_name': '达人名称',
+            'detail_creator_id': '达人ID',
+            'exemption_status': '豁免状态',
+        }
+    )
+    detail_df = _commission_chinese_columns(detail_df)
+    front_cols = ['达人名称', '达人ID', '豁免状态']
+    remaining = [col for col in detail_df.columns if col not in front_cols]
+    return detail_df[front_cols + remaining]
+
+
+def _detail_leader_export_df(group_df: pd.DataFrame) -> pd.DataFrame:
+    detail_df = group_df.copy().rename(
+        columns={
+            'detail_leader_name': '团长名称',
+            'detail_leader_id': '团长ID',
+            'exemption_status': '豁免状态',
+        }
+    )
+    detail_df = _merchant_chinese_columns(detail_df)
+    front_cols = ['团长名称', '团长ID', '豁免状态']
+    remaining = [col for col in detail_df.columns if col not in front_cols]
+    return detail_df[front_cols + remaining]
+
+
+def _load_detail_source_export_data(
+    start_text: str,
+    end_text: str,
+    nickname_query: str | None,
+    exemption_mode: str,
+    config: ShopConfig,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    keyword = str(nickname_query or '').strip()
+    db_path = _get_database_path()
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        _ensure_douyin_detail_commission_tables(conn, config)
+        alias_nicknames = _get_douyin_alias_nicknames(conn, keyword)
+        exemption_ranges = _load_exemption_ranges(conn, config)
+        creator_rows = _query_detail_source_creator_rows(conn, start_text, end_text, keyword, alias_nicknames, config)
+        leader_rows = _query_detail_source_leader_rows(conn, start_text, end_text, keyword, alias_nicknames, config)
+
+    creator_rows = _apply_detail_exemption_filter(
+        creator_rows, 'detail_creator_id', 'settlement_time', exemption_ranges, exemption_mode
+    )
+    leader_rows = _apply_detail_exemption_filter(
+        leader_rows, 'detail_leader_id', 'settlement_time', exemption_ranges, exemption_mode
+    )
+    creator_df = _build_detail_creator_summary(creator_rows)
+    leader_df = _build_detail_leader_summary(leader_rows)
+    unmatched_creator_df = _build_unmatched_detail_creator_rows(creator_rows)
+    unmatched_leader_df = _build_unmatched_detail_leader_rows(leader_rows)
+    return creator_rows, leader_rows, creator_df, leader_df, unmatched_creator_df, unmatched_leader_df
+
+
 def _query_creator_detail_rows(
     conn: sqlite3.Connection,
     start_text: str,
@@ -1730,3 +2105,136 @@ def export_commission_detail_zip(
 
     archive.seek(0)
     return archive, _build_commission_zip_name(f'{config.display_name}佣金明细', start_text, end_text)
+
+
+def export_detail_source_commission_summary_zip(
+    start_date: str | None,
+    end_date: str | None,
+    nickname_query: str | None,
+    exemption_mode: str | None,
+    config: ShopConfig,
+) -> tuple[BytesIO, str]:
+    start_text, end_text = _normalize_commission_date_range(start_date, end_date)
+    mode = _normalize_detail_export_mode(exemption_mode)
+    mode_label = _detail_export_mode_label(mode)
+    month_text = _build_commission_month_text(start_text, end_text)
+    safe_month = _safe_download_part(month_text)
+
+    (
+        _creator_rows,
+        _leader_rows,
+        creator_df,
+        leader_df,
+        unmatched_creator_df,
+        unmatched_leader_df,
+    ) = _load_detail_source_export_data(start_text, end_text, nickname_query, mode, config)
+
+    summary_excel = _write_dataframe_excel(
+        [
+            ('达人汇总', creator_df),
+            ('团长汇总', leader_df),
+        ],
+        amount_columns={'佣金金额'},
+        text_columns={'达人名称', '达人ID', '团长名称', '团长ID'},
+    )
+    invoice_df = _build_detail_invoice_import_df(creator_df, leader_df)
+    invoice_excel = _write_dataframe_excel(
+        [('应开金额导入', invoice_df)],
+        amount_columns={'应开金额'},
+        text_columns={'达人/客户'},
+    )
+
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f'{safe_month}按明细表{mode_label}佣金汇总.xlsx', summary_excel.getvalue())
+        zf.writestr(f'{safe_month}按明细表{mode_label}应开金额导入.xlsx', invoice_excel.getvalue())
+        if not unmatched_creator_df.empty:
+            unmatched_creator_excel = _write_dataframe_excel(
+                [('未匹配达人ID', unmatched_creator_df)],
+                amount_columns={'实际佣金支出'},
+                text_columns={'订单id', '商品id'},
+            )
+            zf.writestr(f'{safe_month}按明细表{mode_label}未匹配达人ID.xlsx', unmatched_creator_excel.getvalue())
+        if not unmatched_leader_df.empty:
+            unmatched_leader_excel = _write_dataframe_excel(
+                [('未匹配团长ID', unmatched_leader_df)],
+                amount_columns={'实际服务费收入'},
+                text_columns={'订单id', '商品id', '团长ID'},
+            )
+            zf.writestr(f'{safe_month}按明细表{mode_label}未匹配团长ID.xlsx', unmatched_leader_excel.getvalue())
+    archive.seek(0)
+    return archive, _build_commission_zip_name(f'{config.display_name}佣金汇总_按明细表_{mode_label}', start_text, end_text)
+
+
+def export_detail_source_commission_detail_zip(
+    start_date: str | None,
+    end_date: str | None,
+    nickname_query: str | None,
+    exemption_mode: str | None,
+    config: ShopConfig,
+) -> tuple[BytesIO, str]:
+    start_text, end_text = _normalize_commission_date_range(start_date, end_date)
+    mode = _normalize_detail_export_mode(exemption_mode)
+    mode_label = _detail_export_mode_label(mode)
+    month_text = _build_commission_month_text(start_text, end_text, short_year=True)
+
+    (
+        creator_rows,
+        leader_rows,
+        _creator_df,
+        _leader_df,
+        unmatched_creator_df,
+        unmatched_leader_df,
+    ) = _load_detail_source_export_data(start_text, end_text, nickname_query, mode, config)
+
+    archive = BytesIO()
+    used_names: dict[str, int] = {}
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        if not creator_rows.empty:
+            creator_rows = creator_rows[creator_rows['detail_creator_name'].fillna('').astype(str).str.strip() != '']
+            for name, group_df in creator_rows.groupby('detail_creator_name', sort=True):
+                amount_sum = float(pd.to_numeric(group_df['actual_commission'], errors='coerce').fillna(0).sum())
+                detail_df = _detail_creator_export_df(group_df)
+                detail_excel = _write_dataframe_excel(
+                    [('明细', detail_df)],
+                    amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
+                    text_columns={'订单id', '商品id', '店铺id', '营销活动id', '阶梯计划ID', '达人ID'},
+                )
+                filename = _safe_download_part(f'{name}_{amount_sum:.2f}_{mode_label}_按明细表{month_text}') + '.xlsx'
+                zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
+
+        if not leader_rows.empty:
+            leader_rows = leader_rows[leader_rows['detail_leader_name'].fillna('').astype(str).str.strip() != '']
+            for name, group_df in leader_rows.groupby('detail_leader_name', sort=True):
+                amount_sum = float(pd.to_numeric(group_df['actual_service_income'], errors='coerce').fillna(0).sum())
+                detail_df = _detail_leader_export_df(group_df)
+                detail_excel = _write_dataframe_excel(
+                    [('明细', detail_df)],
+                    amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
+                    text_columns={'订单id', '商品id', '店铺id', '团长活动id', '团长ID'},
+                )
+                filename = _safe_download_part(f'{amount_sum:.2f}{name}_招商佣金_{mode_label}_按明细表{month_text}') + '.xlsx'
+                zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
+
+        if not unmatched_creator_df.empty:
+            unmatched_creator_excel = _write_dataframe_excel(
+                [('未匹配达人ID', unmatched_creator_df)],
+                amount_columns={'实际佣金支出'},
+                text_columns={'订单id', '商品id'},
+            )
+            zf.writestr('未匹配达人ID.xlsx', unmatched_creator_excel.getvalue())
+        if not unmatched_leader_df.empty:
+            unmatched_leader_excel = _write_dataframe_excel(
+                [('未匹配团长ID', unmatched_leader_df)],
+                amount_columns={'实际服务费收入'},
+                text_columns={'订单id', '商品id', '团长ID'},
+            )
+            zf.writestr('未匹配团长ID.xlsx', unmatched_leader_excel.getvalue())
+
+        if not used_names and unmatched_creator_df.empty and unmatched_leader_df.empty:
+            empty_df = pd.DataFrame(columns=['提示'])
+            empty_excel = _write_dataframe_excel([('明细', empty_df)])
+            zf.writestr('无佣金明细.xlsx', empty_excel.getvalue())
+
+    archive.seek(0)
+    return archive, _build_commission_zip_name(f'{config.display_name}佣金明细_按明细表_{mode_label}', start_text, end_text)

@@ -5,4 +5,5 @@ douyin_chantelle_bp = create_douyin_blueprint(
     display_name='香娜露儿（抖音）',
     module_key='douyin_shop_chantelle',
     table_prefix='dy_chantelle',
+    enable_detail_source_commission=True,
 )

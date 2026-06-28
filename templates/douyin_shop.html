@@ -178,14 +178,32 @@
                     <label for="dy_commission_nickname_query">昵称 / 别名 / 关键词筛选</label>
                     <input id="dy_commission_nickname_query" name="dy_commission_nickname_query" type="text" placeholder="达人或团长名称关键词，不填表示全部">
                 </div>
+                {% if enable_detail_source_commission %}
+                <div class="form-group">
+                    <label for="dy_detail_commission_mode">按明细表导出口径</label>
+                    <select id="dy_detail_commission_mode" name="dy_detail_commission_mode">
+                        <option value="all">全部</option>
+                        <option value="exempt">豁免</option>
+                        <option value="non_exempt">不豁免</option>
+                    </select>
+                </div>
+                {% endif %}
             </div>
             <div class="export-actions">
                 <button class="btn btn-primary" type="button" id="btn-export-dy-commission-summary">佣金汇总导出</button>
                 <button class="btn btn-primary" type="button" id="btn-export-dy-commission-details">达人/团长明细导出（ZIP）</button>
+                {% if enable_detail_source_commission %}
+                <button class="btn btn-primary" type="button" id="btn-export-dy-detail-commission-summary">按明细表佣金汇总导出</button>
+                <button class="btn btn-primary" type="button" id="btn-export-dy-detail-commission-details">按明细表达人/团长明细导出（ZIP）</button>
+                {% endif %}
             </div>
             <div id="dy-commission-export-result" class="import-result-box" style="width:100%;"></div>
             <div class="hint-box">
+                {% if enable_detail_source_commission %}
+                原按钮按资金结算表导出；按明细表按钮读取佣金订单明细和招商订单明细，并按上方口径下拉框区分全部、豁免、不豁免。
+                {% else %}
                 达人佣金按资金结算表中的达人信息汇总；资金表不含达人名称时按订单表补齐。团长佣金按招商订单明细中的出单机构汇总。金额按正负净值导出。
+                {% endif %}
             </div>
         </section>
 
@@ -278,6 +296,11 @@
         "export_data":      "{{ url_for(bp_name + '.export_data') }}",
         "export_commission_summary": "{{ url_for(bp_name + '.export_commission_summary') }}",
         "export_commission_details": "{{ url_for(bp_name + '.export_commission_details') }}"
+        {% if enable_detail_source_commission %}
+        ,
+        "export_detail_source_commission_summary": "{{ url_for(bp_name + '.export_detail_source_commission_summary') }}",
+        "export_detail_source_commission_details": "{{ url_for(bp_name + '.export_detail_source_commission_details') }}"
+        {% endif %}
     }
     </script>
 
@@ -440,6 +463,7 @@
         const dyCommissionStartDateInput = document.getElementById('dy_commission_start_date');
         const dyCommissionEndDateInput = document.getElementById('dy_commission_end_date');
         const dyCommissionNicknameQueryInput = document.getElementById('dy_commission_nickname_query');
+        const dyDetailCommissionModeSelect = document.getElementById('dy_detail_commission_mode');
         const dyCommissionExportResult = document.getElementById('dy-commission-export-result');
         const dyCommissionDateStorageKey = `douyin_commission_date_range:${window.location.pathname}`;
 
@@ -469,7 +493,7 @@
             }
         }
 
-        async function handleCommissionExport({ url, buttonElement, loadingText, defaultButtonText }) {
+        async function handleCommissionExport({ url, buttonElement, loadingText, defaultButtonText, includeDetailMode = false }) {
             if (!dyCommissionStartDateInput || !dyCommissionEndDateInput || !buttonElement) return;
 
             const fallbackStartDateInput = document.getElementById('date_start');
@@ -497,6 +521,9 @@
             fd.append('dy_commission_start_date', startDate);
             fd.append('dy_commission_end_date', endDate);
             fd.append('nickname_query', dyCommissionNicknameQueryInput ? dyCommissionNicknameQueryInput.value : '');
+            if (includeDetailMode) {
+                fd.append('exemption_mode', dyDetailCommissionModeSelect ? dyDetailCommissionModeSelect.value : 'all');
+            }
             rememberDyCommissionDateRange(startDate, endDate);
 
             buttonElement.disabled = true;
@@ -541,6 +568,8 @@
 
         const btnExportDyCommissionSummary = document.getElementById('btn-export-dy-commission-summary');
         const btnExportDyCommissionDetails = document.getElementById('btn-export-dy-commission-details');
+        const btnExportDyDetailCommissionSummary = document.getElementById('btn-export-dy-detail-commission-summary');
+        const btnExportDyDetailCommissionDetails = document.getElementById('btn-export-dy-detail-commission-details');
         if (btnExportDyCommissionSummary) {
             btnExportDyCommissionSummary.addEventListener('click', () => handleCommissionExport({
                 url: API_URLS.export_commission_summary,
@@ -555,6 +584,24 @@
                 buttonElement: btnExportDyCommissionDetails,
                 loadingText: '正在导出明细…',
                 defaultButtonText: '达人/团长明细导出（ZIP）',
+            }));
+        }
+        if (btnExportDyDetailCommissionSummary) {
+            btnExportDyDetailCommissionSummary.addEventListener('click', () => handleCommissionExport({
+                url: API_URLS.export_detail_source_commission_summary,
+                buttonElement: btnExportDyDetailCommissionSummary,
+                loadingText: '正在按明细表导出汇总…',
+                defaultButtonText: '按明细表佣金汇总导出',
+                includeDetailMode: true,
+            }));
+        }
+        if (btnExportDyDetailCommissionDetails) {
+            btnExportDyDetailCommissionDetails.addEventListener('click', () => handleCommissionExport({
+                url: API_URLS.export_detail_source_commission_details,
+                buttonElement: btnExportDyDetailCommissionDetails,
+                loadingText: '正在按明细表导出明细…',
+                defaultButtonText: '按明细表达人/团长明细导出（ZIP）',
+                includeDetailMode: true,
             }));
         }
         applyDyCommissionDateRange();

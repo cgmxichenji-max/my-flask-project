@@ -18,6 +18,8 @@ from .services import (
     ShopConfig,
     export_commission_detail_zip,
     export_commission_summary_zip,
+    export_detail_source_commission_detail_zip,
+    export_detail_source_commission_summary_zip,
     export_data_to_excel,
     get_data_status_rows,
     get_export_table_config,
@@ -81,6 +83,7 @@ def create_douyin_blueprint(
     table_prefix: str,
     fund_flow_format: str = 'standard',
     order_format: str = 'standard',
+    enable_detail_source_commission: bool = False,
 ) -> Blueprint:
     """
     创建一个完整的抖音店铺蓝图。
@@ -172,6 +175,7 @@ def create_douyin_blueprint(
             export_date_ranges_json=json.dumps(export_date_ranges, ensure_ascii=False),
             order_accept_exts='.csv,.xlsx,.xls,.zip' if config.order_format == 'overseas' else '.csv,.xlsx,.xls',
             is_overseas_orders=(config.order_format == 'overseas'),
+            enable_detail_source_commission=enable_detail_source_commission,
         )
 
     @bp.route('/import_orders', methods=['POST'])
@@ -256,5 +260,36 @@ def create_douyin_blueprint(
             return send_zip_download(output, filename)
         except Exception as exc:
             return jsonify({'success': False, 'message': str(exc)}), 400
+
+    if enable_detail_source_commission:
+        @bp.route('/export_detail_source_commission_summary', methods=['POST'])
+        @module_required(module_key)
+        def export_detail_source_commission_summary():
+            try:
+                output, filename = export_detail_source_commission_summary_zip(
+                    start_date=_get_commission_export_date('start_date'),
+                    end_date=_get_commission_export_date('end_date'),
+                    nickname_query=request.form.get('nickname_query'),
+                    exemption_mode=request.form.get('exemption_mode'),
+                    config=config,
+                )
+                return send_zip_download(output, filename)
+            except Exception as exc:
+                return jsonify({'success': False, 'message': str(exc)}), 400
+
+        @bp.route('/export_detail_source_commission_details', methods=['POST'])
+        @module_required(module_key)
+        def export_detail_source_commission_details():
+            try:
+                output, filename = export_detail_source_commission_detail_zip(
+                    start_date=_get_commission_export_date('start_date'),
+                    end_date=_get_commission_export_date('end_date'),
+                    nickname_query=request.form.get('nickname_query'),
+                    exemption_mode=request.form.get('exemption_mode'),
+                    config=config,
+                )
+                return send_zip_download(output, filename)
+            except Exception as exc:
+                return jsonify({'success': False, 'message': str(exc)}), 400
 
     return bp
