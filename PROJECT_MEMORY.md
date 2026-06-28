@@ -1,3 +1,11 @@
+## [2026-06-28 14:36] 修改记录
+- 修改内容：将香娜露儿/慕莲蔓按明细表佣金导出与佣金/招商明细防重调整提交并推送到 GitHub `main`，业务提交为 `3065176`；随后在西班牙服务器 `208.85.17.83` 的 `/root/my-flask-project` 创建代码备份 `/root/my-flask-project_code_backup_before_detail_commission_20260628_063551.tar.gz`，从旧提交 `11194a8` 快进到 `3065176`，并用 `.venv/bin/python` 重启 Flask 服务。重启后新进程监听 `0.0.0.0:5001`，服务器本机 `/auth/login` 返回 200，`/douyin_shop_chantelle/` 与 `/douyin_shop_mulianman/` 未登录访问均返回 302。
+- 修改文件：GitHub `main`；服务器 `/root/my-flask-project`；PROJECT_MEMORY.md
+- 修改原因：用户要求上传 GitHub 并更新西班牙服务器，且要求保留可回滚方案。
+- 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未覆盖服务器 `data/` 业务数据，未修改数据库结构，服务器未跟踪的 `flask.log` 保留。
+- 是否涉及数据库：否（代码部署与服务重启，不写入业务数据）
+- 是否需要回滚：是（可在服务器使用备份包恢复，或在 `/root/my-flask-project` 执行 `git reset --hard 11194a81add259594abe4c5eff07e7d0a09090a1` 后重启服务）
+
 ## [2026-06-28 14:29] 修改记录
 - 修改内容：香娜露儿/慕莲蔓抖音共用模块新增“按明细表”佣金导出功能。页面保留原“佣金汇总导出”和“达人/团长明细导出（ZIP）”旧按钮不变，新增“按明细表导出口径”下拉框（全部/豁免/不豁免）以及“按明细表佣金汇总导出”“按明细表达人/团长明细导出（ZIP）”两个按钮。新增后端路由和服务层导出逻辑：达人侧读取佣金订单明细 `actual_commission` 并按 `settlement_time` 筛选，达人ID/昵称优先用 `订单id + 商品id` 回查订单表；团长侧读取招商订单明细 `actual_service_income`，团长名称/ID 使用出单机构与团长活动id；豁免按 `creator_exemptions.creator_uid` 与结算日期落入 `start_date/end_date` 判断，不看 status，团长ID也按同规则尝试匹配。汇总 ZIP 包含佣金汇总、应开金额导入及未匹配 ID 明细；明细 ZIP 按达人/团长拆分并附带未匹配 ID 文件。
 - 修改文件：douyin_shop_common/services.py；douyin_shop_common/__init__.py；douyin_shop_chantelle/__init__.py；douyin_shop_mulianman/__init__.py；templates/douyin_shop.html；PROJECT_MEMORY.md
