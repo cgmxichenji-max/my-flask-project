@@ -76,6 +76,7 @@ FUND_FLOW_DEDUP_KEY_COLUMNS = [
     'transaction_type',
     'related_order_no',
 ]
+FUND_FLOW_EMPTY_DEDUP_VALUE = '<EMPTY>'
 
 AFTER_SALES_DEDUP_KEY_COLUMNS = [
     'after_sales_no',
@@ -1478,10 +1479,29 @@ def _build_fund_flow_dedup_key(row: pd.Series) -> str | None:
         value = row.get(column_name)
         cleaned_value = _clean_text_value(value)
         if cleaned_value is None or str(cleaned_value).strip() == '':
-            return None
+            if column_name == 'related_order_no':
+                cleaned_value = FUND_FLOW_EMPTY_DEDUP_VALUE
+            else:
+                return None
         parts.append(str(cleaned_value).strip())
 
     return '||'.join(parts)
+
+
+def _ensure_fund_flow_dedup_index(conn: sqlite3.Connection) -> None:
+    """Use SQLite as the final duplicate guard, including blank order numbers."""
+    conn.execute(
+        f"""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_wechat_fund_flow_dedup
+        ON {WECHAT_FUND_FLOW_TABLE_NAME}(
+            flow_no,
+            booking_time,
+            transaction_type,
+            COALESCE(related_order_no, '')
+        )
+        """
+    )
+    conn.commit()
 
 
 
@@ -1525,22 +1545,8 @@ def _deduplicate_fund_flow_df(merged_df: pd.DataFrame, conn: sqlite3.Connection)
 
     empty_key_df = working_df[~valid_key_mask].copy()
     combined_df = pd.concat([batch_unique_df, empty_key_df], ignore_index=True)
-
-    existing_keys = _get_existing_fund_flow_keys(conn)
-    if not existing_keys:
-        final_df = combined_df.drop(columns=['_dedup_key'], errors='ignore')
-        return final_df, batch_duplicate_count, 0
-
-    valid_after_batch_mask = combined_df['_dedup_key'].notna() & (combined_df['_dedup_key'].astype(str).str.strip() != '')
-    valid_after_batch_df = combined_df[valid_after_batch_mask].copy()
-    non_key_df = combined_df[~valid_after_batch_mask].copy()
-
-    db_filtered_df = valid_after_batch_df[~valid_after_batch_df['_dedup_key'].isin(existing_keys)].copy()
-    db_duplicate_count = int(len(valid_after_batch_df) - len(db_filtered_df))
-
-    final_df = pd.concat([db_filtered_df, non_key_df], ignore_index=True)
-    final_df = final_df.drop(columns=['_dedup_key'], errors='ignore')
-    return final_df, batch_duplicate_count, db_duplicate_count
+    final_df = combined_df.drop(columns=['_dedup_key'], errors='ignore')
+    return final_df, batch_duplicate_count, 0
 
 
 
@@ -1564,7 +1570,9 @@ def _write_fund_flow_to_db(dataframes: list[pd.DataFrame]) -> tuple[int, str]:
                 )
         conn.commit()
 
-        deduped_df, batch_duplicate_count, db_duplicate_count = _deduplicate_fund_flow_df(merged_df, conn)
+        _ensure_fund_flow_dedup_index(conn)
+        deduped_df, batch_duplicate_count, _ = _deduplicate_fund_flow_df(merged_df, conn)
+        db_duplicate_count = 0
 
         if deduped_df.empty:
             message_parts = ['没有可写入的新资金流水数据']
@@ -1574,7 +1582,23 @@ def _write_fund_flow_to_db(dataframes: list[pd.DataFrame]) -> tuple[int, str]:
                 message_parts.append(f'数据库中已存在流水已跳过：{db_duplicate_count} 条')
             return 0, '；'.join(message_parts) + f'（数据库：{db_path.name}）'
 
-        deduped_df.to_sql(WECHAT_FUND_FLOW_TABLE_NAME, conn, if_exists='append', index=False)
+        db_columns = list(FUND_FLOW_COLUMN_TYPES.keys())
+        placeholders = ', '.join(['?'] * len(db_columns))
+        column_sql = ', '.join(db_columns)
+        insert_sql = (
+            f"INSERT OR IGNORE INTO {WECHAT_FUND_FLOW_TABLE_NAME} "
+            f"({column_sql}) VALUES ({placeholders})"
+        )
+        rows = [
+            tuple(None if pd.isna(value) else value for value in row)
+            for row in deduped_df[db_columns].itertuples(index=False, name=None)
+        ]
+        before_changes = conn.total_changes
+        conn.executemany(insert_sql, rows)
+        conn.commit()
+        written_rows = int(conn.total_changes - before_changes)
+        db_duplicate_count = int(len(rows) - written_rows)
+        deduped_df = deduped_df.head(written_rows).copy()
 
     message_parts = [f'成功写入 {len(deduped_df)} 行资金流水数据']
     if batch_duplicate_count > 0:

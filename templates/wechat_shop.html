@@ -1126,7 +1126,11 @@
             }
             showImportMessage(resultElement, message, true);
         } catch (error) {
-            showImportMessage(resultElement, `请求失败：${error.message}`, false);
+            showImportMessage(
+                resultElement,
+                `请求已中断或超时：${error.message}\n服务器可能仍在继续导入，请先等待几分钟并刷新页面确认数据状态，不要立刻重复上传同一文件。`,
+                false
+            );
         } finally {
             buttonElement.disabled = false;
             buttonElement.textContent = defaultButtonText;

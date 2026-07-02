@@ -6,7 +6,12 @@ from flask import current_app, jsonify, render_template, render_template_string,
 
 from auth.decorators import module_required
 from common.download_utils import send_excel_download, send_zip_download
-from common.upload_staging import finish_staged_upload, stage_uploaded_files
+from common.upload_staging import (
+    ImportAlreadyRunningError,
+    finish_staged_upload,
+    import_lock,
+    stage_uploaded_files,
+)
 
 from .table_schemas import (
     ORDER_COLUMN_MAPPING,
@@ -268,15 +273,18 @@ def import_fund_flow():
 
     staged_batch = None
     try:
-        staged_batch = stage_uploaded_files(files, 'wechat_shop/fund_flows', ('.xlsx', '.xls'))
-        upload_batch_id = staged_batch.batch_id
-        result = read_fund_flow_excel_files(staged_batch.files)
-        finish_staged_upload(
-            staged_batch,
-            'success' if result.get('success') else 'failed',
-            result.get('message', ''),
-        )
-        staged_batch = None
+        with import_lock('wechat_shop/fund_flows'):
+            staged_batch = stage_uploaded_files(files, 'wechat_shop/fund_flows', ('.xlsx', '.xls'))
+            upload_batch_id = staged_batch.batch_id
+            result = read_fund_flow_excel_files(staged_batch.files)
+            finish_staged_upload(
+                staged_batch,
+                'success' if result.get('success') else 'failed',
+                result.get('message', ''),
+            )
+            staged_batch = None
+    except ImportAlreadyRunningError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 409
     except ValueError as exc:
         finish_staged_upload(staged_batch, 'failed', str(exc))
         return jsonify({'success': False, 'message': str(exc)}), 400

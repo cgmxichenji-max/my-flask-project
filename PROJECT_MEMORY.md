@@ -1816,3 +1816,31 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：GitHub `main` 与西班牙服务器线上 Flask 应用代码及运行进程；未覆盖服务器 `data/` 业务数据，未修改发票匹配保存逻辑和数据库结构，未处理服务器未跟踪的 `flask.log`。
 - 是否涉及数据库：否（代码部署和接口验证仅读取业务数据）
 - 是否需要回滚：是
+## [2026-07-02 11:44] 修改记录
+- 修改内容：排查并处理微信小店资金流水表在马德里服务器 `208.85.17.83` 上两次上传显示失败但后端实际成功写入导致的重复数据。确认 nginx 访问日志中两次 `/wechat_shop/import_fund_flow` 为 `499`（客户端等待期间断开），Flask 后端分别在服务器时间 `2026-07-02 03:14:13` 与 `03:17:02` 完成并各写入 `43627` 行。先在服务器 `/root/my-flask-project/data/` 使用 SQLite 一致性备份生成 `main_backup_before_wechat_fund_flow_dedup_20260702_034307.db`，随后在事务中按 `flow_no + booking_time + transaction_type + related_order_no` 分组保留最早 `id`，删除后写入的重复资金流水 `43627` 行，并同步 `wechat_shop_data_status` 中资金流水表 `record_count` 为 `1199869`。清理后复核 `wechat_fund_flow` 重复组数为 `0`，重复多余行数为 `0`。
+- 修改文件：马德里服务器 `/root/my-flask-project/data/main.db`；备份文件 `/root/my-flask-project/data/main_backup_before_wechat_fund_flow_dedup_20260702_034307.db`；`PROJECT_MEMORY.md`
+- 修改原因：用户确认授权先备份并清理本次并发重复导入造成的微信小店资金流水重复数据，再规划后续修复“长时间导入前端假失败 + 并发重复导入”的机制。
+- 影响范围：仅影响马德里服务器线上 SQLite 数据库中的微信小店资金流水表 `wechat_fund_flow` 与状态表 `wechat_shop_data_status` 统计行；未修改业务代码，未影响订单表、售后表、发票模块、抖音/快手模块及其它业务数据。已保留清理前完整数据库备份用于回滚。
+- 是否涉及数据库：是
+- 是否需要回滚：是（如需回滚，可在停止服务后用 `/root/my-flask-project/data/main_backup_before_wechat_fund_flow_dedup_20260702_034307.db` 恢复 `data/main.db`）
+## [2026-07-02 12:29] 修改记录
+- 修改内容：再次排查用户重复上传同一微信小店资金流水文件后的结果。确认服务器 `data/upload_staging/import_log.jsonl` 中 `2026-07-02 04:14:47` 开始、`04:18:01` 完成的导入实际成功，写入 `2` 行、跳过数据库已存在 `43625` 行；新增的 2 行为 `related_order_no` 为空的提现流水，属于旧防重逻辑空关联订单号绕过防重。已先备份线上库为 `/root/my-flask-project/data/main_backup_before_wechat_fund_flow_second_dedup_20260702_042022.db`，再删除重复的 2 行并复核重复多余行数为 `0`。随后本地修复并上传服务器代码：微信小店资金流水导入增加 `import_lock` 互斥锁；资金流水空 `related_order_no` 使用占位值参与防重；线上数据库创建唯一索引 `idx_wechat_fund_flow_dedup`（`flow_no + booking_time + transaction_type + COALESCE(related_order_no, '')`）；写库改为 `INSERT OR IGNORE` 由数据库兜底。服务器端 `py_compile` 通过，Flask 新进程已监听 `0.0.0.0:5001`，直连 `http://208.85.17.83:5001/auth/login` 返回 200。重启清理旧监听进程时误清理了部分非 Flask 监听进程，导致后续 SSH 连接被服务器主动断开、80/域名访问异常；需要通过服务商控制台恢复 `sshd` 与 `nginx` 后再继续复核。
+- 修改文件：`common/upload_staging.py`；`wechat_shop/routes.py`；`wechat_shop/services.py`；马德里服务器 `/root/my-flask-project/data/main.db`；服务器备份 `/root/my-flask-project/data/main_backup_before_wechat_fund_flow_second_dedup_20260702_042022.db`；服务器代码备份 `/root/my-flask-project_code_backup_before_wechat_import_lock_20260702_042653.tar.gz`；`PROJECT_MEMORY.md`
+- 修改原因：用户反馈以为代码已修复后再次上传仍显示失败，需要确认是否重复写入、清理重复数据，并修复长时间导入前端假失败导致重复点击后可能重复入库的问题。
+- 影响范围：数据层仅影响微信小店资金流水表 `wechat_fund_flow` 与状态表统计；代码层影响微信小店资金流水导入的并发控制、防重与写库方式，未修改订单/售后导入、佣金导出和其它平台模块。当前服务器直连 Flask 5001 正常，但 SSH/nginx 需控制台恢复后复核。
+- 是否涉及数据库：是
+- 是否需要回滚：是（数据可用 `/root/my-flask-project/data/main_backup_before_wechat_fund_flow_second_dedup_20260702_042022.db` 回滚；代码可用 `/root/my-flask-project_code_backup_before_wechat_import_lock_20260702_042653.tar.gz` 回滚）
+## [2026-07-02 13:07] 修改记录
+- 修改内容：用户通过服务商面板重启马德里服务器后，复核线上服务恢复情况。确认 SSH 已恢复，服务器 `uptime` 显示重启后正常运行；`sshd` 监听 `0.0.0.0:22`，`nginx` 监听 `0.0.0.0:80`，Flask 进程监听 `0.0.0.0:5001`，`xray` 监听 `*:443`。公网直连 `http://208.85.17.83:5001/auth/login` 返回 200，HTTP 80 `/auth/login` 返回 200，域名 `https://www.gqjcore.xyz/auth/login` 返回 200，域名 `/wechat_shop/` 未登录访问返回 302。复核服务器代码中 `import_lock('wechat_shop/fund_flows')`、`idx_wechat_fund_flow_dedup`、`INSERT OR IGNORE`、`FUND_FLOW_EMPTY_DEDUP_VALUE` 均存在；数据库 `wechat_fund_flow` 当前 `1199869` 行，按新防重键重复多余行数为 `0`，唯一索引 `idx_wechat_fund_flow_dedup` 存在，状态表资金流水行数为 `1199869`。
+- 修改文件：`PROJECT_MEMORY.md`
+- 修改原因：确认上次误伤 SSH/nginx 后，用户重启服务器是否已恢复，并完成微信小店资金流水导入修复的线上复核闭环。
+- 影响范围：仅复核服务器运行状态、线上代码和数据库状态；未修改服务器业务代码或业务数据。
+- 是否涉及数据库：否（仅读取复核）
+- 是否需要回滚：否
+## [2026-07-02 13:12] 修改记录
+- 修改内容：补齐微信小店资金流水上传的前端长耗时失败提示，将导入请求 catch 文案从简单“请求失败”改为“请求已中断或超时，服务器可能仍在继续导入，请等待并刷新状态，不要立刻重复上传同一文件”。已上传 `templates/wechat_shop.html` 到马德里服务器并仅重启 Flask 进程，复核 `sshd`、`nginx`、Flask `5001` 均正常监听，服务器模板中已存在新提示文案；本地 `py_compile` 通过。
+- 修改文件：`templates/wechat_shop.html`；马德里服务器 `/root/my-flask-project/templates/wechat_shop.html`；`PROJECT_MEMORY.md`
+- 修改原因：用户要求确认“前端不再简单显示上传失败、同一文件重复上传有对应提示和对策”，需要补齐此前尚未部署的前端提示闭环。
+- 影响范围：仅影响微信小店导入请求发生网络中断/超时时的页面提示；不改变后端导入、防重、导出或其它模块逻辑。
+- 是否涉及数据库：否
+- 是否需要回滚：是

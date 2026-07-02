@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
@@ -15,6 +16,7 @@ from werkzeug.utils import secure_filename
 
 UPLOAD_STAGING_DIR = 'upload_staging'
 TMP_DIR_NAME = 'tmp'
+LOCK_DIR_NAME = 'locks'
 LOG_FILENAME = 'import_log.jsonl'
 DEFAULT_STALE_HOURS = 2
 
@@ -38,6 +40,10 @@ class StagedUploadBatch:
     files: list[StagedUploadFile]
 
 
+class ImportAlreadyRunningError(RuntimeError):
+    """Raised when another import with the same key is still running."""
+
+
 def _data_dir() -> Path:
     root_path = Path(current_app.root_path)
     data_dir = root_path / 'data'
@@ -53,6 +59,12 @@ def _staging_dir() -> Path:
 
 def _tmp_root() -> Path:
     path = _staging_dir() / TMP_DIR_NAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _lock_root() -> Path:
+    path = _staging_dir() / LOCK_DIR_NAME
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -118,6 +130,56 @@ def cleanup_stale_upload_batches(max_age_hours: int = DEFAULT_STALE_HOURS) -> in
             })
 
     return removed_count
+
+
+def _lock_dir_for_key(import_key: str) -> Path:
+    safe_key = _safe_import_key(import_key)
+    return _lock_root() / f"{safe_key.replace('/', '__')}.lock"
+
+
+@contextmanager
+def import_lock(import_key: str, max_age_hours: int = DEFAULT_STALE_HOURS):
+    """Serialize long-running imports by import key."""
+    safe_key = _safe_import_key(import_key)
+    lock_dir = _lock_dir_for_key(safe_key)
+    lock_acquired = False
+
+    try:
+        try:
+            lock_dir.mkdir(parents=True, exist_ok=False)
+            lock_acquired = True
+            _write_event({
+                'event': 'import_lock_acquired',
+                'import_key': safe_key,
+                'lock_dir': str(lock_dir.relative_to(_data_dir())),
+            })
+        except FileExistsError as exc:
+            try:
+                modified_at = datetime.fromtimestamp(lock_dir.stat().st_mtime)
+                if modified_at < datetime.now() - timedelta(hours=max_age_hours):
+                    shutil.rmtree(lock_dir, ignore_errors=True)
+                    _write_event({
+                        'event': 'import_lock_stale_removed',
+                        'import_key': safe_key,
+                        'lock_dir': str(lock_dir.relative_to(_data_dir())),
+                    })
+                    lock_dir.mkdir(parents=True, exist_ok=False)
+                    lock_acquired = True
+                else:
+                    raise ImportAlreadyRunningError('同类数据正在导入，请等待完成后刷新页面确认结果。') from exc
+            except ImportAlreadyRunningError:
+                raise
+            except OSError as lock_exc:
+                raise ImportAlreadyRunningError('同类数据正在导入，请等待完成后刷新页面确认结果。') from lock_exc
+
+        yield
+    finally:
+        if lock_acquired:
+            shutil.rmtree(lock_dir, ignore_errors=True)
+            _write_event({
+                'event': 'import_lock_released',
+                'import_key': safe_key,
+            })
 
 
 def stage_uploaded_files(
