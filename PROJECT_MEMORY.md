@@ -1860,3 +1860,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅新增服务器运维备份能力与定时任务；不修改 Flask 业务代码、不重启线上服务、不修改生产数据库内容。备份过程会读取 `data/main.db` 并生成一致性副本用于打包，上传成功后删除本地临时压缩包，避免长期占用服务器磁盘。
 - 是否涉及数据库：否（仅读取并备份数据库文件，不写入业务数据库）
 - 是否需要回滚：是
+
+## [2026-07-02 15:20] 修改记录
+- 修改内容：按用户要求删除马德里服务器 `208.85.17.83` 上误导入的 1 条 2026 年 6 月澳柯应开记录。删除前在服务器 `/root/backups/my-flask-project/manual-db-backups/` 生成数据库备份 `main_backup_before_delete_bad_aoke_expected_202606_20260702_071636.db`；定位并删除 `expected_amount.id = 2046`，该记录平台为 `澳柯`、期间为 `26年6月`（`2026-06-01` 至 `2026-06-30`）、金额为 `7451.929999999837`、客户为 `紫烟海外优选`、开票主体为 `澳柯`、创建时间为 `2026-07-02 07:11:59`。删除后复核 `expected_amount.id = 2046` 数量为 0，`invoice_expected_match.expected_amount_id = 2046` 数量为 0，澳柯 2026 年 6 月应开记录数量为 0。
+- 修改文件：马德里服务器 `/root/my-flask-project/data/main.db`；备份文件 `/root/backups/my-flask-project/manual-db-backups/main_backup_before_delete_bad_aoke_expected_202606_20260702_071636.db`；`PROJECT_MEMORY.md`
+- 修改原因：用户反馈刚才在应开记录导入 2026 年 6 月澳柯账单时导入了 1 条错误记录，需要从线上马德里服务器删除。
+- 影响范围：仅影响线上 `expected_amount` 表中该 1 条误导入澳柯应开记录；未修改 Flask 业务代码、未重启服务、未影响其它平台和其它期间应开记录。
+- 是否涉及数据库：是
+- 是否需要回滚：是（可用删除前备份文件恢复，或按记录字段重新插入该应开记录）
