@@ -552,11 +552,11 @@ DATA_STATUS_CONFIG = {
     },
     'commission': {
         'table_name': '佣金订单明细',
-        'date_field': 'payment_time',
+        'date_field': 'settlement_time',
     },
     'merchant': {
         'table_name': '招商订单明细',
-        'date_field': 'payment_time',
+        'date_field': 'settlement_time',
     },
 }
 
@@ -579,12 +579,12 @@ EXPORT_TABLE_CONFIG = {
         'label': '佣金订单明细',
         'column_mapping': COMMISSION_COLUMN_MAPPING,
         'column_types': COMMISSION_COLUMN_TYPES,
-        'date_field': 'payment_time',
+        'date_field': 'settlement_time',
     },
     'merchant': {
         'label': '招商订单明细',
         'column_mapping': MERCHANT_COLUMN_MAPPING,
         'column_types': MERCHANT_COLUMN_TYPES,
-        'date_field': 'payment_time',
+        'date_field': 'settlement_time',
     },
 }
