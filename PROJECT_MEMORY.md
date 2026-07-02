@@ -1852,3 +1852,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅影响服务器历史数据库备份文件的存放位置；不修改业务代码、不修改当前生产数据库 `data/main.db`，不影响线上 Flask 服务。
 - 是否涉及数据库：否（仅移动数据库备份文件）
 - 是否需要回滚：是
+
+## [2026-07-02 14:36] 修改记录
+- 修改内容：为马德里服务器 `208.85.17.83` 配置百度网盘异地数据备份。服务器安装 `bypy v1.8.9` 到 `/root/backups/tools/bypy-venv` 并完成百度网盘授权；新增运维脚本 `ops/baidu_data_backup.sh`，部署到服务器 `/root/backups/my-flask-project/baidu_data_backup.sh`。脚本使用 Python SQLite backup API 为 `/root/my-flask-project/data/main.db` 生成一致性备份，连同 `data/` 下 PDF、表格等业务文件一起压缩；排除 `data/upload_staging/tmp` 和 `data/upload_staging/locks`；不加密；将压缩包拆为 `16M` 分卷上传到百度网盘 `/apps/bypy/my-flask-project/data-backups/`，逐个校验远端文件大小，上传 `.sha256` 与 `manifest`，并按 manifest 保留最近 14 份远端备份。首个正式备份 `my-flask-project-data-20260702_061821.tar.gz` 已成功上传，共 20 个分卷、1 个 `.sha256`、1 个 `manifest`；本地临时目录清空。新增 `ops/baidu_data_backup.cron` 并安装到服务器 root crontab，每日 UTC `19:30`（北京时间 `03:30`）自动执行；`cron` 服务已启用且处于 active。
+- 修改文件：`ops/baidu_data_backup.sh`；`ops/baidu_data_backup.cron`；马德里服务器 `/root/backups/my-flask-project/baidu_data_backup.sh`；服务器 root crontab；服务器 `/root/backups/tools/bypy-venv`；`PROJECT_MEMORY.md`
+- 修改原因：用户确认采用百度网盘作为云端备份方案且不需要加密，希望 `/DATA`/业务数据具备服务器外的备份，降低单纯依赖服务器本地磁盘和未购买备份服务时的数据风险。
+- 影响范围：仅新增服务器运维备份能力与定时任务；不修改 Flask 业务代码、不重启线上服务、不修改生产数据库内容。备份过程会读取 `data/main.db` 并生成一致性副本用于打包，上传成功后删除本地临时压缩包，避免长期占用服务器磁盘。
+- 是否涉及数据库：否（仅读取并备份数据库文件，不写入业务数据库）
+- 是否需要回滚：是

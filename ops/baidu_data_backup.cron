@@ -1,0 +1,1 @@
+30 19 * * * /root/backups/my-flask-project/baidu_data_backup.sh >/dev/null 2>&1
