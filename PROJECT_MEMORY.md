@@ -1844,3 +1844,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅影响微信小店导入请求发生网络中断/超时时的页面提示；不改变后端导入、防重、导出或其它模块逻辑。
 - 是否涉及数据库：否
 - 是否需要回滚：是
+
+## [2026-07-02 13:34] 修改记录
+- 修改内容：按用户要求将马德里服务器 `208.85.17.83` 上项目 `data/` 目录内历史数据库备份迁出，避免后续备份 `/DATA`/`data` 时递归包含旧备份导致体积膨胀。已将 4 个 `main_backup_*.db` 文件移动到 `/root/backups/my-flask-project/manual-db-backups/`，包括 `main_backup_before_github_update_20260528_031023.db`、`main_backup_before_commission_indexes_20260605_031948.db`、`main_backup_before_wechat_fund_flow_dedup_20260702_034307.db`、`main_backup_before_wechat_fund_flow_second_dedup_20260702_042022.db`。复核后 `data/` 顶层 `main_backup_*.db` 数量为 0，备份目录内数量为 4，备份目录合计约 4.1G。
+- 修改文件：马德里服务器 `/root/my-flask-project/data/`；马德里服务器 `/root/backups/my-flask-project/manual-db-backups/`；`PROJECT_MEMORY.md`
+- 修改原因：用户明确要求备份不应保存在 `/DATA`/业务数据目录内，并希望将此前已有备份迁移到独立备份目录。
+- 影响范围：仅影响服务器历史数据库备份文件的存放位置；不修改业务代码、不修改当前生产数据库 `data/main.db`，不影响线上 Flask 服务。
+- 是否涉及数据库：否（仅移动数据库备份文件）
+- 是否需要回滚：是
