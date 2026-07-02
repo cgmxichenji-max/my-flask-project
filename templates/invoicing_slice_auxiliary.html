@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>切片辅助表 - 发票核对</title>
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+        header { background: #4CAF50; color: #fff; padding: 16px; text-align: center; font-size: 20px; }
+        .nav { background: #fff; padding: 10px 20px; border-bottom: 1px solid #ddd; font-size: 14px; }
+        .nav a { color: #2e7d32; text-decoration: none; margin-right: 16px; }
+        main { padding: 24px; max-width: 1180px; margin: 0 auto; }
+        h2 { margin: 0 0 12px; color: #333; }
+        .panel { background: #fff; padding: 16px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); margin-bottom: 20px; }
+        .notice { background: #e8f5e9; color: #1b5e20; padding: 10px 12px; border-radius: 6px; margin-bottom: 14px; }
+        .warn { background: #fff8e1; color: #8a5a00; padding: 10px 12px; border-radius: 6px; margin-bottom: 14px; }
+        form.inline { display: inline; }
+        .form-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+        input[type=text], select { padding: 7px 10px; font-size: 14px; min-width: 180px; }
+        button { padding: 7px 14px; border: none; border-radius: 4px; cursor: pointer; background: #4CAF50; color: #fff; }
+        .btn-danger { background: #d32f2f; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+        th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
+        th { background: #f8f8f8; font-size: 14px; }
+        .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
+        .muted { color: #777; font-size: 13px; margin-top: 6px; }
+    </style>
+</head>
+<body>
+<header>切片辅助表</header>
+<div class="nav">
+    <a href="/">← 首页</a>
+    <a href="{{ url_for('invoicing.index') }}">← 发票核对</a>
+</div>
+<main>
+    {% if team_added is not none or creator_added is not none %}
+    <div class="notice">
+        初始化完成：团队视频号新增 {{ team_added or 0 }} 条，达人辅助新增 {{ creator_added or 0 }} 条。
+    </div>
+    {% endif %}
+    {% if duplicate %}
+    <div class="warn">该记录已存在，已按唯一规则跳过。</div>
+    {% endif %}
+
+    <div class="panel">
+        <form method="post" action="{{ url_for('invoicing.init_slice_auxiliary') }}"
+              onsubmit="return confirm('确认初始化默认切片辅助数据？重复数据会自动跳过。');">
+            <button type="submit">初始化默认数据</button>
+        </form>
+        <div class="muted">团队视频号按“团队 + 视频号ID”唯一；达人辅助按“平台 + 达人ID + 达人昵称”唯一。</div>
+    </div>
+
+    <div class="grid">
+        <section>
+            <div class="panel">
+                <h2>团队视频号</h2>
+                <form method="post" action="{{ url_for('invoicing.create_slice_team_video') }}" class="form-row">
+                    <input type="text" name="team_name" placeholder="团队，如 大群" required>
+                    <input type="text" name="video_account_id" placeholder="视频号ID，如 sph..." required>
+                    <button type="submit">新增</button>
+                </form>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>团队</th>
+                        <th>视频号ID</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in team_rows %}
+                    <tr>
+                        <td>{{ row['id'] }}</td>
+                        <td>{{ row['team_name'] }}</td>
+                        <td>{{ row['video_account_id'] }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('invoicing.delete_slice_team_video', row_id=row['id']) }}" class="inline"
+                                  onsubmit="return confirm('确认删除这条团队视频号记录？');">
+                                <button type="submit" class="btn-danger">删除</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <div class="panel">
+                <h2>达人辅助</h2>
+                <form method="post" action="{{ url_for('invoicing.create_slice_creator') }}" class="form-row">
+                    <select name="platform" required>
+                        <option value="澳柯">澳柯</option>
+                        <option value="海外">海外</option>
+                        <option value="香娜露儿">香娜露儿</option>
+                    </select>
+                    <input type="text" name="creator_id" placeholder="达人ID" required>
+                    <input type="text" name="creator_nickname" placeholder="达人昵称" required>
+                    <button type="submit">新增</button>
+                </form>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>平台</th>
+                        <th>达人ID</th>
+                        <th>达人昵称</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in creator_rows %}
+                    <tr>
+                        <td>{{ row['id'] }}</td>
+                        <td>{{ row['platform'] }}</td>
+                        <td>{{ row['creator_id'] }}</td>
+                        <td>{{ row['creator_nickname'] }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('invoicing.delete_slice_creator', row_id=row['id']) }}" class="inline"
+                                  onsubmit="return confirm('确认删除这条达人辅助记录？');">
+                                <button type="submit" class="btn-danger">删除</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    </div>
+</main>
+{% include '_reminder_broadcast.html' %}
+</body>
+</html>

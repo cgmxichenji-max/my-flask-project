@@ -260,6 +260,74 @@ def _replace_invoice_expected_match(conn, invoice_id, expected_amount_id, matche
         )
 
 
+def _ensure_slice_auxiliary_tables(conn):
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS slice_team_video_account (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_name TEXT NOT NULL,
+            video_account_id TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE (team_name, video_account_id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_slice_team_video_account_team
+        ON slice_team_video_account(team_name)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS slice_creator_account (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            platform TEXT NOT NULL,
+            creator_id TEXT NOT NULL,
+            creator_nickname TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE (platform, creator_id, creator_nickname)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_slice_creator_account_platform
+        ON slice_creator_account(platform)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_slice_creator_account_creator_id
+        ON slice_creator_account(creator_id)
+        """
+    )
+
+
+def _seed_slice_auxiliary_tables(conn):
+    _ensure_slice_auxiliary_tables(conn)
+    before_team = conn.total_changes
+    conn.executemany(
+        """
+        INSERT OR IGNORE INTO slice_team_video_account (team_name, video_account_id)
+        VALUES (?, ?)
+        """,
+        SLICE_TEAM_VIDEO_SEED_ROWS,
+    )
+    team_added = conn.total_changes - before_team
+
+    before_creator = conn.total_changes
+    conn.executemany(
+        """
+        INSERT OR IGNORE INTO slice_creator_account (platform, creator_id, creator_nickname)
+        VALUES (?, ?, ?)
+        """,
+        SLICE_CREATOR_SEED_ROWS,
+    )
+    creator_added = conn.total_changes - before_creator
+    return team_added, creator_added
+
+
 invoicing_bp = Blueprint('invoicing', __name__, template_folder='../templates')
 
 
@@ -270,6 +338,60 @@ PERIOD_HEADERS = ('期间', '账期', '周期')
 ENTITY_HEADERS = ('开票主体', '主体')
 PERIOD_START_HEADERS = ('period_start', '账期起点', '期间起点', '开始日期')
 PERIOD_END_HEADERS = ('period_end', '账期终点', '期间终点', '结束日期')
+
+SLICE_TEAM_VIDEO_SEED_ROWS = (
+    ('大群', 'sphwKDMlQ70spzH'),
+    ('大群', 'spha7UMI8WAmHKi'),
+    ('大群', 'sphnacxOAGSZ5c5'),
+    ('大群', 'sphxtZdIuUyEOU8'),
+    ('小林', 'sphvD4WpBmLaRYL'),
+    ('黄创链', 'sphOwbz06WGbXrl'),
+    ('黄创链', 'sphDbip3c0llbI4'),
+    ('富遇', 'spht4LWXkwxDRiB'),
+    ('自营', 'sphQ1k8GkERqG52'),
+    ('自营', 'sphi5usszSOmjkR'),
+    ('自营', 'sphYdQRu7eKSog3'),
+    ('自营', 'sphkglh4JShE8Be'),
+    ('自营', 'sphLBJGLfuWAvZu'),
+    ('白菜', 'sphHJzeSR7p4eZi'),
+    ('白菜', 'sphzLzjgxmvfZ9G'),
+)
+
+SLICE_CREATOR_SEED_ROWS = (
+    ('澳柯', 'sphxtZdIuUyEOU8', '罐头瓶子在荷兰游记'),
+    ('澳柯', 'sphwKDMlQ70spzH', '罐头瓶子的旅行日记'),
+    ('澳柯', 'sphOwbz06WGbXrl', '罐头全球旅行日记'),
+    ('澳柯', 'spht4LWXkwxDRiB', '大罐头环游世界'),
+    ('澳柯', 'spha7UMI8WAmHKi', '大罐头游世界'),
+    ('澳柯', 'sphnacxOAGSZ5c5', '罐头瓶子带你游世界'),
+    ('澳柯', 'sphmbH2Royy674T', '罐头哥记录世界'),
+    ('澳柯', 'sphvD4WpBmLaRYL', '大罐头周游世界'),
+    ('澳柯', 'sphi5usszSOmjkR', '大罐头世界行'),
+    ('澳柯', 'sphogklmLS4VueX', '咏梅说'),
+    ('澳柯', 'sphQ1k8GkERqG52', '罐头瓶子环球风景'),
+    ('澳柯', 'sphzLzjgxmvfZ9G', '罐头哥逛世界'),
+    ('澳柯', 'sphLBJGLfuWAvZu', '罐头瓶子世界旅行'),
+    ('澳柯', 'sphYdQRu7eKSog3', '罐头瓶子环球'),
+    ('澳柯', 'sphHJzeSR7p4eZi', '罐头世界观赏'),
+    ('海外', '40645793584', '大罐头环游世界-富遇'),
+    ('海外', 'clf0021988', '罐头瓶子全球旅行'),
+    ('海外', '30229015131', '罐头瓶子世界游'),
+    ('海外', '70409792843', '大罐头环游世界'),
+    ('海外', '70829297508', '罐头瓶子荷兰之旅'),
+    ('海外', '35459374943', '罐头哥环游世界'),
+    ('香娜露儿', '27151121354', '大罐头环游世界各地'),
+    ('香娜露儿', '98283959604', '罐头瓶子环球游'),
+    ('香娜露儿', '87849625554', '大罐头🤖周游列国'),
+    ('香娜露儿', '20637498360', '罐头瓶子哥粉丝号'),
+    ('香娜露儿', 'clf0021988', '罐头瓶子全球旅行'),
+    ('香娜露儿', '40645793584', '大罐头环游世界-富遇'),
+    ('香娜露儿', 'xingguangcun79', '罐头瓶子在旅行'),
+    ('香娜露儿', '70829297508', '罐头瓶子荷兰之旅'),
+    ('香娜露儿', '30229015131', '罐头瓶子世界游'),
+    ('香娜露儿', '57244508211', '罐头瓶子游地球-南乔'),
+    ('香娜露儿', '97888903405', '罐头瓶子日常分享'),
+    ('香娜露儿', '84335806062', '大罐头环游世界'),
+)
 
 
 def normalize_header(value):
@@ -669,6 +791,126 @@ def delete_billing_entity(entity_id):
         conn.execute("DELETE FROM billing_entity WHERE id = ?", (entity_id,))
         conn.commit()
     return redirect(url_for('invoicing.billing_entities'))
+
+
+# ===== 切片辅助表 =====
+
+@invoicing_bp.route('/slice-auxiliary')
+@module_required('invoicing')
+def slice_auxiliary():
+    with get_db_connection() as conn:
+        _ensure_slice_auxiliary_tables(conn)
+        conn.commit()
+        team_rows = conn.execute(
+            """
+            SELECT id, team_name, video_account_id, created_at
+            FROM slice_team_video_account
+            ORDER BY team_name, video_account_id
+            """
+        ).fetchall()
+        creator_rows = conn.execute(
+            """
+            SELECT id, platform, creator_id, creator_nickname, created_at
+            FROM slice_creator_account
+            ORDER BY
+                CASE platform
+                    WHEN '澳柯' THEN 1
+                    WHEN '海外' THEN 2
+                    WHEN '香娜露儿' THEN 3
+                    ELSE 9
+                END,
+                creator_nickname,
+                creator_id
+            """
+        ).fetchall()
+    return render_template(
+        'invoicing_slice_auxiliary.html',
+        team_rows=team_rows,
+        creator_rows=creator_rows,
+        team_added=request.args.get('team_added'),
+        creator_added=request.args.get('creator_added'),
+        duplicate=request.args.get('duplicate'),
+    )
+
+
+@invoicing_bp.route('/slice-auxiliary/init', methods=['POST'])
+@module_required('invoicing')
+def init_slice_auxiliary():
+    with get_db_connection() as conn:
+        team_added, creator_added = _seed_slice_auxiliary_tables(conn)
+        conn.commit()
+    return redirect(url_for(
+        'invoicing.slice_auxiliary',
+        team_added=team_added,
+        creator_added=creator_added,
+    ))
+
+
+@invoicing_bp.route('/slice-auxiliary/team/create', methods=['POST'])
+@module_required('invoicing')
+def create_slice_team_video():
+    team_name = (request.form.get('team_name') or '').strip()
+    video_account_id = (request.form.get('video_account_id') or '').strip()
+    duplicate = ''
+    if team_name and video_account_id:
+        with get_db_connection() as conn:
+            _ensure_slice_auxiliary_tables(conn)
+            before = conn.total_changes
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO slice_team_video_account (team_name, video_account_id)
+                VALUES (?, ?)
+                """,
+                (team_name, video_account_id),
+            )
+            duplicate = 'team' if conn.total_changes == before else ''
+            conn.commit()
+    return redirect(url_for('invoicing.slice_auxiliary', duplicate=duplicate))
+
+
+@invoicing_bp.route('/slice-auxiliary/team/<int:row_id>/delete', methods=['POST'])
+@module_required('invoicing')
+def delete_slice_team_video(row_id):
+    with get_db_connection() as conn:
+        _ensure_slice_auxiliary_tables(conn)
+        conn.execute("DELETE FROM slice_team_video_account WHERE id = ?", (row_id,))
+        conn.commit()
+    return redirect(url_for('invoicing.slice_auxiliary'))
+
+
+@invoicing_bp.route('/slice-auxiliary/creator/create', methods=['POST'])
+@module_required('invoicing')
+def create_slice_creator():
+    platform = (request.form.get('platform') or '').strip()
+    creator_id = (request.form.get('creator_id') or '').strip()
+    creator_nickname = (request.form.get('creator_nickname') or '').strip()
+    duplicate = ''
+    if platform and creator_id and creator_nickname:
+        with get_db_connection() as conn:
+            _ensure_slice_auxiliary_tables(conn)
+            before = conn.total_changes
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO slice_creator_account (
+                    platform, creator_id, creator_nickname
+                )
+                VALUES (?, ?, ?)
+                """,
+                (platform, creator_id, creator_nickname),
+            )
+            duplicate = 'creator' if conn.total_changes == before else ''
+            conn.commit()
+    return redirect(url_for('invoicing.slice_auxiliary', duplicate=duplicate))
+
+
+@invoicing_bp.route('/slice-auxiliary/creator/<int:row_id>/delete', methods=['POST'])
+@module_required('invoicing')
+def delete_slice_creator(row_id):
+    with get_db_connection() as conn:
+        _ensure_slice_auxiliary_tables(conn)
+        conn.execute("DELETE FROM slice_creator_account WHERE id = ?", (row_id,))
+        conn.commit()
+    return redirect(url_for('invoicing.slice_auxiliary'))
 
 
 # ===== 达人/团长昵称 CRUD =====

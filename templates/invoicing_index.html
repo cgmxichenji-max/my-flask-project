@@ -54,6 +54,10 @@
             应开 vs 已开核对
             <div class="desc">汇总差额，找出未开发票</div>
         </a>
+        <a href="{{ url_for('invoicing.slice_auxiliary') }}" class="menu-card">
+            切片辅助表
+            <div class="desc">维护切片团队视频号与达人ID映射</div>
+        </a>
     </div>
 </main>
 {% include '_reminder_broadcast.html' %}
