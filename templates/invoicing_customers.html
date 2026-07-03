@@ -76,6 +76,7 @@
         .bill-row.active { outline: 2px solid #1976d2; outline-offset: -2px; }
         .bill-invoices-panel { margin-top: 16px; border-top: 1px solid #eee; padding-top: 14px; }
         .bill-invoices-panel h3 { margin: 0 0 10px; font-size: 16px; }
+        .invoice-section-row td { background: #f8f8f8; color: #333; font-weight: bold; text-align: center; }
         .link-btn { color: #1976d2; text-decoration: none; }
         .usable-yes { color: #2e7d32; font-weight: bold; }
         .usable-no { color: #c62828; font-weight: bold; }
@@ -447,11 +448,63 @@
 	        if (aliasUsableTotal) aliasUsableTotal.textContent = formatMoney(summary.usable_matched_total);
 	        if (aliasDiff) aliasDiff.textContent = formatMoney(summary.diff);
 	    }
-	    function renderAliasInvoiceTable(bills, title, statusText, status) {
+	    function invoiceKey(item) {
+	        return String(item.invoice_id || '') + ':' + String(item.expected_amount_id || '');
+	    }
+	    function aliasInvoicesExcept(excludedBillIds, excludedKeys) {
+	        if (!currentAliasData) return [];
+	        const billIdSet = new Set((excludedBillIds || []).map(function(id) { return String(id); }));
+	        const keySet = new Set(excludedKeys || []);
+	        return (currentAliasData.alias_invoices || []).filter(function(item) {
+	            const expectedId = item.expected_amount_id == null ? '' : String(item.expected_amount_id);
+	            if (expectedId && billIdSet.has(expectedId)) return false;
+	            if (keySet.has(invoiceKey(item))) return false;
+	            return true;
+	        });
+	    }
+	    function appendInvoiceSection(title) {
+	        if (!aliasInvoiceRows) return;
+	        const tr = document.createElement('tr');
+	        tr.className = 'invoice-section-row';
+	        const td = document.createElement('td');
+	        td.colSpan = 8;
+	        td.textContent = title;
+	        tr.appendChild(td);
+	        aliasInvoiceRows.appendChild(tr);
+	    }
+	    function appendInvoiceRow(item, prefixText) {
+	        if (!aliasInvoiceRows) return;
+	        const tr = document.createElement('tr');
+	        const link = document.createElement('a');
+	        link.className = 'link-btn';
+	        link.href = item.pdf_url || '#';
+	        link.target = '_blank';
+	        link.textContent = (prefixText ? prefixText + ' / ' : '') + (item.invoice_number || '');
+	        appendNodeCell(tr, link);
+	        appendCell(tr, item.invoice_date || '');
+	        appendCell(tr, formatMoney(item.invoice_amount));
+	        appendCell(tr, formatMoney(item.matched_amount));
+	        appendCell(tr, item.is_usable ? '是' : '否', item.is_usable ? 'usable-yes' : 'usable-no');
+	        appendCell(tr, item.seller_name || '');
+	        appendCell(tr, item.buyer_name || '');
+	        const pdfLink = document.createElement('a');
+	        pdfLink.className = 'link-btn';
+	        pdfLink.href = item.pdf_url || '#';
+	        pdfLink.target = '_blank';
+	        pdfLink.textContent = '查看';
+	        appendNodeCell(tr, pdfLink);
+	        aliasInvoiceRows.appendChild(tr);
+	    }
+	    function renderAliasInvoiceTable(bills, title, statusText, status, extraInvoices, extraTitle) {
 	        const totalAmount = bills.reduce(function(sum, bill) { return sum + Number(bill.amount || 0); }, 0);
-	        const totalUsable = bills.reduce(function(sum, bill) { return sum + Number(bill.usable_matched_total || 0); }, 0);
-	        const totalInvoiceCount = bills.reduce(function(sum, bill) { return sum + Number(bill.invoice_count || 0); }, 0);
-	        const totalUsableInvoiceCount = bills.reduce(function(sum, bill) { return sum + Number(bill.usable_invoice_count || 0); }, 0);
+	        const extra = extraInvoices || [];
+	        const billUsable = bills.reduce(function(sum, bill) { return sum + Number(bill.usable_matched_total || 0); }, 0);
+	        const extraUsable = extra.reduce(function(sum, item) { return sum + Number(item.usable_amount || 0); }, 0);
+	        const totalUsable = billUsable + extraUsable;
+	        const billInvoiceCount = bills.reduce(function(sum, bill) { return sum + Number(bill.invoice_count || 0); }, 0);
+	        const billUsableInvoiceCount = bills.reduce(function(sum, bill) { return sum + Number(bill.usable_invoice_count || 0); }, 0);
+	        const extraInvoiceCount = extra.length;
+	        const extraUsableInvoiceCount = extra.reduce(function(sum, item) { return sum + (item.is_usable ? 1 : 0); }, 0);
 	        if (aliasBillInvoicesPanel) aliasBillInvoicesPanel.hidden = false;
 	        if (aliasBillInvoicesTitle) aliasBillInvoicesTitle.textContent = title;
 	        if (aliasBillAmount) aliasBillAmount.textContent = formatMoney(totalAmount);
@@ -461,49 +514,31 @@
 	            aliasBillStatus.textContent = statusText || '-';
 	            aliasBillStatus.className = status ? 'status-badge ' + statusClass(status) : '';
 	        }
-	        if (aliasBillInvoiceCount) aliasBillInvoiceCount.textContent = String(totalUsableInvoiceCount) + ' / ' + String(totalInvoiceCount);
+	        if (aliasBillInvoiceCount) aliasBillInvoiceCount.textContent = String(billUsableInvoiceCount + extraUsableInvoiceCount) + ' / ' + String(billInvoiceCount + extraInvoiceCount);
 	        if (!aliasInvoiceRows) return;
 	        aliasInvoiceRows.innerHTML = '';
 	        let rendered = 0;
+	        const renderedKeys = [];
 	        bills.forEach(function(bill) {
 	            const invoices = bill.invoices || [];
-	            if (!invoices.length) {
-	                if (bills.length > 1) {
-	                    const tr = document.createElement('tr');
-	                    const td = document.createElement('td');
-	                    td.className = 'empty-row';
-	                    td.colSpan = 8;
-	                    td.textContent = '账单 ' + bill.id + ' 暂无已匹配发票';
-	                    tr.appendChild(td);
-	                    aliasInvoiceRows.appendChild(tr);
-	                }
-	                return;
-	            }
 	            invoices.forEach(function(item) {
-	                const tr = document.createElement('tr');
-	                const link = document.createElement('a');
-	                link.className = 'link-btn';
-	                link.href = item.pdf_url || '#';
-	                link.target = '_blank';
-	                link.textContent = String(bill.id) + ' / ' + (item.invoice_number || '');
-	                appendNodeCell(tr, link);
-	                appendCell(tr, item.invoice_date || '');
-	                appendCell(tr, formatMoney(item.invoice_amount));
-	                appendCell(tr, formatMoney(item.matched_amount));
-	                appendCell(tr, item.is_usable ? '是' : '否', item.is_usable ? 'usable-yes' : 'usable-no');
-	                appendCell(tr, item.seller_name || '');
-	                appendCell(tr, item.buyer_name || '');
-	                const pdfLink = document.createElement('a');
-	                pdfLink.className = 'link-btn';
-	                pdfLink.href = item.pdf_url || '#';
-	                pdfLink.target = '_blank';
-	                pdfLink.textContent = '查看';
-	                appendNodeCell(tr, pdfLink);
-	                aliasInvoiceRows.appendChild(tr);
+	                appendInvoiceRow(item, String(bill.id));
+	                renderedKeys.push(invoiceKey(item));
 	                rendered++;
 	            });
 	        });
-	        if (!rendered && bills.length <= 1) {
+	        const visibleExtra = extra.filter(function(item) {
+	            return renderedKeys.indexOf(invoiceKey(item)) === -1;
+	        });
+	        if (visibleExtra.length) {
+	            if (rendered) appendInvoiceSection(extraTitle || '其他匹配该别名的发票');
+	            visibleExtra.forEach(function(item) {
+	                const prefix = item.expected_amount_id ? String(item.expected_amount_id) : '别名';
+	                appendInvoiceRow(item, prefix);
+	                rendered++;
+	            });
+	        }
+	        if (!rendered) {
 	            showAliasInvoicesMessage('暂无已匹配发票');
 	        }
 	    }
@@ -518,9 +553,11 @@
 	        }
 	        renderAliasInvoiceTable(
 	            [bill],
-	            '账单已匹配发票：' + (currentAliasData.alias.name || '') + ' / ' + (bill.platform || '') + ' / ' + (bill.period || ''),
+	            '账单已匹配发票：' + (((currentAliasData || {}).alias || {}).name || '') + ' / ' + (bill.platform || '') + ' / ' + (bill.period || ''),
 	            bill.status_text || '-',
-	            bill.status
+	            bill.status,
+	            aliasInvoicesExcept([bill.id], []),
+	            '其他匹配该别名的发票'
 	        );
 	    }
 	    function renderAllAliasBills() {
@@ -531,7 +568,27 @@
 	            aliasBillRows.querySelectorAll('.bill-row').forEach(function(row) { row.classList.remove('active'); });
 	        }
 	        const bills = currentAliasData.bills || [];
-	        renderAliasInvoiceTable(bills, '全部账单已匹配发票：' + ((currentAliasData.alias || {}).name || ''), '按全部账单汇总', '');
+	        const billIds = bills.map(function(bill) { return bill.id; });
+	        renderAliasInvoiceTable(
+	            bills,
+	            '全部账单已匹配发票：' + ((currentAliasData.alias || {}).name || ''),
+	            '按全部账单汇总',
+	            '',
+	            aliasInvoicesExcept(billIds, []),
+	            '其他匹配该别名的发票'
+	        );
+	    }
+	    function renderAliasOnlyInvoices() {
+	        if (!currentAliasData) return;
+	        const alias = currentAliasData.alias || {};
+	        renderAliasInvoiceTable(
+	            [],
+	            '已匹配别名的发票：' + (alias.name || ''),
+	            '匹配别名',
+	            '',
+	            currentAliasData.alias_invoices || [],
+	            ''
+	        );
 	    }
 	    function renderAliasInvoiceDetails(data) {
 	        currentAliasData = data;
@@ -580,6 +637,7 @@
 	            });
 	            aliasBillRows.appendChild(tr);
 	        });
+	        renderAliasOnlyInvoices();
 	    }
 	    function initAliasInvoiceModal() {
 	        document.querySelectorAll('.alias-invoices-btn').forEach(function(button) {

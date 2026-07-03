@@ -1661,6 +1661,35 @@ def alias_invoice_details():
                 """,
                 bill_ids,
             ).fetchall()
+        alias_invoice_rows = conn.execute(
+            """
+            SELECT
+                m.id AS match_id,
+                m.expected_amount_id,
+                m.matched_amount,
+                i.id AS invoice_id,
+                i.invoice_number,
+                i.invoice_date,
+                i.amount AS invoice_amount,
+                i.invoice_type,
+                i.tax_rate,
+                i.seller_name,
+                i.buyer_name,
+                i.project_name,
+                i.is_usable,
+                i.alias_name,
+                COALESCE(e.platform, i.platform, '') AS match_platform,
+                COALESCE(e.period, i.period, '') AS match_period,
+                c.short_name AS invoice_customer_short_name
+            FROM invoice i
+            LEFT JOIN invoice_expected_match m ON m.invoice_id = i.id
+            LEFT JOIN expected_amount e ON e.id = m.expected_amount_id
+            LEFT JOIN customer c ON c.id = i.customer_id
+            WHERE i.alias_name = ?
+            ORDER BY COALESCE(i.invoice_date, ''), i.id
+            """,
+            (alias,),
+        ).fetchall()
 
     matches_by_bill: dict[int, list[dict[str, object]]] = {}
     for row in match_rows:
@@ -1687,6 +1716,43 @@ def alias_invoice_details():
             'pdf_url': url_for('invoicing.invoice_pdf', invoice_id=row['invoice_id']),
         }
         matches_by_bill.setdefault(row['expected_amount_id'], []).append(invoice_item)
+
+    alias_invoices = []
+    seen_alias_invoice_keys = set()
+    for row in alias_invoice_rows:
+        platform = row['match_platform'] or ''
+        period = row['match_period'] or ''
+        if not _customer_period_allowed(selected_periods_by_platform, platform, period):
+            continue
+        matched_amount = row['matched_amount'] or row['invoice_amount'] or 0
+        is_usable = 1 if row['is_usable'] else 0
+        usable_amount = matched_amount if is_usable else 0
+        key = (row['invoice_id'], row['expected_amount_id'] or 0)
+        if key in seen_alias_invoice_keys:
+            continue
+        seen_alias_invoice_keys.add(key)
+        alias_invoices.append({
+            'match_id': row['match_id'],
+            'expected_amount_id': row['expected_amount_id'],
+            'invoice_id': row['invoice_id'],
+            'invoice_number': row['invoice_number'] or '',
+            'invoice_date': row['invoice_date'] or '',
+            'invoice_amount': usable_amount,
+            'raw_invoice_amount': row['invoice_amount'] or 0,
+            'matched_amount': matched_amount,
+            'usable_amount': usable_amount,
+            'invoice_type': row['invoice_type'] or '',
+            'tax_rate': row['tax_rate'] or '',
+            'seller_name': row['seller_name'] or '',
+            'buyer_name': row['buyer_name'] or '',
+            'project_name': row['project_name'] or '',
+            'is_usable': is_usable,
+            'alias_name': row['alias_name'] or '',
+            'customer_short_name': row['invoice_customer_short_name'] or '',
+            'platform': platform,
+            'period': period,
+            'pdf_url': url_for('invoicing.invoice_pdf', invoice_id=row['invoice_id']),
+        })
 
     bills = []
     total_expected = 0
@@ -1743,6 +1809,7 @@ def alias_invoice_details():
         'selected_periods': selected_period_filters,
         'selected_period_values': selected_period_values,
         'bills': bills,
+        'alias_invoices': alias_invoices,
     })
 
 
