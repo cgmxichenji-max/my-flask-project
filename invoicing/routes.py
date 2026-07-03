@@ -915,69 +915,194 @@ def delete_slice_creator(row_id):
 
 # ===== 达人/团长昵称 CRUD =====
 
+CUSTOMER_PLATFORM_AMOUNT_KEYS = {
+    '澳柯': 'amount_aoke',
+    '香娜露儿': 'amount_xiangnalu',
+    '快手': 'amount_kuaishou',
+    '幕莲蔓': 'amount_mulianman',
+}
+
+
+def _customer_period_options(conn):
+    period_option_rows = conn.execute(
+        """
+        SELECT platform, period, MIN(period_start) AS min_period_start
+        FROM expected_amount
+        WHERE COALESCE(platform, '') <> ''
+          AND COALESCE(period, '') <> ''
+          AND amount <> 0
+        GROUP BY platform, period
+        ORDER BY
+            CASE platform
+                WHEN '澳柯' THEN 1
+                WHEN '香娜露儿' THEN 2
+                WHEN '快手' THEN 3
+                WHEN '幕莲蔓' THEN 4
+                ELSE 99
+            END,
+            COALESCE(min_period_start, period),
+            period
+        """
+    ).fetchall()
+    return [
+        {
+            'platform': row['platform'],
+            'period': row['period'],
+            'value': f"{row['platform']}::{row['period']}",
+        }
+        for row in period_option_rows
+    ]
+
+
+def _selected_customer_period_filters(period_options, raw_values):
+    valid_period_values = {item['value'] for item in period_options}
+    selected_period_values = []
+    for raw_value in raw_values:
+        value = (raw_value or '').strip()
+        if value in valid_period_values and value not in selected_period_values:
+            selected_period_values.append(value)
+    selected_period_filters = [
+        {
+            'platform': value.split('::', 1)[0],
+            'period': value.split('::', 1)[1],
+            'value': value,
+        }
+        for value in selected_period_values
+    ]
+    selected_periods_by_platform: dict[str, set[str]] = {}
+    for item in selected_period_filters:
+        selected_periods_by_platform.setdefault(item['platform'], set()).add(item['period'])
+    return selected_period_values, selected_period_filters, selected_periods_by_platform
+
+
+def _customer_period_allowed(selected_periods_by_platform, platform: str, period: str) -> bool:
+    if not selected_periods_by_platform:
+        return True
+    return period in selected_periods_by_platform.get(platform, set())
+
+
 @invoicing_bp.route('/customers')
 @module_required('invoicing')
 def customers():
+    platform_amount_keys = CUSTOMER_PLATFORM_AMOUNT_KEYS
+    amount_keys = list(platform_amount_keys.values())
+    search_query = (request.args.get('q') or '').strip()
+    search_query_lower = search_query.lower()
+
     with get_db_connection() as conn:
-        rows = conn.execute(
+        period_options = _customer_period_options(conn)
+        expected_rows = conn.execute(
             """
             SELECT
+                c.id AS customer_id,
                 c.short_name,
-                COALESCE(a.alias_list, '') AS alias_list,
-                COALESCE(a.alias_items, '') AS alias_items,
-                COALESCE(SUM(CASE WHEN e.platform = '澳柯' THEN e.amount ELSE 0 END), 0) AS amount_aoke,
-                COALESCE(SUM(CASE WHEN e.platform = '香娜露儿' THEN e.amount ELSE 0 END), 0) AS amount_xiangnalu,
-                COALESCE(SUM(CASE WHEN e.platform = '快手' THEN e.amount ELSE 0 END), 0) AS amount_kuaishou,
-                COALESCE(SUM(CASE WHEN e.platform = '幕莲蔓' THEN e.amount ELSE 0 END), 0) AS amount_mulianman
+                e.platform,
+                e.period,
+                e.amount
             FROM customer c
-            JOIN expected_amount e ON e.customer_id = c.id AND e.amount <> 0
-            LEFT JOIN (
-                SELECT
-                    short_name,
-                    GROUP_CONCAT(alias, ' / ') AS alias_list,
-                    GROUP_CONCAT(alias, '|||') AS alias_items
-                FROM (
-                    SELECT DISTINCT c2.short_name, ca.alias
-                    FROM customer_alias ca
-                    JOIN customer c2 ON c2.id = ca.customer_id
-                    ORDER BY ca.id
-                )
-                GROUP BY short_name
-            ) a ON a.short_name = c.short_name
-            GROUP BY c.short_name
-            ORDER BY c.short_name
+            JOIN expected_amount e ON e.customer_id = c.id
+            WHERE e.amount <> 0
+            ORDER BY c.short_name, e.id
             """
         ).fetchall()
-        alias_rows = conn.execute(
+        customer_alias_rows = conn.execute(
             """
-            SELECT
-                ca.alias,
-                GROUP_CONCAT(DISTINCT c.short_name) AS nickname_list,
-                COUNT(DISTINCT c.short_name) AS nickname_count,
-                COALESCE(SUM(CASE WHEN e.platform = '澳柯' THEN e.amount ELSE 0 END), 0) AS amount_aoke,
-                COALESCE(SUM(CASE WHEN e.platform = '香娜露儿' THEN e.amount ELSE 0 END), 0) AS amount_xiangnalu,
-                COALESCE(SUM(CASE WHEN e.platform = '快手' THEN e.amount ELSE 0 END), 0) AS amount_kuaishou,
-                COALESCE(SUM(CASE WHEN e.platform = '幕莲蔓' THEN e.amount ELSE 0 END), 0) AS amount_mulianman
+            SELECT c.id AS customer_id, c.short_name, ca.alias
             FROM customer_alias ca
             JOIN customer c ON c.id = ca.customer_id
-            LEFT JOIN expected_amount e ON e.customer_id = c.id
-            GROUP BY ca.alias
-            ORDER BY ca.alias
+            ORDER BY ca.id
             """
         ).fetchall()
+
+    selected_period_values, selected_period_filters, selected_periods_by_platform = (
+        _selected_customer_period_filters(period_options, request.args.getlist('period_filter'))
+    )
+
+    def _new_amount_bucket() -> dict[str, float]:
+        return {key: 0.0 for key in amount_keys}
+
+    alias_by_short_name: dict[str, list[str]] = {}
+    alias_members: dict[str, dict[str, object]] = {}
+    for row in customer_alias_rows:
+        short_name = row['short_name'] or ''
+        alias = row['alias'] or ''
+        if not short_name or not alias:
+            continue
+        alias_by_short_name.setdefault(short_name, [])
+        if alias not in alias_by_short_name[short_name]:
+            alias_by_short_name[short_name].append(alias)
+        member_bucket = alias_members.setdefault(alias, {'customer_ids': set(), 'nicknames': []})
+        member_bucket['customer_ids'].add(row['customer_id'])
+        if short_name not in member_bucket['nicknames']:
+            member_bucket['nicknames'].append(short_name)
+
+    customer_amounts: dict[int, dict[str, float]] = {}
+    nickname_rows_by_name: dict[str, dict[str, object]] = {}
+    for row in expected_rows:
+        customer_id = row['customer_id']
+        short_name = row['short_name'] or ''
+        platform = row['platform'] or ''
+        period = row['period'] or ''
+        amount_key = platform_amount_keys.get(platform)
+        if not short_name:
+            continue
+        customer_bucket = customer_amounts.setdefault(customer_id, _new_amount_bucket())
+        nickname_bucket = nickname_rows_by_name.setdefault(
+            short_name,
+            {
+                'short_name': short_name,
+                'alias_list': '',
+                'alias_items': '',
+                **_new_amount_bucket(),
+            },
+        )
+        aliases = alias_by_short_name.get(short_name, [])
+        nickname_bucket['alias_list'] = ' / '.join(aliases)
+        nickname_bucket['alias_items'] = '|||'.join(aliases)
+        if amount_key and _customer_period_allowed(selected_periods_by_platform, platform, period):
+            amount = float(row['amount'] or 0)
+            customer_bucket[amount_key] += amount
+            nickname_bucket[amount_key] += amount
+
+    rows = sorted(nickname_rows_by_name.values(), key=lambda item: item['short_name'] or '')
+    if search_query_lower:
+        rows = [
+            row for row in rows
+            if search_query_lower in f"{row['short_name'] or ''}|{row['alias_list'] or ''}".lower()
+        ]
+
+    alias_rows = []
+    for alias, member_info in alias_members.items():
+        alias_bucket = {
+            'alias': alias,
+            'nickname_list': ','.join(member_info['nicknames']),
+            'nickname_count': len(member_info['nicknames']),
+            **_new_amount_bucket(),
+        }
+        for customer_id in member_info['customer_ids']:
+            customer_bucket = customer_amounts.get(customer_id) or _new_amount_bucket()
+            for key in amount_keys:
+                alias_bucket[key] += customer_bucket[key]
+        alias_rows.append(alias_bucket)
+    alias_rows.sort(key=lambda item: item['alias'] or '')
+    if search_query_lower:
+        alias_rows = [
+            row for row in alias_rows
+            if search_query_lower in f"{row['alias'] or ''}|{row['nickname_list'] or ''}".lower()
+        ]
+
     view = request.args.get('view') if request.args.get('view') in ('nickname', 'alias') else 'nickname'
     nickname_totals = {
-        'amount_aoke': sum((r['amount_aoke'] or 0) for r in rows),
-        'amount_xiangnalu': sum((r['amount_xiangnalu'] or 0) for r in rows),
-        'amount_kuaishou': sum((r['amount_kuaishou'] or 0) for r in rows),
-        'amount_mulianman': sum((r['amount_mulianman'] or 0) for r in rows),
+        key: sum((r[key] or 0) for r in rows)
+        for key in amount_keys
     }
     alias_totals = {
-        'amount_aoke': sum((r['amount_aoke'] or 0) for r in alias_rows),
-        'amount_xiangnalu': sum((r['amount_xiangnalu'] or 0) for r in alias_rows),
-        'amount_kuaishou': sum((r['amount_kuaishou'] or 0) for r in alias_rows),
-        'amount_mulianman': sum((r['amount_mulianman'] or 0) for r in alias_rows),
+        key: sum((r[key] or 0) for r in alias_rows)
+        for key in amount_keys
     }
+    period_options_by_platform: dict[str, list[str]] = {}
+    for item in period_options:
+        period_options_by_platform.setdefault(item['platform'], []).append(item['period'])
     return render_template(
         'invoicing_customers.html',
         rows=rows,
@@ -985,6 +1110,11 @@ def customers():
         view=view,
         nickname_totals=nickname_totals,
         alias_totals=alias_totals,
+        period_options=period_options,
+        period_options_json=json.dumps(period_options_by_platform, ensure_ascii=False),
+        selected_period_filters=selected_period_filters,
+        selected_period_values=selected_period_values,
+        search_query=search_query,
     )
 
 
@@ -1438,6 +1568,180 @@ def customer_expected_match_details(customer_id):
             'usable_matched_total': total_usable_matched,
             'diff': total_expected - total_usable_matched,
         },
+        'bills': bills,
+    })
+
+
+@invoicing_bp.route('/customers/alias-invoice-details')
+@module_required('invoicing')
+def alias_invoice_details():
+    alias = (request.args.get('alias') or '').strip()
+    if not alias:
+        return jsonify({'ok': False, 'message': '别名不能为空'}), 400
+
+    with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
+        period_options = _customer_period_options(conn)
+        selected_period_values, selected_period_filters, selected_periods_by_platform = (
+            _selected_customer_period_filters(period_options, request.args.getlist('period_filter'))
+        )
+
+        members = conn.execute(
+            """
+            SELECT c.id AS customer_id, c.short_name
+            FROM customer_alias ca
+            JOIN customer c ON c.id = ca.customer_id
+            WHERE ca.alias = ?
+            ORDER BY c.short_name, c.id
+            """,
+            (alias,),
+        ).fetchall()
+        if not members:
+            return jsonify({'ok': False, 'message': '未找到该别名'}), 404
+
+        customer_ids = [row['customer_id'] for row in members]
+        placeholders = ','.join('?' for _ in customer_ids)
+        bill_rows = conn.execute(
+            f"""
+            SELECT
+                e.id,
+                e.customer_id,
+                e.platform,
+                e.period,
+                e.period_start,
+                e.period_end,
+                e.amount,
+                c.short_name AS customer_short_name,
+                b.name AS entity_name
+            FROM expected_amount e
+            LEFT JOIN customer c ON c.id = e.customer_id
+            LEFT JOIN billing_entity b ON b.id = e.entity_id
+            WHERE e.customer_id IN ({placeholders})
+              AND e.amount <> 0
+            ORDER BY COALESCE(e.period_start, '') DESC, e.id DESC
+            """,
+            customer_ids,
+        ).fetchall()
+
+        filtered_bill_rows = [
+            row for row in bill_rows
+            if _customer_period_allowed(
+                selected_periods_by_platform,
+                row['platform'] or '',
+                row['period'] or '',
+            )
+        ]
+        bill_ids = [row['id'] for row in filtered_bill_rows]
+        match_rows = []
+        if bill_ids:
+            bill_placeholders = ','.join('?' for _ in bill_ids)
+            match_rows = conn.execute(
+                f"""
+                SELECT
+                    m.id AS match_id,
+                    m.expected_amount_id,
+                    m.matched_amount,
+                    i.id AS invoice_id,
+                    i.invoice_number,
+                    i.invoice_date,
+                    i.amount AS invoice_amount,
+                    i.invoice_type,
+                    i.tax_rate,
+                    i.seller_name,
+                    i.buyer_name,
+                    i.project_name,
+                    i.is_usable,
+                    i.alias_name,
+                    c.short_name AS invoice_customer_short_name
+                FROM invoice_expected_match m
+                JOIN invoice i ON i.id = m.invoice_id
+                LEFT JOIN customer c ON c.id = i.customer_id
+                WHERE m.expected_amount_id IN ({bill_placeholders})
+                ORDER BY COALESCE(i.invoice_date, ''), i.id
+                """,
+                bill_ids,
+            ).fetchall()
+
+    matches_by_bill: dict[int, list[dict[str, object]]] = {}
+    for row in match_rows:
+        matched_amount = row['matched_amount'] or 0
+        is_usable = 1 if row['is_usable'] else 0
+        usable_amount = matched_amount if is_usable else 0
+        invoice_item = {
+            'match_id': row['match_id'],
+            'invoice_id': row['invoice_id'],
+            'invoice_number': row['invoice_number'] or '',
+            'invoice_date': row['invoice_date'] or '',
+            'invoice_amount': usable_amount,
+            'raw_invoice_amount': row['invoice_amount'] or 0,
+            'matched_amount': matched_amount,
+            'usable_amount': usable_amount,
+            'invoice_type': row['invoice_type'] or '',
+            'tax_rate': row['tax_rate'] or '',
+            'seller_name': row['seller_name'] or '',
+            'buyer_name': row['buyer_name'] or '',
+            'project_name': row['project_name'] or '',
+            'is_usable': is_usable,
+            'alias_name': row['alias_name'] or '',
+            'customer_short_name': row['invoice_customer_short_name'] or '',
+            'pdf_url': url_for('invoicing.invoice_pdf', invoice_id=row['invoice_id']),
+        }
+        matches_by_bill.setdefault(row['expected_amount_id'], []).append(invoice_item)
+
+    bills = []
+    total_expected = 0
+    total_usable_matched = 0
+    total_invoice_count = 0
+    total_usable_invoice_count = 0
+    for row in filtered_bill_rows:
+        amount = row['amount'] or 0
+        invoices = matches_by_bill.get(row['id'], [])
+        usable_matched_total = sum((invoice['usable_amount'] or 0) for invoice in invoices)
+        matched_total = sum((invoice['matched_amount'] or 0) for invoice in invoices)
+        usable_invoice_count = sum(1 for invoice in invoices if invoice['is_usable'])
+        total_expected += amount
+        total_usable_matched += usable_matched_total
+        total_invoice_count += len(invoices)
+        total_usable_invoice_count += usable_invoice_count
+        status, status_text, diff = _match_status(amount, usable_matched_total)
+        start_date = (row['period_start'] or '').strip()
+        end_date = (row['period_end'] or '').strip()
+        period_range = f'{start_date} ~ {end_date}' if start_date or end_date else ''
+        bills.append({
+            'id': row['id'],
+            'customer_id': row['customer_id'],
+            'customer_short_name': row['customer_short_name'] or '',
+            'platform': row['platform'] or '',
+            'period': row['period'] or '',
+            'period_range': period_range,
+            'entity_name': row['entity_name'] or '',
+            'amount': amount,
+            'invoice_count': len(invoices),
+            'usable_invoice_count': usable_invoice_count,
+            'matched_total': matched_total,
+            'usable_matched_total': usable_matched_total,
+            'diff': diff,
+            'status': status,
+            'status_text': status_text,
+            'invoices': invoices,
+        })
+
+    return jsonify({
+        'ok': True,
+        'alias': {
+            'name': alias,
+            'nicknames': [row['short_name'] or '' for row in members],
+        },
+        'summary': {
+            'bill_count': len(bills),
+            'expected_total': total_expected,
+            'usable_matched_total': total_usable_matched,
+            'diff': total_expected - total_usable_matched,
+            'invoice_count': total_invoice_count,
+            'usable_invoice_count': total_usable_invoice_count,
+        },
+        'selected_periods': selected_period_filters,
+        'selected_period_values': selected_period_values,
         'bills': bills,
     })
 

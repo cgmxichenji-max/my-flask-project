@@ -14,6 +14,16 @@
         .create-form input[type=text] { padding: 6px 10px; font-size: 14px; margin-right: 8px; width: 240px; }
         .create-form button { padding: 6px 16px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
         .filter-bar input { padding: 6px 10px; font-size: 14px; width: 320px; }
+        .filter-bar select { padding: 6px 10px; font-size: 14px; min-width: 140px; }
+        .filter-bar button,
+        .filter-bar .link-button { padding: 6px 16px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 14px; }
+        .filter-bar .link-button.secondary { background: #757575; }
+        .filter-input-row { width: 100%; }
+        .period-filter-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; margin-top: 10px; }
+        .period-chip-list { display: flex; flex-wrap: wrap; gap: 6px; min-height: 28px; align-items: center; }
+        .period-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; background: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9; border-radius: 14px; font-size: 13px; }
+        .period-chip button { padding: 0 5px; background: #1976d2; border-radius: 50%; line-height: 18px; min-width: 18px; height: 18px; font-size: 12px; }
+        .period-empty { color: #777; font-size: 13px; }
         .bulk-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .bulk-form input[type=text] { padding: 6px 10px; font-size: 14px; width: 280px; }
         .bulk-form button { padding: 6px 16px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
@@ -29,16 +39,41 @@
         .alias-edit-form { display: flex; gap: 6px; align-items: center; }
         .alias-edit-form input[type=text] { padding: 4px 8px; font-size: 13px; width: 180px; }
         .alias-edit-form button { padding: 4px 10px; border: none; border-radius: 4px; cursor: pointer; background: #1976d2; color: #fff; }
+        .alias-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
         table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
         th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
         th { background: #f8f8f8; font-size: 14px; }
         th.sortable { cursor: pointer; user-select: none; }
         th.sortable:hover { background: #eeeeee; }
         th.sortable .sort-mark { color: #888; font-size: 11px; margin-left: 3px; }
-        .btn-detail { background: #1976d2; color: #fff; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 13px; }
+        .btn-detail { background: #1976d2; color: #fff; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 13px; border: none; cursor: pointer; }
         .btn-delete { background: #d32f2f; color: #fff; padding: 4px 10px; font-size: 13px; border: none; border-radius: 4px; cursor: pointer; }
         .inline-form { display: inline; margin-left: 6px; }
         .num { text-align: right; }
+        .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: none; align-items: flex-start; justify-content: center; padding: 32px 14px; z-index: 1000; overflow: auto; }
+        .modal-backdrop.open { display: flex; }
+        .modal { width: min(1160px, 100%); background: #fff; border-radius: 8px; box-shadow: 0 12px 30px rgba(0,0,0,0.22); overflow: hidden; }
+        .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid #eee; }
+        .modal-title { font-size: 18px; font-weight: 700; }
+        .modal-close { border: none; background: #eeeeee; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 14px; }
+        .modal-body { padding: 16px 18px 20px; }
+        .modal-summary { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .modal-summary-item { background: #fafafa; border: 1px solid #eee; border-radius: 6px; padding: 10px; }
+        .modal-summary-item span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+        .modal-summary-item strong { font-size: 16px; }
+        .modal-table-wrap { overflow-x: auto; }
+        .modal table { box-shadow: none; border-radius: 0; }
+        .modal th, .modal td { white-space: nowrap; }
+        .invoice-detail-row td { background: #fcfcfc; padding: 0 10px 12px; }
+        .invoice-detail-row table td, .invoice-detail-row table th { padding: 8px 10px; }
+        .status-badge { display: inline-block; padding: 3px 7px; border-radius: 4px; font-size: 12px; }
+        .status-equal { background: #e8f5e9; color: #2e7d32; }
+        .status-bill_greater { background: #fff3cd; color: #8a6d00; }
+        .status-invoice_greater { background: #fdecea; color: #b71c1c; }
+        .muted { color: #777; }
+        @media (max-width: 900px) {
+            .modal-summary { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+        }
     </style>
 </head>
 <body>
@@ -57,20 +92,48 @@
     {% endif %}
 
     <div class="tabs">
-        <a href="{{ url_for('invoicing.customers') }}" class="{% if view == 'nickname' %}active{% endif %}">昵称列表</a>
-        <a href="{{ url_for('invoicing.customers') }}?view=alias" class="{% if view == 'alias' %}active{% endif %}">别名列表</a>
+        <a href="{{ url_for('invoicing.customers', view='nickname', q=search_query, period_filter=selected_period_values) }}" class="{% if view == 'nickname' %}active{% endif %}">昵称列表</a>
+        <a href="{{ url_for('invoicing.customers', view='alias', q=search_query, period_filter=selected_period_values) }}" class="{% if view == 'alias' %}active{% endif %}">别名列表</a>
     </div>
 
     <div class="panel filter-bar">
-        <input type="text" id="filter-input" placeholder="{% if view == 'alias' %}筛选：别名 / 昵称{% else %}筛选：昵称 / 别名{% endif %} 任一含关键字（不区分大小写）">
+        <div class="filter-input-row">
+            <input type="text" id="filter-input" name="q" form="period-filter-form" value="{{ search_query }}" placeholder="{% if view == 'alias' %}筛选：别名 / 昵称{% else %}筛选：昵称 / 别名{% endif %} 任一含关键字（不区分大小写）">
+        </div>
+        <form class="period-filter-form" method="get" id="period-filter-form">
+            <input type="hidden" name="view" value="{{ view }}">
+            <label>店铺/平台：
+                <select id="period-platform-select"></select>
+            </label>
+            <label>账单周期：
+                <select id="period-period-select"></select>
+            </label>
+            <button type="button" id="btn-add-period">添加周期</button>
+            <button type="submit">查询</button>
+            {% if selected_period_values %}
+            <a class="link-button secondary" href="{{ url_for('invoicing.customers', view=view, q=search_query) }}">清空周期</a>
+            {% endif %}
+            <div class="period-chip-list" id="period-chip-list">
+                {% for item in selected_period_filters %}
+                <span class="period-chip" data-value="{{ item.value }}">
+                    {{ item.platform }} {{ item.period }}
+                    <button type="button" class="period-remove" title="取消该周期">×</button>
+                    <input type="hidden" name="period_filter" value="{{ item.value }}">
+                </span>
+                {% endfor %}
+                {% if not selected_period_filters %}
+                <span class="period-empty" id="period-empty-text">未选择周期时默认统计全部周期</span>
+                {% endif %}
+            </div>
+        </form>
     </div>
 
     {% if view == 'nickname' %}
-    <div class="summary">
-        <div>所有昵称澳柯佣金：<strong>{{ '%.2f'|format(nickname_totals.amount_aoke) }}</strong></div>
-        <div>所有昵称香娜露儿佣金：<strong>{{ '%.2f'|format(nickname_totals.amount_xiangnalu) }}</strong></div>
-        <div>所有昵称快手佣金：<strong>{{ '%.2f'|format(nickname_totals.amount_kuaishou) }}</strong></div>
-        <div>所有昵称幕莲蔓佣金：<strong>{{ '%.2f'|format(nickname_totals.amount_mulianman) }}</strong></div>
+    <div class="summary amount-summary">
+        <div>所有昵称澳柯佣金：<strong data-summary-key="amount_aoke">{{ '%.2f'|format(nickname_totals.amount_aoke) }}</strong></div>
+        <div>所有昵称香娜露儿佣金：<strong data-summary-key="amount_xiangnalu">{{ '%.2f'|format(nickname_totals.amount_xiangnalu) }}</strong></div>
+        <div>所有昵称快手佣金：<strong data-summary-key="amount_kuaishou">{{ '%.2f'|format(nickname_totals.amount_kuaishou) }}</strong></div>
+        <div>所有昵称幕莲蔓佣金：<strong data-summary-key="amount_mulianman">{{ '%.2f'|format(nickname_totals.amount_mulianman) }}</strong></div>
     </div>
 
     <form method="post" action="{{ url_for('invoicing.bulk_create_alias') }}" id="bulk-alias-form">
@@ -128,14 +191,14 @@
         </tbody>
     </table>
     {% else %}
-    <div class="summary">
-        <div>所有别名澳柯佣金：<strong>{{ '%.2f'|format(alias_totals.amount_aoke) }}</strong></div>
-        <div>所有别名香娜露儿佣金：<strong>{{ '%.2f'|format(alias_totals.amount_xiangnalu) }}</strong></div>
-        <div>所有别名快手佣金：<strong>{{ '%.2f'|format(alias_totals.amount_kuaishou) }}</strong></div>
-        <div>所有别名幕莲蔓佣金：<strong>{{ '%.2f'|format(alias_totals.amount_mulianman) }}</strong></div>
+    <div class="summary amount-summary">
+        <div>所有别名澳柯佣金：<strong data-summary-key="amount_aoke">{{ '%.2f'|format(alias_totals.amount_aoke) }}</strong></div>
+        <div>所有别名香娜露儿佣金：<strong data-summary-key="amount_xiangnalu">{{ '%.2f'|format(alias_totals.amount_xiangnalu) }}</strong></div>
+        <div>所有别名快手佣金：<strong data-summary-key="amount_kuaishou">{{ '%.2f'|format(alias_totals.amount_kuaishou) }}</strong></div>
+        <div>所有别名幕莲蔓佣金：<strong data-summary-key="amount_mulianman">{{ '%.2f'|format(alias_totals.amount_mulianman) }}</strong></div>
     </div>
 
-    <h2>别名列表（共 {{ alias_rows|length }} 个）</h2>
+    <h2>别名列表（共 <span id="total-count">{{ alias_rows|length }}</span> 个，当前显示 <span id="visible-count">{{ alias_rows|length }}</span>）</h2>
     <table id="customer-table">
         <thead>
             <tr>
@@ -150,7 +213,11 @@
         </thead>
         <tbody>
             {% for r in alias_rows %}
-            <tr data-search="{{ (r['alias'] or '') ~ '|' ~ (r['nickname_list'] or '') }}">
+            <tr data-search="{{ (r['alias'] or '') ~ '|' ~ (r['nickname_list'] or '') }}"
+                data-amount_aoke="{{ r['amount_aoke'] or 0 }}"
+                data-amount_xiangnalu="{{ r['amount_xiangnalu'] or 0 }}"
+                data-amount_kuaishou="{{ r['amount_kuaishou'] or 0 }}"
+                data-amount_mulianman="{{ r['amount_mulianman'] or 0 }}">
                 <td>{{ r['alias'] }}</td>
                 <td>{{ r['nickname_list'] or '' }}</td>
                 <td class="num">{{ '%.2f'|format(r['amount_aoke'] or 0) }}</td>
@@ -158,16 +225,23 @@
                 <td class="num">{{ '%.2f'|format(r['amount_kuaishou'] or 0) }}</td>
                 <td class="num">{{ '%.2f'|format(r['amount_mulianman'] or 0) }}</td>
                 <td>
-                    <form class="alias-edit-form" method="post" action="{{ url_for('invoicing.rename_alias') }}">
-                        <input type="hidden" name="old_alias" value="{{ r['alias'] }}">
-                        <input type="text" name="new_alias" value="{{ r['alias'] }}" required>
-                        <button type="submit">改名</button>
-                    </form>
-                    <form class="inline-form" method="post" action="{{ url_for('invoicing.delete_alias_group') }}"
-                          onsubmit="return confirm('确认删除别名「{{ r['alias'] }}」？这会从所有昵称下移除该别名。');">
-                        <input type="hidden" name="alias" value="{{ r['alias'] }}">
-                        <button type="submit" class="btn-delete">删除</button>
-                    </form>
+                    <div class="alias-actions">
+                        <button type="button"
+                                class="btn-detail alias-invoices-btn"
+                                data-detail-url="{{ url_for('invoicing.alias_invoice_details', alias=r['alias'], period_filter=selected_period_values) }}">
+                            发票
+                        </button>
+                        <form class="alias-edit-form" method="post" action="{{ url_for('invoicing.rename_alias') }}">
+                            <input type="hidden" name="old_alias" value="{{ r['alias'] }}">
+                            <input type="text" name="new_alias" value="{{ r['alias'] }}" required>
+                            <button type="submit">改名</button>
+                        </form>
+                        <form class="inline-form" method="post" action="{{ url_for('invoicing.delete_alias_group') }}"
+                              onsubmit="return confirm('确认删除别名「{{ r['alias'] }}」？这会从所有昵称下移除该别名。');">
+                            <input type="hidden" name="alias" value="{{ r['alias'] }}">
+                            <button type="submit" class="btn-delete">删除</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {% endfor %}
@@ -175,8 +249,20 @@
     </table>
     {% endif %}
 </main>
+<div class="modal-backdrop" id="alias-invoice-modal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="alias-invoice-modal-title">
+        <div class="modal-header">
+            <div class="modal-title" id="alias-invoice-modal-title">应开账单</div>
+            <button type="button" class="modal-close" id="alias-invoice-modal-close">关闭</button>
+        </div>
+        <div class="modal-body" id="alias-invoice-modal-body">
+            <div class="muted">加载中...</div>
+        </div>
+    </div>
+</div>
 	<script>
 	(function() {
+	    const periodOptionsByPlatform = {{ period_options_json | safe }};
 	    const input = document.getElementById('filter-input');
 	    const table = document.getElementById('customer-table');
 	    const tbody = table ? table.querySelector('tbody') : null;
@@ -184,7 +270,234 @@
 	    const visibleCount = document.getElementById('visible-count');
 	    const selectAll = document.getElementById('select-all');
 	    const sortState = { key: null, dir: 'asc' };
+	    const periodForm = document.getElementById('period-filter-form');
+	    const platformSelect = document.getElementById('period-platform-select');
+	    const periodSelect = document.getElementById('period-period-select');
+	    const addPeriodButton = document.getElementById('btn-add-period');
+	    const chipList = document.getElementById('period-chip-list');
+	    const emptyPeriodText = document.getElementById('period-empty-text');
+	    const aliasInvoiceModal = document.getElementById('alias-invoice-modal');
+	    const aliasInvoiceModalTitle = document.getElementById('alias-invoice-modal-title');
+	    const aliasInvoiceModalBody = document.getElementById('alias-invoice-modal-body');
+	    const aliasInvoiceModalClose = document.getElementById('alias-invoice-modal-close');
+	    const amountKeys = ['amount_aoke', 'amount_xiangnalu', 'amount_kuaishou', 'amount_mulianman'];
 	    if (!input) return;
+	    function escapeHtml(value) {
+	        return String(value == null ? '' : value)
+	            .replace(/&/g, '&amp;')
+	            .replace(/</g, '&lt;')
+	            .replace(/>/g, '&gt;')
+	            .replace(/"/g, '&quot;')
+	            .replace(/'/g, '&#39;');
+	    }
+	    function formatMoney(value) {
+	        const n = Number(value || 0);
+	        return '¥' + n.toFixed(2);
+	    }
+	    function statusClass(status) {
+	        return 'status-badge status-' + (status || 'bill_greater');
+	    }
+	    function openAliasInvoiceModal() {
+	        if (!aliasInvoiceModal) return;
+	        aliasInvoiceModal.classList.add('open');
+	        aliasInvoiceModal.setAttribute('aria-hidden', 'false');
+	    }
+	    function closeAliasInvoiceModal() {
+	        if (!aliasInvoiceModal) return;
+	        aliasInvoiceModal.classList.remove('open');
+	        aliasInvoiceModal.setAttribute('aria-hidden', 'true');
+	    }
+	    function renderInvoiceRows(bill) {
+	        const invoices = bill.invoices || [];
+	        if (!invoices.length) {
+	            return '<div class="muted">该账单暂无已匹配发票</div>';
+	        }
+	        const rowsHtml = invoices.map(function(invoice) {
+	            const invoiceNo = escapeHtml(String(bill.id) + ' / ' + (invoice.invoice_number || ''));
+	            const pdf = invoice.pdf_url
+	                ? '<a href="' + escapeHtml(invoice.pdf_url) + '" target="_blank" rel="noopener">查看</a>'
+	                : '';
+	            return '<tr>' +
+	                '<td><a href="' + escapeHtml(invoice.pdf_url || '#') + '" target="_blank" rel="noopener">' + invoiceNo + '</a></td>' +
+	                '<td>' + escapeHtml(invoice.invoice_date || '') + '</td>' +
+	                '<td class="num">' + formatMoney(invoice.invoice_amount) + '</td>' +
+	                '<td class="num">' + formatMoney(invoice.matched_amount) + '</td>' +
+	                '<td>' + (invoice.is_usable ? '是' : '否') + '</td>' +
+	                '<td>' + escapeHtml(invoice.seller_name || '') + '</td>' +
+	                '<td>' + escapeHtml(invoice.buyer_name || '') + '</td>' +
+	                '<td>' + pdf + '</td>' +
+	                '</tr>';
+	        }).join('');
+	        return '<table>' +
+	            '<thead><tr>' +
+	            '<th>账单ID / 发票号</th><th>日期</th><th class="num">发票金额</th><th class="num">本账单匹配金额</th><th>可用</th><th>销售方</th><th>购买方</th><th>PDF</th>' +
+	            '</tr></thead><tbody>' + rowsHtml + '</tbody></table>';
+	    }
+	    function renderAliasInvoiceDetails(data) {
+	        const alias = data.alias || {};
+	        const summary = data.summary || {};
+	        const periodText = (data.selected_periods || []).map(function(item) {
+	            return item.platform + ' ' + item.period;
+	        }).join('，') || '全部周期';
+	        if (aliasInvoiceModalTitle) {
+	            aliasInvoiceModalTitle.textContent = '应开账单：' + (alias.name || '');
+	        }
+	        const summaryHtml = '<div class="modal-summary">' +
+	            '<div class="modal-summary-item"><span>账单数</span><strong>' + escapeHtml(summary.bill_count || 0) + '</strong></div>' +
+	            '<div class="modal-summary-item"><span>账单合计</span><strong>' + formatMoney(summary.expected_total) + '</strong></div>' +
+	            '<div class="modal-summary-item"><span>可用发票合计</span><strong>' + formatMoney(summary.usable_matched_total) + '</strong></div>' +
+	            '<div class="modal-summary-item"><span>差额</span><strong>' + formatMoney(summary.diff) + '</strong></div>' +
+	            '<div class="modal-summary-item"><span>达人/团长</span><strong>' + escapeHtml(alias.name || '') + '</strong></div>' +
+	            '</div>' +
+	            '<div class="muted" style="margin-bottom:10px;">账单周期：' + escapeHtml(periodText) + '</div>';
+	        const bills = data.bills || [];
+	        if (!bills.length) {
+	            aliasInvoiceModalBody.innerHTML = summaryHtml + '<div class="muted">当前条件下没有应开账单。</div>';
+	            return;
+	        }
+	        const billRowsHtml = bills.map(function(bill) {
+	            const status = '<span class="' + statusClass(bill.status) + '">' + escapeHtml(bill.status_text || '') + '</span>';
+	            return '<tr>' +
+	                '<td>' + escapeHtml(bill.id) + '</td>' +
+	                '<td>' + escapeHtml(bill.platform || '') + '</td>' +
+	                '<td>' + escapeHtml(bill.period || '') + '</td>' +
+	                '<td>' + escapeHtml(bill.period_range || '') + '</td>' +
+	                '<td>' + escapeHtml(bill.entity_name || '') + '</td>' +
+	                '<td class="num">' + formatMoney(bill.amount) + '</td>' +
+	                '<td class="num">' + formatMoney(bill.usable_matched_total) + '</td>' +
+	                '<td class="num">' + formatMoney(bill.diff) + '</td>' +
+	                '<td>' + status + '</td>' +
+	                '<td>' + escapeHtml((bill.usable_invoice_count || 0) + ' / ' + (bill.invoice_count || 0)) + '</td>' +
+	                '</tr>' +
+	                '<tr class="invoice-detail-row"><td colspan="10">' + renderInvoiceRows(bill) + '</td></tr>';
+	        }).join('');
+	        aliasInvoiceModalBody.innerHTML = summaryHtml +
+	            '<div class="modal-table-wrap"><table>' +
+	            '<thead><tr><th>账单ID</th><th>平台</th><th>期间</th><th>账期范围</th><th>开票主体</th><th class="num">账单金额</th><th class="num">可用发票合计</th><th class="num">差额</th><th>状态</th><th>发票数</th></tr></thead>' +
+	            '<tbody>' + billRowsHtml + '</tbody></table></div>';
+	    }
+	    function initAliasInvoiceModal() {
+	        document.querySelectorAll('.alias-invoices-btn').forEach(function(button) {
+	            button.addEventListener('click', function() {
+	                const url = button.getAttribute('data-detail-url');
+	                if (!url || !aliasInvoiceModalBody) return;
+	                if (aliasInvoiceModalTitle) aliasInvoiceModalTitle.textContent = '应开账单';
+	                aliasInvoiceModalBody.innerHTML = '<div class="muted">加载中...</div>';
+	                openAliasInvoiceModal();
+	                fetch(url, { headers: { 'Accept': 'application/json' } })
+	                    .then(function(resp) { return resp.json(); })
+	                    .then(function(data) {
+	                        if (!data.ok) {
+	                            aliasInvoiceModalBody.innerHTML = '<div class="muted">' + escapeHtml(data.message || '加载失败') + '</div>';
+	                            return;
+	                        }
+	                        renderAliasInvoiceDetails(data);
+	                    })
+	                    .catch(function(error) {
+	                        aliasInvoiceModalBody.innerHTML = '<div class="muted">加载失败：' + escapeHtml(error.message || error) + '</div>';
+	                    });
+	            });
+	        });
+	        if (aliasInvoiceModalClose) {
+	            aliasInvoiceModalClose.addEventListener('click', closeAliasInvoiceModal);
+	        }
+	        if (aliasInvoiceModal) {
+	            aliasInvoiceModal.addEventListener('click', function(event) {
+	                if (event.target === aliasInvoiceModal) closeAliasInvoiceModal();
+	            });
+	        }
+	        document.addEventListener('keydown', function(event) {
+	            if (event.key === 'Escape') closeAliasInvoiceModal();
+	        });
+	    }
+	    function currentPeriodValues() {
+	        if (!periodForm) return [];
+	        return Array.from(periodForm.querySelectorAll('input[name="period_filter"]')).map(function(item) {
+	            return item.value;
+	        });
+	    }
+	    function toggleEmptyPeriodText() {
+	        if (!emptyPeriodText) return;
+	        emptyPeriodText.style.display = currentPeriodValues().length ? 'none' : '';
+	    }
+	    function createPeriodChip(value, label) {
+	        if (!chipList || !periodForm) return;
+	        const chip = document.createElement('span');
+	        chip.className = 'period-chip';
+	        chip.setAttribute('data-value', value);
+	        chip.appendChild(document.createTextNode(label + ' '));
+	        const removeButton = document.createElement('button');
+	        removeButton.type = 'button';
+	        removeButton.className = 'period-remove';
+	        removeButton.title = '取消该周期';
+	        removeButton.textContent = '×';
+	        chip.appendChild(removeButton);
+	        const hidden = document.createElement('input');
+	        hidden.type = 'hidden';
+	        hidden.name = 'period_filter';
+	        hidden.value = value;
+	        chip.appendChild(hidden);
+	        chipList.appendChild(chip);
+	        toggleEmptyPeriodText();
+	    }
+	    function refreshPeriodSelect() {
+	        if (!platformSelect || !periodSelect) return;
+	        const platform = platformSelect.value;
+	        const periods = periodOptionsByPlatform[platform] || [];
+	        periodSelect.innerHTML = '';
+	        periods.forEach(function(period) {
+	            const option = document.createElement('option');
+	            option.value = period;
+	            option.textContent = period;
+	            periodSelect.appendChild(option);
+	        });
+	    }
+	    function initPeriodControls() {
+	        if (!periodForm || !platformSelect || !periodSelect || !addPeriodButton) return;
+	        const platforms = Object.keys(periodOptionsByPlatform);
+	        platformSelect.innerHTML = '';
+	        platforms.forEach(function(platform) {
+	            const option = document.createElement('option');
+	            option.value = platform;
+	            option.textContent = platform;
+	            platformSelect.appendChild(option);
+	        });
+	        refreshPeriodSelect();
+	        platformSelect.addEventListener('change', refreshPeriodSelect);
+	        addPeriodButton.addEventListener('click', function() {
+	            const platform = platformSelect.value;
+	            const period = periodSelect.value;
+	            if (!platform || !period) return;
+	            const value = platform + '::' + period;
+	            if (currentPeriodValues().indexOf(value) !== -1) return;
+	            createPeriodChip(value, platform + ' ' + period);
+	        });
+	        chipList.addEventListener('click', function(event) {
+	            const button = event.target.closest('.period-remove');
+	            if (!button) return;
+	            const chip = button.closest('.period-chip');
+	            if (chip) chip.remove();
+	            toggleEmptyPeriodText();
+	            periodForm.submit();
+	        });
+	        toggleEmptyPeriodText();
+	    }
+	    function updateVisibleSummary() {
+	        const totals = {};
+	        amountKeys.forEach(function(key) { totals[key] = 0; });
+	        rows.forEach(function(r) {
+	            if (r.style.display === 'none') return;
+	            amountKeys.forEach(function(key) {
+	                const raw = r.getAttribute('data-' + key) || '0';
+	                const value = parseFloat(raw);
+	                totals[key] += isNaN(value) ? 0 : value;
+	            });
+	        });
+	        document.querySelectorAll('[data-summary-key]').forEach(function(item) {
+	            const key = item.getAttribute('data-summary-key');
+	            item.textContent = (totals[key] || 0).toFixed(2);
+	        });
+	    }
 	    function applyFilter() {
 	        const q = (input.value || '').trim().toLowerCase();
 	        let shown = 0;
@@ -195,6 +508,7 @@
 	            if (match) shown++;
 	        });
 	        if (visibleCount) visibleCount.textContent = shown;
+	        updateVisibleSummary();
 	    }
 	    function valueFor(row, key, type) {
 	        const raw = row.getAttribute('data-' + key) || '';
@@ -238,6 +552,8 @@
 	            });
 	        });
 	    }
+	    initPeriodControls();
+	    initAliasInvoiceModal();
 	    input.addEventListener('input', applyFilter);
 	    if (selectAll) {
 	        selectAll.addEventListener('change', function() {
