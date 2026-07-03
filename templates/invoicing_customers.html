@@ -50,29 +50,43 @@
         .btn-delete { background: #d32f2f; color: #fff; padding: 4px 10px; font-size: 13px; border: none; border-radius: 4px; cursor: pointer; }
         .inline-form { display: inline; margin-left: 6px; }
         .num { text-align: right; }
-        .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: none; align-items: flex-start; justify-content: center; padding: 32px 14px; z-index: 1000; overflow: auto; }
-        .modal-backdrop.open { display: flex; }
-        .modal { width: min(1160px, 100%); background: #fff; border-radius: 8px; box-shadow: 0 12px 30px rgba(0,0,0,0.22); overflow: hidden; }
-        .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid #eee; }
-        .modal-title { font-size: 18px; font-weight: 700; }
-        .modal-close { border: none; background: #eeeeee; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 14px; }
-        .modal-body { padding: 16px 18px 20px; }
-        .modal-summary { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
-        .modal-summary-item { background: #fafafa; border: 1px solid #eee; border-radius: 6px; padding: 10px; }
-        .modal-summary-item span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
-        .modal-summary-item strong { font-size: 16px; }
-        .modal-table-wrap { overflow-x: auto; }
-        .modal table { box-shadow: none; border-radius: 0; }
-        .modal th, .modal td { white-space: nowrap; }
-        .invoice-detail-row td { background: #fcfcfc; padding: 0 10px 12px; }
-        .invoice-detail-row table td, .invoice-detail-row table th { padding: 8px 10px; }
-        .status-badge { display: inline-block; padding: 3px 7px; border-radius: 4px; font-size: 12px; }
-        .status-equal { background: #e8f5e9; color: #2e7d32; }
-        .status-bill_greater { background: #fff3cd; color: #8a6d00; }
-        .status-invoice_greater { background: #fdecea; color: #b71c1c; }
+        .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 20; display: flex; align-items: flex-start; justify-content: center; padding: 48px 16px; overflow: auto; }
+        .modal-backdrop[hidden] { display: none; }
+        .match-modal { background: #fff; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.24); width: min(1180px,100%); max-height: calc(100vh - 96px); overflow: auto; }
+        .match-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #eee; }
+        .match-modal-header h2 { font-size: 18px; margin: 0; }
+        .modal-close { border: none; background: #eee; color: #333; border-radius: 4px; padding: 6px 12px; cursor: pointer; }
+        .match-modal-body { padding: 16px 18px; }
+        .match-summary { display: grid; grid-template-columns: repeat(5,minmax(120px,1fr)); gap: 10px; margin-bottom: 14px; }
+        .match-summary div { background: #f8f8f8; border: 1px solid #eee; border-radius: 6px; padding: 8px 10px; }
+        .match-summary label { display: block; color: #666; font-size: 12px; margin-bottom: 4px; }
+        .match-summary strong { font-size: 15px; }
+        .match-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
+        .match-table-wrap { overflow: auto; }
+        .match-table { box-shadow: none; border-radius: 0; }
+        .match-table th, .match-table td { white-space: nowrap; font-size: 13px; padding: 8px 10px; }
+        .empty-row { text-align: center; color: #777; padding: 18px; }
+        .modal-error { color: #c62828; background: #fff4f4; border-left: 4px solid #c62828; padding: 8px 10px; margin-bottom: 12px; }
+        .status-badge { display: inline-block; border-radius: 4px; padding: 2px 7px; font-size: 12px; font-weight: bold; }
+        .status-equal { background: #e8f5e9; color: #1b5e20; }
+        .status-bill-greater { background: #fff8e1; color: #8a5a00; }
+        .status-invoice-greater { background: #ffebee; color: #b71c1c; }
+        .bill-row { cursor: pointer; }
+        .bill-row:hover { background: #f5f9ff; }
+        .bill-row.active { outline: 2px solid #1976d2; outline-offset: -2px; }
+        .bill-invoices-panel { margin-top: 16px; border-top: 1px solid #eee; padding-top: 14px; }
+        .bill-invoices-panel h3 { margin: 0 0 10px; font-size: 16px; }
+        .link-btn { color: #1976d2; text-decoration: none; }
+        .usable-yes { color: #2e7d32; font-weight: bold; }
+        .usable-no { color: #c62828; font-weight: bold; }
         .muted { color: #777; }
         @media (max-width: 900px) {
-            .modal-summary { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+            .modal-backdrop { padding: 16px 8px; }
+            .match-modal { max-height: calc(100vh - 32px); }
+            .match-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 420px) {
+            .match-summary { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -249,14 +263,66 @@
     </table>
     {% endif %}
 </main>
-<div class="modal-backdrop" id="alias-invoice-modal" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="alias-invoice-modal-title">
-        <div class="modal-header">
-            <div class="modal-title" id="alias-invoice-modal-title">应开账单</div>
+<div class="modal-backdrop" id="alias-invoice-modal" hidden aria-hidden="true">
+    <div class="match-modal" role="dialog" aria-modal="true" aria-labelledby="alias-invoice-modal-title">
+        <div class="match-modal-header">
+            <h2 id="alias-invoice-modal-title">应开账单</h2>
             <button type="button" class="modal-close" id="alias-invoice-modal-close">关闭</button>
         </div>
-        <div class="modal-body" id="alias-invoice-modal-body">
-            <div class="muted">加载中...</div>
+        <div class="match-modal-body">
+            <div class="match-summary">
+                <div><label>账单数</label><strong id="alias-bill-count">0</strong></div>
+                <div><label>账单合计</label><strong id="alias-expected-total">¥0.00</strong></div>
+                <div><label>可用发票合计</label><strong id="alias-usable-total">¥0.00</strong></div>
+                <div><label>差额</label><strong id="alias-diff">¥0.00</strong></div>
+                <div><label>达人/团长</label><strong id="alias-name">-</strong></div>
+            </div>
+            <div class="match-toolbar">
+                <button type="button" class="btn-detail" id="alias-show-all-btn">显示全部</button>
+            </div>
+            <div id="alias-invoice-error" class="modal-error" hidden></div>
+            <div class="match-table-wrap">
+                <table class="match-table">
+                    <thead><tr>
+                        <th>账单ID</th>
+                        <th>平台</th>
+                        <th>期间</th>
+                        <th>账期范围</th>
+                        <th>开票主体</th>
+                        <th>账单金额</th>
+                        <th>可用发票合计</th>
+                        <th>差额</th>
+                        <th>状态</th>
+                        <th>发票数</th>
+                    </tr></thead>
+                    <tbody id="alias-bill-rows"></tbody>
+                </table>
+            </div>
+            <div id="alias-bill-invoices-panel" class="bill-invoices-panel" hidden>
+                <h3 id="alias-bill-invoices-title">账单已匹配发票</h3>
+                <div class="match-summary">
+                    <div><label>账单金额</label><strong id="alias-bill-amount">¥0.00</strong></div>
+                    <div><label>可用发票合计</label><strong id="alias-bill-usable-total">¥0.00</strong></div>
+                    <div><label>差额</label><strong id="alias-bill-diff">¥0.00</strong></div>
+                    <div><label>状态</label><strong id="alias-bill-status">-</strong></div>
+                    <div><label>发票数</label><strong id="alias-bill-invoice-count">0</strong></div>
+                </div>
+                <div class="match-table-wrap">
+                    <table class="match-table">
+                        <thead><tr>
+                            <th>发票号</th>
+                            <th>日期</th>
+                            <th>发票金额</th>
+                            <th>本账单匹配金额</th>
+                            <th>可用</th>
+                            <th>销售方</th>
+                            <th>购买方</th>
+                            <th>PDF</th>
+                        </tr></thead>
+                        <tbody id="alias-invoice-rows"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -278,126 +344,290 @@
 	    const emptyPeriodText = document.getElementById('period-empty-text');
 	    const aliasInvoiceModal = document.getElementById('alias-invoice-modal');
 	    const aliasInvoiceModalTitle = document.getElementById('alias-invoice-modal-title');
-	    const aliasInvoiceModalBody = document.getElementById('alias-invoice-modal-body');
 	    const aliasInvoiceModalClose = document.getElementById('alias-invoice-modal-close');
+	    const aliasBillRows = document.getElementById('alias-bill-rows');
+	    const aliasBillCount = document.getElementById('alias-bill-count');
+	    const aliasExpectedTotal = document.getElementById('alias-expected-total');
+	    const aliasUsableTotal = document.getElementById('alias-usable-total');
+	    const aliasDiff = document.getElementById('alias-diff');
+	    const aliasName = document.getElementById('alias-name');
+	    const aliasInvoiceError = document.getElementById('alias-invoice-error');
+	    const aliasShowAllButton = document.getElementById('alias-show-all-btn');
+	    const aliasBillInvoicesPanel = document.getElementById('alias-bill-invoices-panel');
+	    const aliasBillInvoicesTitle = document.getElementById('alias-bill-invoices-title');
+	    const aliasBillAmount = document.getElementById('alias-bill-amount');
+	    const aliasBillUsableTotal = document.getElementById('alias-bill-usable-total');
+	    const aliasBillDiff = document.getElementById('alias-bill-diff');
+	    const aliasBillStatus = document.getElementById('alias-bill-status');
+	    const aliasBillInvoiceCount = document.getElementById('alias-bill-invoice-count');
+	    const aliasInvoiceRows = document.getElementById('alias-invoice-rows');
+	    let currentAliasData = null;
+	    let aliasShowAll = false;
 	    const amountKeys = ['amount_aoke', 'amount_xiangnalu', 'amount_kuaishou', 'amount_mulianman'];
 	    if (!input) return;
-	    function escapeHtml(value) {
-	        return String(value == null ? '' : value)
-	            .replace(/&/g, '&amp;')
-	            .replace(/</g, '&lt;')
-	            .replace(/>/g, '&gt;')
-	            .replace(/"/g, '&quot;')
-	            .replace(/'/g, '&#39;');
-	    }
 	    function formatMoney(value) {
 	        const n = Number(value || 0);
 	        return '¥' + n.toFixed(2);
 	    }
 	    function statusClass(status) {
-	        return 'status-badge status-' + (status || 'bill_greater');
+	        if (status === 'equal') return 'status-equal';
+	        if (status === 'bill_greater') return 'status-bill-greater';
+	        if (status === 'invoice_greater') return 'status-invoice-greater';
+	        return '';
+	    }
+	    function statusBadge(status, statusText) {
+	        const span = document.createElement('span');
+	        span.className = 'status-badge ' + statusClass(status);
+	        span.textContent = statusText || '';
+	        return span;
+	    }
+	    function appendCell(tr, value, cls) {
+	        const td = document.createElement('td');
+	        if (cls) td.className = cls;
+	        td.textContent = value == null ? '' : String(value);
+	        tr.appendChild(td);
+	    }
+	    function appendNodeCell(tr, node, cls) {
+	        const td = document.createElement('td');
+	        if (cls) td.className = cls;
+	        td.appendChild(node);
+	        tr.appendChild(td);
 	    }
 	    function openAliasInvoiceModal() {
 	        if (!aliasInvoiceModal) return;
-	        aliasInvoiceModal.classList.add('open');
+	        aliasInvoiceModal.hidden = false;
 	        aliasInvoiceModal.setAttribute('aria-hidden', 'false');
 	    }
 	    function closeAliasInvoiceModal() {
 	        if (!aliasInvoiceModal) return;
-	        aliasInvoiceModal.classList.remove('open');
+	        aliasInvoiceModal.hidden = true;
 	        aliasInvoiceModal.setAttribute('aria-hidden', 'true');
 	    }
-	    function renderInvoiceRows(bill) {
-	        const invoices = bill.invoices || [];
-	        if (!invoices.length) {
-	            return '<div class="muted">该账单暂无已匹配发票</div>';
-	        }
-	        const rowsHtml = invoices.map(function(invoice) {
-	            const invoiceNo = escapeHtml(String(bill.id) + ' / ' + (invoice.invoice_number || ''));
-	            const pdf = invoice.pdf_url
-	                ? '<a href="' + escapeHtml(invoice.pdf_url) + '" target="_blank" rel="noopener">查看</a>'
-	                : '';
-	            return '<tr>' +
-	                '<td><a href="' + escapeHtml(invoice.pdf_url || '#') + '" target="_blank" rel="noopener">' + invoiceNo + '</a></td>' +
-	                '<td>' + escapeHtml(invoice.invoice_date || '') + '</td>' +
-	                '<td class="num">' + formatMoney(invoice.invoice_amount) + '</td>' +
-	                '<td class="num">' + formatMoney(invoice.matched_amount) + '</td>' +
-	                '<td>' + (invoice.is_usable ? '是' : '否') + '</td>' +
-	                '<td>' + escapeHtml(invoice.seller_name || '') + '</td>' +
-	                '<td>' + escapeHtml(invoice.buyer_name || '') + '</td>' +
-	                '<td>' + pdf + '</td>' +
-	                '</tr>';
-	        }).join('');
-	        return '<table>' +
-	            '<thead><tr>' +
-	            '<th>账单ID / 发票号</th><th>日期</th><th class="num">发票金额</th><th class="num">本账单匹配金额</th><th>可用</th><th>销售方</th><th>购买方</th><th>PDF</th>' +
-	            '</tr></thead><tbody>' + rowsHtml + '</tbody></table>';
+	    function showAliasBillsMessage(message) {
+	        if (!aliasBillRows) return;
+	        aliasBillRows.innerHTML = '';
+	        const tr = document.createElement('tr');
+	        const td = document.createElement('td');
+	        td.className = 'empty-row';
+	        td.colSpan = 10;
+	        td.textContent = message;
+	        tr.appendChild(td);
+	        aliasBillRows.appendChild(tr);
 	    }
-	    function renderAliasInvoiceDetails(data) {
+	    function showAliasInvoicesMessage(message) {
+	        if (!aliasInvoiceRows) return;
+	        aliasInvoiceRows.innerHTML = '';
+	        const tr = document.createElement('tr');
+	        const td = document.createElement('td');
+	        td.className = 'empty-row';
+	        td.colSpan = 8;
+	        td.textContent = message;
+	        tr.appendChild(td);
+	        aliasInvoiceRows.appendChild(tr);
+	    }
+	    function resetAliasModalSummary() {
+	        if (aliasBillCount) aliasBillCount.textContent = '0';
+	        if (aliasExpectedTotal) aliasExpectedTotal.textContent = '¥0.00';
+	        if (aliasUsableTotal) aliasUsableTotal.textContent = '¥0.00';
+	        if (aliasDiff) aliasDiff.textContent = '¥0.00';
+	        if (aliasName) aliasName.textContent = '-';
+	        if (aliasBillInvoicesPanel) aliasBillInvoicesPanel.hidden = true;
+	        if (aliasShowAllButton) {
+	            aliasShowAllButton.textContent = '显示全部';
+	            aliasShowAllButton.disabled = true;
+	        }
+	    }
+	    function updateAliasTopSummary(data) {
 	        const alias = data.alias || {};
 	        const summary = data.summary || {};
-	        const periodText = (data.selected_periods || []).map(function(item) {
-	            return item.platform + ' ' + item.period;
-	        }).join('，') || '全部周期';
-	        if (aliasInvoiceModalTitle) {
-	            aliasInvoiceModalTitle.textContent = '应开账单：' + (alias.name || '');
+	        if (aliasInvoiceModalTitle) aliasInvoiceModalTitle.textContent = '应开账单：' + (alias.name || '');
+	        if (aliasName) aliasName.textContent = alias.name || '-';
+	        if (aliasBillCount) aliasBillCount.textContent = String(summary.bill_count || 0);
+	        if (aliasExpectedTotal) aliasExpectedTotal.textContent = formatMoney(summary.expected_total);
+	        if (aliasUsableTotal) aliasUsableTotal.textContent = formatMoney(summary.usable_matched_total);
+	        if (aliasDiff) aliasDiff.textContent = formatMoney(summary.diff);
+	    }
+	    function renderAliasInvoiceTable(bills, title, statusText, status) {
+	        const totalAmount = bills.reduce(function(sum, bill) { return sum + Number(bill.amount || 0); }, 0);
+	        const totalUsable = bills.reduce(function(sum, bill) { return sum + Number(bill.usable_matched_total || 0); }, 0);
+	        const totalInvoiceCount = bills.reduce(function(sum, bill) { return sum + Number(bill.invoice_count || 0); }, 0);
+	        const totalUsableInvoiceCount = bills.reduce(function(sum, bill) { return sum + Number(bill.usable_invoice_count || 0); }, 0);
+	        if (aliasBillInvoicesPanel) aliasBillInvoicesPanel.hidden = false;
+	        if (aliasBillInvoicesTitle) aliasBillInvoicesTitle.textContent = title;
+	        if (aliasBillAmount) aliasBillAmount.textContent = formatMoney(totalAmount);
+	        if (aliasBillUsableTotal) aliasBillUsableTotal.textContent = formatMoney(totalUsable);
+	        if (aliasBillDiff) aliasBillDiff.textContent = formatMoney(totalAmount - totalUsable);
+	        if (aliasBillStatus) {
+	            aliasBillStatus.textContent = statusText || '-';
+	            aliasBillStatus.className = status ? 'status-badge ' + statusClass(status) : '';
 	        }
-	        const summaryHtml = '<div class="modal-summary">' +
-	            '<div class="modal-summary-item"><span>账单数</span><strong>' + escapeHtml(summary.bill_count || 0) + '</strong></div>' +
-	            '<div class="modal-summary-item"><span>账单合计</span><strong>' + formatMoney(summary.expected_total) + '</strong></div>' +
-	            '<div class="modal-summary-item"><span>可用发票合计</span><strong>' + formatMoney(summary.usable_matched_total) + '</strong></div>' +
-	            '<div class="modal-summary-item"><span>差额</span><strong>' + formatMoney(summary.diff) + '</strong></div>' +
-	            '<div class="modal-summary-item"><span>达人/团长</span><strong>' + escapeHtml(alias.name || '') + '</strong></div>' +
-	            '</div>' +
-	            '<div class="muted" style="margin-bottom:10px;">账单周期：' + escapeHtml(periodText) + '</div>';
+	        if (aliasBillInvoiceCount) aliasBillInvoiceCount.textContent = String(totalUsableInvoiceCount) + ' / ' + String(totalInvoiceCount);
+	        if (!aliasInvoiceRows) return;
+	        aliasInvoiceRows.innerHTML = '';
+	        let rendered = 0;
+	        bills.forEach(function(bill) {
+	            const invoices = bill.invoices || [];
+	            if (!invoices.length) {
+	                if (bills.length > 1) {
+	                    const tr = document.createElement('tr');
+	                    const td = document.createElement('td');
+	                    td.className = 'empty-row';
+	                    td.colSpan = 8;
+	                    td.textContent = '账单 ' + bill.id + ' 暂无已匹配发票';
+	                    tr.appendChild(td);
+	                    aliasInvoiceRows.appendChild(tr);
+	                }
+	                return;
+	            }
+	            invoices.forEach(function(item) {
+	                const tr = document.createElement('tr');
+	                const link = document.createElement('a');
+	                link.className = 'link-btn';
+	                link.href = item.pdf_url || '#';
+	                link.target = '_blank';
+	                link.textContent = String(bill.id) + ' / ' + (item.invoice_number || '');
+	                appendNodeCell(tr, link);
+	                appendCell(tr, item.invoice_date || '');
+	                appendCell(tr, formatMoney(item.invoice_amount));
+	                appendCell(tr, formatMoney(item.matched_amount));
+	                appendCell(tr, item.is_usable ? '是' : '否', item.is_usable ? 'usable-yes' : 'usable-no');
+	                appendCell(tr, item.seller_name || '');
+	                appendCell(tr, item.buyer_name || '');
+	                const pdfLink = document.createElement('a');
+	                pdfLink.className = 'link-btn';
+	                pdfLink.href = item.pdf_url || '#';
+	                pdfLink.target = '_blank';
+	                pdfLink.textContent = '查看';
+	                appendNodeCell(tr, pdfLink);
+	                aliasInvoiceRows.appendChild(tr);
+	                rendered++;
+	            });
+	        });
+	        if (!rendered && bills.length <= 1) {
+	            showAliasInvoicesMessage('暂无已匹配发票');
+	        }
+	    }
+	    function renderSelectedAliasBill(bill) {
+	        if (!bill) return;
+	        aliasShowAll = false;
+	        if (aliasShowAllButton) aliasShowAllButton.textContent = '显示全部';
+	        if (aliasBillRows) {
+	            aliasBillRows.querySelectorAll('.bill-row').forEach(function(row) { row.classList.remove('active'); });
+	            const activeRow = aliasBillRows.querySelector('[data-expected-id="' + String(bill.id) + '"]');
+	            if (activeRow) activeRow.classList.add('active');
+	        }
+	        renderAliasInvoiceTable(
+	            [bill],
+	            '账单已匹配发票：' + (currentAliasData.alias.name || '') + ' / ' + (bill.platform || '') + ' / ' + (bill.period || ''),
+	            bill.status_text || '-',
+	            bill.status
+	        );
+	    }
+	    function renderAllAliasBills() {
+	        if (!currentAliasData) return;
+	        aliasShowAll = true;
+	        if (aliasShowAllButton) aliasShowAllButton.textContent = '收起全部';
+	        if (aliasBillRows) {
+	            aliasBillRows.querySelectorAll('.bill-row').forEach(function(row) { row.classList.remove('active'); });
+	        }
+	        const bills = currentAliasData.bills || [];
+	        renderAliasInvoiceTable(bills, '全部账单已匹配发票：' + ((currentAliasData.alias || {}).name || ''), '按全部账单汇总', '');
+	    }
+	    function renderAliasInvoiceDetails(data) {
+	        currentAliasData = data;
+	        aliasShowAll = false;
+	        updateAliasTopSummary(data);
+	        if (aliasInvoiceError) {
+	            aliasInvoiceError.hidden = true;
+	            aliasInvoiceError.textContent = '';
+	        }
+	        if (aliasBillInvoicesPanel) aliasBillInvoicesPanel.hidden = true;
+	        if (aliasShowAllButton) {
+	            aliasShowAllButton.textContent = '显示全部';
+	            aliasShowAllButton.disabled = false;
+	        }
 	        const bills = data.bills || [];
 	        if (!bills.length) {
-	            aliasInvoiceModalBody.innerHTML = summaryHtml + '<div class="muted">当前条件下没有应开账单。</div>';
+	            showAliasBillsMessage('暂无应开账单');
+	            if (aliasShowAllButton) aliasShowAllButton.disabled = true;
 	            return;
 	        }
-	        const billRowsHtml = bills.map(function(bill) {
-	            const status = '<span class="' + statusClass(bill.status) + '">' + escapeHtml(bill.status_text || '') + '</span>';
-	            return '<tr>' +
-	                '<td>' + escapeHtml(bill.id) + '</td>' +
-	                '<td>' + escapeHtml(bill.platform || '') + '</td>' +
-	                '<td>' + escapeHtml(bill.period || '') + '</td>' +
-	                '<td>' + escapeHtml(bill.period_range || '') + '</td>' +
-	                '<td>' + escapeHtml(bill.entity_name || '') + '</td>' +
-	                '<td class="num">' + formatMoney(bill.amount) + '</td>' +
-	                '<td class="num">' + formatMoney(bill.usable_matched_total) + '</td>' +
-	                '<td class="num">' + formatMoney(bill.diff) + '</td>' +
-	                '<td>' + status + '</td>' +
-	                '<td>' + escapeHtml((bill.usable_invoice_count || 0) + ' / ' + (bill.invoice_count || 0)) + '</td>' +
-	                '</tr>' +
-	                '<tr class="invoice-detail-row"><td colspan="10">' + renderInvoiceRows(bill) + '</td></tr>';
-	        }).join('');
-	        aliasInvoiceModalBody.innerHTML = summaryHtml +
-	            '<div class="modal-table-wrap"><table>' +
-	            '<thead><tr><th>账单ID</th><th>平台</th><th>期间</th><th>账期范围</th><th>开票主体</th><th class="num">账单金额</th><th class="num">可用发票合计</th><th class="num">差额</th><th>状态</th><th>发票数</th></tr></thead>' +
-	            '<tbody>' + billRowsHtml + '</tbody></table></div>';
+	        if (!aliasBillRows) return;
+	        aliasBillRows.innerHTML = '';
+	        bills.forEach(function(item) {
+	            const tr = document.createElement('tr');
+	            tr.className = 'bill-row';
+	            tr.setAttribute('tabindex', '0');
+	            tr.setAttribute('data-expected-id', item.id);
+	            appendCell(tr, item.id || '');
+	            appendCell(tr, item.platform || '');
+	            appendCell(tr, item.period || '');
+	            appendCell(tr, item.period_range || '');
+	            appendCell(tr, item.entity_name || '');
+	            appendCell(tr, formatMoney(item.amount));
+	            appendCell(tr, formatMoney(item.usable_matched_total));
+	            appendCell(tr, formatMoney(item.diff));
+	            appendNodeCell(tr, statusBadge(item.status, item.status_text));
+	            appendCell(tr, String(item.usable_invoice_count || 0) + ' / ' + String(item.invoice_count || 0));
+	            tr.addEventListener('click', function() {
+	                renderSelectedAliasBill(item);
+	            });
+	            tr.addEventListener('keydown', function(event) {
+	                if (event.key === 'Enter' || event.key === ' ') {
+	                    event.preventDefault();
+	                    tr.click();
+	                }
+	            });
+	            aliasBillRows.appendChild(tr);
+	        });
 	    }
 	    function initAliasInvoiceModal() {
 	        document.querySelectorAll('.alias-invoices-btn').forEach(function(button) {
 	            button.addEventListener('click', function() {
 	                const url = button.getAttribute('data-detail-url');
-	                if (!url || !aliasInvoiceModalBody) return;
+	                if (!url) return;
 	                if (aliasInvoiceModalTitle) aliasInvoiceModalTitle.textContent = '应开账单';
-	                aliasInvoiceModalBody.innerHTML = '<div class="muted">加载中...</div>';
+	                resetAliasModalSummary();
+	                if (aliasInvoiceError) {
+	                    aliasInvoiceError.hidden = true;
+	                    aliasInvoiceError.textContent = '';
+	                }
+	                showAliasBillsMessage('加载中...');
 	                openAliasInvoiceModal();
 	                fetch(url, { headers: { 'Accept': 'application/json' } })
 	                    .then(function(resp) { return resp.json(); })
 	                    .then(function(data) {
 	                        if (!data.ok) {
-	                            aliasInvoiceModalBody.innerHTML = '<div class="muted">' + escapeHtml(data.message || '加载失败') + '</div>';
+	                            if (aliasInvoiceError) {
+	                                aliasInvoiceError.hidden = false;
+	                                aliasInvoiceError.textContent = data.message || '加载失败';
+	                            }
+	                            showAliasBillsMessage('无法显示应开账单');
 	                            return;
 	                        }
 	                        renderAliasInvoiceDetails(data);
 	                    })
 	                    .catch(function(error) {
-	                        aliasInvoiceModalBody.innerHTML = '<div class="muted">加载失败：' + escapeHtml(error.message || error) + '</div>';
+	                        if (aliasInvoiceError) {
+	                            aliasInvoiceError.hidden = false;
+	                            aliasInvoiceError.textContent = error.message || '加载失败';
+	                        }
+	                        showAliasBillsMessage('无法显示应开账单');
 	                    });
 	            });
 	        });
+	        if (aliasShowAllButton) {
+	            aliasShowAllButton.addEventListener('click', function() {
+	                if (!currentAliasData) return;
+	                if (aliasShowAll) {
+	                    aliasShowAll = false;
+	                    aliasShowAllButton.textContent = '显示全部';
+	                    if (aliasBillInvoicesPanel) aliasBillInvoicesPanel.hidden = true;
+	                    return;
+	                }
+	                renderAllAliasBills();
+	            });
+	        }
 	        if (aliasInvoiceModalClose) {
 	            aliasInvoiceModalClose.addEventListener('click', closeAliasInvoiceModal);
 	        }
