@@ -234,7 +234,7 @@ def _expected_amount_row(conn, expected_amount_id):
         return None
     return conn.execute(
         """
-        SELECT id, customer_id, platform, period, amount
+        SELECT id, customer_id, platform, period
         FROM expected_amount
         WHERE id = ?
         """,
@@ -260,12 +260,12 @@ def _replace_invoice_expected_match(conn, invoice_id, expected_amount_id, matche
         )
 
 
-def _invoice_expected_matched_amount(invoice_amount, expected_amount):
-    invoice_amount = invoice_amount or 0
+def _display_bill_matched_amount(raw_matched_amount, invoice_amount, expected_amount):
+    matched_amount = raw_matched_amount if raw_matched_amount is not None else 0
     expected_amount = expected_amount or 0
     if expected_amount > 0:
-        return min(invoice_amount, expected_amount)
-    return invoice_amount
+        return min(matched_amount, expected_amount)
+    return matched_amount
 
 
 def _ensure_slice_auxiliary_tables(conn):
@@ -1640,6 +1640,10 @@ def alias_invoice_details():
             )
         ]
         bill_ids = [row['id'] for row in filtered_bill_rows]
+        bill_amount_by_id = {
+            row['id']: row['amount'] or 0
+            for row in filtered_bill_rows
+        }
         match_rows = []
         if bill_ids:
             bill_placeholders = ','.join('?' for _ in bill_ids)
@@ -1686,6 +1690,7 @@ def alias_invoice_details():
                 i.project_name,
                 i.is_usable,
                 i.alias_name,
+                e.amount AS expected_amount,
                 COALESCE(e.platform, i.platform, '') AS match_platform,
                 COALESCE(e.period, i.period, '') AS match_period,
                 c.short_name AS invoice_customer_short_name
@@ -1701,9 +1706,13 @@ def alias_invoice_details():
 
     matches_by_bill: dict[int, list[dict[str, object]]] = {}
     for row in match_rows:
-        matched_amount = row['matched_amount'] or 0
         is_usable = 1 if row['is_usable'] else 0
         invoice_amount = row['invoice_amount'] or 0
+        matched_amount = _display_bill_matched_amount(
+            row['matched_amount'],
+            invoice_amount,
+            bill_amount_by_id.get(row['expected_amount_id']),
+        )
         usable_amount = invoice_amount if is_usable else 0
         invoice_item = {
             'match_id': row['match_id'],
@@ -1733,9 +1742,13 @@ def alias_invoice_details():
         period = row['match_period'] or ''
         if not _customer_period_allowed(selected_periods_by_platform, platform, period):
             continue
-        matched_amount = row['matched_amount'] or 0
         is_usable = 1 if row['is_usable'] else 0
         invoice_amount = row['invoice_amount'] or 0
+        matched_amount = _display_bill_matched_amount(
+            row['matched_amount'],
+            invoice_amount,
+            row['expected_amount'],
+        )
         usable_amount = invoice_amount if is_usable else 0
         key = (row['invoice_id'], row['expected_amount_id'] or 0)
         if key in seen_alias_invoice_keys:
@@ -1883,17 +1896,23 @@ def expected_amount_match_details():
     invoices = []
     matched_total = 0
     usable_matched_total = 0
+    amount = bill['amount'] or 0
     for row in rows:
-        matched_amount = row['matched_amount'] or 0
+        invoice_amount = row['invoice_amount'] or 0
+        matched_amount = _display_bill_matched_amount(
+            row['matched_amount'],
+            invoice_amount,
+            amount,
+        )
         matched_total += matched_amount
         if row['is_usable']:
-            usable_matched_total += row['invoice_amount'] or 0
+            usable_matched_total += invoice_amount
         invoices.append({
             'match_id': row['match_id'],
             'invoice_id': row['invoice_id'],
             'invoice_number': row['invoice_number'] or '',
             'invoice_date': row['invoice_date'] or '',
-            'invoice_amount': row['invoice_amount'] or 0,
+            'invoice_amount': invoice_amount,
             'matched_amount': matched_amount,
             'invoice_type': row['invoice_type'] or '',
             'tax_rate': row['tax_rate'] or '',
@@ -1906,7 +1925,6 @@ def expected_amount_match_details():
             'pdf_url': url_for('invoicing.invoice_pdf', invoice_id=row['invoice_id']),
         })
 
-    amount = bill['amount'] or 0
     status, status_text, diff = _match_status(amount, usable_matched_total)
     start_date = (bill['period_start'] or '').strip()
     end_date = (bill['period_end'] or '').strip()
@@ -2411,7 +2429,7 @@ def invoices_review_confirm(pending_id):
             conn,
             cursor.lastrowid,
             expected_amount_id,
-            _invoice_expected_matched_amount(amount, expected_row['amount'] if expected_row else None),
+            amount or 0,
         )
         conn.commit()
 
@@ -2624,11 +2642,7 @@ def invoice_match(invoice_id):
             "SELECT amount FROM invoice WHERE id = ?",
             (invoice_id,),
         ).fetchone()
-        invoice_amount = (invoice_amount_row['amount'] if invoice_amount_row else 0) or 0
-        matched_amount = _invoice_expected_matched_amount(
-            invoice_amount,
-            expected_row['amount'] if expected_row else None,
-        )
+        matched_amount = (invoice_amount_row['amount'] if invoice_amount_row else 0) or 0
         if is_usable_raw is not None:
             is_usable = 1 if is_usable_raw == '1' else 0
             conn.execute(
