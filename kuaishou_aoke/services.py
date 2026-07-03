@@ -1299,7 +1299,7 @@ def export_commission_detail_zip(
         for _idx, row in creator_df.iterrows()
     }
     amount_by_leader_id = {
-        str(row['团长ID']): float(row['佣金合计'] or 0)
+        str(row['团长ID']): float(row['团长佣金'] or 0)
         for _idx, row in leader_df.iterrows()
     }
 
