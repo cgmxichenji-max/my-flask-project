@@ -2031,3 +2031,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅影响“全部报税”第一次点击进入确认模式；不修改发票状态、报税日期、数据库结构或其他功能。
 - 是否涉及数据库：否
 - 是否需要回滚：是（修复前模板备份位于 `/root/backups/my-flask-project/manual-code-backups/invoice_bulk_tax_first_click_fix_20260717_115500`）
+
+## [2026-07-17 12:08] 修改记录
+- 修改内容：以马德里服务器当前运行代码为权威版本，将此前已部署并验证的微信小店、快手澳柯、抖音共用导出、提醒中心及发票列表等累计变更提交至 GitHub `main`，业务提交为 `c8694fe`；提交前统一清理目标文件的 Windows 换行符噪声，Python 语法、Jinja 模板加载、Git 差异检查及服务器登录页验证通过。服务器未跟踪的 `.bak` 文件和 `flask.log` 未提交，数据库、PDF 和备份文件未上传。
+- 修改文件：GitHub `main`；服务器项目中本次已跟踪的 15 个代码、模板及记录文件；`PROJECT_MEMORY.md`
+- 修改原因：用户要求将马德里服务器上领先于本地和 GitHub 的实际运行代码同步到 GitHub，作为后续版本基准。
+- 影响范围：GitHub `main` 与马德里服务器 Git 提交历史；不修改生产数据库和业务数据，不改变当前 Flask 运行代码内容。
+- 是否涉及数据库：否（仅提交并推送代码与记录文件）
+- 是否需要回滚：是（可在 GitHub 对相关提交执行 revert；同步前文件备份位于 `/root/backups/my-flask-project/manual-code-backups/before_github_sync_20260717_121000.tar.gz`）
