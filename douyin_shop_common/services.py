@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from flask import current_app
 from werkzeug.datastructures import FileStorage
@@ -2052,6 +2053,164 @@ def export_commission_summary_zip(
     return archive, _build_commission_zip_name(f'{config.display_name}佣金汇总', start_text, end_text)
 
 
+def _write_streaming_excel(df: pd.DataFrame, sheet_name: str) -> BytesIO:
+    output = BytesIO()
+    workbook = Workbook(write_only=True)
+    worksheet = workbook.create_sheet(title=sheet_name)
+    worksheet.append(list(df.columns))
+    for row in df.itertuples(index=False, name=None):
+        worksheet.append([None if pd.isna(value) else value for value in row])
+    workbook.save(output)
+    output.seek(0)
+    return output
+
+
+def export_store_self_sale_zip_file(
+    output_path: str | Path,
+    start_date: str | None,
+    end_date: str | None,
+    config: ShopConfig,
+    chunk_size: int = 50000,
+) -> str:
+    start_text, end_text = _normalize_commission_date_range(start_date, end_date)
+    db_path = _get_database_path()
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    fund_columns = [
+        'id', 'settlement_time', 'order_no', 'sub_order_no', 'settlement_type',
+        'settlement_amount', 'total_income', 'influencer_commission',
+        'merchant_recruitment_fee',
+    ]
+    order_columns = [
+        'id', 'main_order_no', 'sub_order_no', 'product_id', 'product_name',
+        'product_quantity', 'order_payable_amount', 'traffic_source', 'order_status',
+        'influencer_id', 'influencer_nickname',
+    ]
+
+    def normalized_key(series: pd.Series) -> pd.Series:
+        return series.fillna('').astype(str).str.strip().str.lstrip("'")
+
+    with sqlite3.connect(db_path) as conn:
+        selected_df = pd.read_sql_query(
+            f"""SELECT {', '.join(fund_columns)} FROM {config.fund_flow_table}
+                WHERE TRIM(COALESCE(settlement_type, '')) = '已结算'
+                  AND REPLACE(CAST(settlement_time AS TEXT), '/', '-') >= ?
+                  AND REPLACE(CAST(settlement_time AS TEXT), '/', '-') <= ?""",
+            conn,
+            params=[start_text, end_text],
+        )
+        all_fees_df = pd.read_sql_query(
+            f"""SELECT order_no, sub_order_no, influencer_commission,
+                       merchant_recruitment_fee
+                FROM {config.fund_flow_table}""",
+            conn,
+        )
+        orders_df = pd.read_sql_query(
+            f"SELECT {', '.join(order_columns)} FROM {config.orders_table}",
+            conn,
+        )
+
+    selected_df['order_key'] = normalized_key(selected_df['order_no'])
+    selected_df['sub_key'] = normalized_key(selected_df['sub_order_no'])
+    selected_df['_settlement_sort'] = selected_df['settlement_time'].fillna('').astype(str).str.replace('/', '-', regex=False)
+    selected_df = selected_df.sort_values(['order_key', 'sub_key', '_settlement_sort', 'id'])
+    selected_df['settled_rank'] = selected_df.groupby(['order_key', 'sub_key'], dropna=False).cumcount() + 1
+
+    selected_keys = selected_df[['order_key', 'sub_key']].drop_duplicates()
+    all_fees_df['order_key'] = normalized_key(all_fees_df['order_no'])
+    all_fees_df['sub_key'] = normalized_key(all_fees_df['sub_order_no'])
+    all_fees_df = all_fees_df.merge(selected_keys, on=['order_key', 'sub_key'], how='inner')
+    for column in ('influencer_commission', 'merchant_recruitment_fee'):
+        all_fees_df[column] = pd.to_numeric(all_fees_df[column], errors='coerce').fillna(0)
+    fee_totals = all_fees_df.groupby(['order_key', 'sub_key'], as_index=False).agg(
+        creator_fee_total=('influencer_commission', 'sum'),
+        leader_fee_total=('merchant_recruitment_fee', 'sum'),
+    )
+
+    orders_df['order_key'] = normalized_key(orders_df['main_order_no'])
+    orders_df['sub_key'] = normalized_key(orders_df['sub_order_no'])
+    primary = selected_df[selected_df['settled_rank'] == 1].merge(
+        orders_df, on=['order_key', 'sub_key'], how='left', suffixes=('_fund', '_order'), indicator=True,
+    ).merge(fee_totals, on=['order_key', 'sub_key'], how='left')
+    primary['exclusion_reason'] = ''
+    primary.loc[primary['_merge'] == 'left_only', 'exclusion_reason'] = '未匹配订单'
+    matched = primary['exclusion_reason'] == ''
+    primary.loc[matched & ~primary['traffic_source'].fillna('').astype(str).str.strip().isin(['小店自卖', '-']), 'exclusion_reason'] = '非小店自卖流量来源'
+    matched = primary['exclusion_reason'] == ''
+    primary.loc[matched & ~primary['order_status'].fillna('').astype(str).str.strip().isin(['已完成', '已发货']), 'exclusion_reason'] = '订单状态不符合'
+    matched = primary['exclusion_reason'] == ''
+    has_fee = primary['creator_fee_total'].fillna(0).abs().gt(0.0001) | primary['leader_fee_total'].fillna(0).abs().gt(0.0001)
+    primary.loc[matched & has_fee, 'exclusion_reason'] = '存在达人/团长费用'
+
+    output_columns = {
+        'order_payable_amount': '统计金额', 'settlement_time': '结算时间',
+        'order_no': '资金结算_订单号', 'sub_order_no_fund': '资金结算_子订单号',
+        'settlement_type': '资金结算_结算单类型', 'settlement_amount': '资金结算_结算金额',
+        'total_income': '资金结算_收入合计', 'influencer_commission': '资金结算_达人佣金',
+        'merchant_recruitment_fee': '资金结算_招商服务费',
+        'creator_fee_total': '订单全部流水_达人佣金合计', 'leader_fee_total': '订单全部流水_招商服务费合计',
+        'main_order_no': '订单_主订单编号', 'sub_order_no_order': '订单_子订单编号',
+        'product_id': '订单_商品ID', 'product_name': '订单_商品名称',
+        'product_quantity': '订单_商品数量', 'order_payable_amount_source': '订单_订单应付金额',
+        'traffic_source': '订单_流量来源', 'order_status': '订单_订单状态',
+        'influencer_id': '订单_达人ID', 'influencer_nickname': '订单_达人昵称',
+    }
+    primary['统计金额'] = pd.to_numeric(primary['order_payable_amount'], errors='coerce').fillna(0)
+    primary['订单_订单应付金额'] = primary['order_payable_amount']
+    rows_df = primary.rename(columns={k: v for k, v in output_columns.items() if k not in {'order_payable_amount', 'order_payable_amount_source'}})
+    report_columns = ['exclusion_reason', '统计金额'] + list(output_columns.values())[1:]
+    rows_df = rows_df.reindex(columns=report_columns)
+
+    duplicates = selected_df[selected_df['settled_rank'] > 1].copy()
+    if not duplicates.empty:
+        duplicate_rows = pd.DataFrame({column: None for column in report_columns}, index=duplicates.index)
+        duplicate_rows['exclusion_reason'] = '重复/补充已结算，不重复统计'
+        duplicate_rows['统计金额'] = 0
+        for source, target in {
+            'settlement_time': '结算时间', 'order_no': '资金结算_订单号',
+            'sub_order_no': '资金结算_子订单号', 'settlement_type': '资金结算_结算单类型',
+            'settlement_amount': '资金结算_结算金额', 'total_income': '资金结算_收入合计',
+            'influencer_commission': '资金结算_达人佣金',
+            'merchant_recruitment_fee': '资金结算_招商服务费',
+        }.items():
+            duplicate_rows[target] = duplicates[source].values
+        rows_df = pd.concat([rows_df, duplicate_rows], ignore_index=True)
+    rows_df = rows_df.sort_values(['结算时间', '资金结算_订单号', '资金结算_子订单号'], na_position='last')
+
+    detail_df = rows_df[rows_df['exclusion_reason'] == ''].copy()
+    unmatched_df = rows_df[rows_df['exclusion_reason'] != ''].copy()
+    detail_df = detail_df.drop(columns=['exclusion_reason']).rename(columns={'统计金额': '订单应付金额'})
+    unmatched_df = unmatched_df.rename(columns={'exclusion_reason': '不计入原因'})
+    detail_total = round(float(pd.to_numeric(detail_df['订单应付金额'], errors='coerce').fillna(0).sum()), 2)
+    summary_df = pd.DataFrame([{
+        '项目': '店铺自卖',
+        '期间': _build_commission_month_text(start_text, end_text),
+        '账期起点': start_text[:10],
+        '账期终点': end_text[:10],
+        '汇总金额': detail_total,
+        '计入明细行数': len(detail_df),
+        '未匹配/不计入行数': len(unmatched_df),
+    }])
+    if round(float(detail_df['订单应付金额'].sum()), 2) != detail_total:
+        raise ValueError('店铺自卖汇总金额与来源明细订单应付金额合计不一致')
+
+    with zipfile.ZipFile(output_file, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('店铺自卖_汇总.xlsx', _write_streaming_excel(summary_df, '店铺自卖').getvalue())
+        for index in range(0, len(detail_df), chunk_size):
+            part = index // chunk_size + 1
+            zf.writestr(f'店铺自卖_来源明细_第{part:03d}部分.xlsx', _write_streaming_excel(detail_df.iloc[index:index + chunk_size], '来源明细').getvalue())
+        for index in range(0, len(unmatched_df), chunk_size):
+            part = index // chunk_size + 1
+            zf.writestr(f'店铺自卖_未匹配_第{part:03d}部分.xlsx', _write_streaming_excel(unmatched_df.iloc[index:index + chunk_size], '未匹配').getvalue())
+        if detail_df.empty:
+            zf.writestr('店铺自卖_来源明细_无数据.xlsx', _write_streaming_excel(detail_df, '来源明细').getvalue())
+        if unmatched_df.empty:
+            zf.writestr('店铺自卖_未匹配_无数据.xlsx', _write_streaming_excel(unmatched_df, '未匹配').getvalue())
+
+    safe_month = _safe_download_part(_build_commission_month_text(start_text, end_text))
+    return f'{config.display_name}_店铺自卖_{safe_month}_{detail_total:.2f}.zip'
+
+
 def export_commission_detail_zip(
     start_date: str | None,
     end_date: str | None,
@@ -2082,7 +2241,7 @@ def export_commission_detail_zip(
                     amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
                     text_columns={'订单号', '子订单号', '商品ID', '达人ID'},
                 )
-                filename = _safe_download_part(f'{name}_{-amount_sum:.2f}_{month_text}') + '.xlsx'
+                filename = _safe_download_part(f'{name} {-amount_sum:.2f} {month_text}') + '.xlsx'
                 zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
 
         if not leader_rows.empty:
@@ -2095,7 +2254,7 @@ def export_commission_detail_zip(
                     amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
                     text_columns={'订单号', '子订单号', '商品ID', '达人ID'},
                 )
-                filename = _safe_download_part(f'{-amount_sum:.2f}{name}_招商佣金_{month_text}') + '.xlsx'
+                filename = _safe_download_part(f'团长{name} {-amount_sum:.2f} 招商佣金 {month_text}') + '.xlsx'
                 zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
 
         if not used_names:
@@ -2200,7 +2359,7 @@ def export_detail_source_commission_detail_zip(
                     amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
                     text_columns={'订单id', '商品id', '店铺id', '营销活动id', '阶梯计划ID', '达人ID'},
                 )
-                filename = _safe_download_part(f'{name}_{amount_sum:.2f}_{mode_label}_按明细表{month_text}') + '.xlsx'
+                filename = _safe_download_part(f'{name} {amount_sum:.2f} {mode_label} 按明细表{month_text}') + '.xlsx'
                 zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
 
         if not leader_rows.empty:
@@ -2213,7 +2372,7 @@ def export_detail_source_commission_detail_zip(
                     amount_columns=DOUYIN_COMMISSION_AMOUNT_COLUMNS,
                     text_columns={'订单id', '商品id', '店铺id', '团长活动id', '团长ID'},
                 )
-                filename = _safe_download_part(f'{amount_sum:.2f}{name}_招商佣金_{mode_label}_按明细表{month_text}') + '.xlsx'
+                filename = _safe_download_part(f'团长{name} {amount_sum:.2f} 招商佣金 {mode_label} 按明细表{month_text}') + '.xlsx'
                 zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
 
         if not unmatched_creator_df.empty:

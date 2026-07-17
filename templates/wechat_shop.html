@@ -408,6 +408,7 @@
             <div class="report-actions">
                 <button class="btn btn-primary" type="button" id="btn-export-commission-summary">佣金汇总导出</button>
                 <button class="btn btn-primary" type="button" id="btn-export-commission-details">主播/团长佣金明细导出</button>
+                <button class="btn btn-primary" type="button" id="btn-export-store-self-sale">店铺自卖下载</button>
             </div>
             <div id="commission-export-result" class="import-result-box" style="width:100%;"></div>
             <div class="hint-box">
@@ -484,7 +485,7 @@
             </div>
 
             <div class="export-actions">
-                <button class="btn btn-primary" type="button" id="btn-export-excel">导出 Excel</button>
+                <button class="btn btn-primary" type="button" id="btn-export-excel">导出 ZIP</button>
                 <div id="export-result" class="import-result-box" style="width:100%;"></div>
             </div>
         </section>
@@ -520,6 +521,7 @@
     const commissionNicknameQueryInput = document.getElementById('commission_nickname_query');
     const btnExportCommissionSummary = document.getElementById('btn-export-commission-summary');
     const btnExportCommissionDetails = document.getElementById('btn-export-commission-details');
+    const btnExportStoreSelfSale = document.getElementById('btn-export-store-self-sale');
     const commissionExportResult = document.getElementById('commission-export-result');
 
     const filterEmptyBox = document.getElementById('filter-empty-box');
@@ -631,7 +633,7 @@
         return fileName;
     }
 
-    async function handleCommissionExport({ url, buttonElement, loadingText, defaultButtonText }) {
+    async function handleCommissionExport({ url, buttonElement, loadingText, defaultButtonText, includeNickname = true, defaultDownloadName = '佣金导出.zip' }) {
         if (!commissionStartDateInput || !commissionEndDateInput || !buttonElement) {
             return;
         }
@@ -650,7 +652,9 @@
         const formData = new FormData();
         formData.append('start_date', startDate);
         formData.append('end_date', endDate);
-        formData.append('nickname_query', commissionNicknameQueryInput ? commissionNicknameQueryInput.value : '');
+        if (includeNickname) {
+            formData.append('nickname_query', commissionNicknameQueryInput ? commissionNicknameQueryInput.value : '');
+        }
 
         buttonElement.disabled = true;
         buttonElement.textContent = loadingText;
@@ -673,18 +677,98 @@
 
             const responseType = response.headers.get('Content-Type') || '';
             const disposition = response.headers.get('Content-Disposition') || '';
-            const isDownloadResponse = responseType.includes('zip') || disposition.toLowerCase().includes('attachment');
+            const isDownloadResponse = responseType.includes('zip')
+                || responseType.includes('spreadsheetml.sheet')
+                || disposition.toLowerCase().includes('attachment');
             if (!isDownloadResponse) {
                 await parseJsonResponse(response);
             }
 
-            const fileName = await downloadBlobResponse(response, '佣金导出.zip');
+            const fileName = await downloadBlobResponse(response, defaultDownloadName);
             showImportMessage(commissionExportResult, `导出成功：${fileName}`, true);
         } catch (error) {
             showImportMessage(commissionExportResult, `佣金导出失败：${error.message}`, false);
         } finally {
             buttonElement.disabled = false;
             buttonElement.textContent = defaultButtonText;
+        }
+    }
+
+    function waitMilliseconds(milliseconds) {
+        return new Promise(resolve => window.setTimeout(resolve, milliseconds));
+    }
+
+    async function handleStoreSelfSaleExport() {
+        if (!commissionStartDateInput || !commissionEndDateInput || !btnExportStoreSelfSale) {
+            return;
+        }
+
+        const startDate = (commissionStartDateInput.value || '').trim();
+        const endDate = (commissionEndDateInput.value || '').trim();
+        if (!startDate || !endDate) {
+            showImportMessage(commissionExportResult, '请选择佣金导出的开始日期和结束日期', false);
+            return;
+        }
+        if (startDate > endDate) {
+            showImportMessage(commissionExportResult, '佣金导出开始日期不能晚于结束日期', false);
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('start_date', startDate);
+        formData.append('end_date', endDate);
+        btnExportStoreSelfSale.disabled = true;
+        btnExportStoreSelfSale.textContent = '正在生成店铺自卖...';
+
+        try {
+            const startResponse = await fetch('/wechat_shop/export_store_self_sale', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const startResult = await parseJsonResponse(startResponse);
+            if (!startResponse.ok || !startResult.job_id) {
+                showImportMessage(commissionExportResult, startResult.message || '店铺自卖导出任务启动失败', false);
+                return;
+            }
+
+            showImportMessage(commissionExportResult, '店铺自卖报表正在后台生成，请保持页面打开', true);
+            while (true) {
+                await waitMilliseconds(2000);
+                const statusResponse = await fetch(startResult.status_url, {
+                    headers: {'Accept': 'application/json'},
+                    credentials: 'same-origin'
+                });
+                const statusResult = await parseJsonResponse(statusResponse);
+                if (!statusResponse.ok) {
+                    throw new Error(statusResult.message || '读取导出任务状态失败');
+                }
+                if (statusResult.status === 'failed') {
+                    throw new Error(statusResult.message || '店铺自卖报表生成失败');
+                }
+                if (statusResult.status === 'complete') {
+                    const link = document.createElement('a');
+                    link.href = statusResult.download_url;
+                    link.download = statusResult.download_name || '店铺自卖.zip';
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    showImportMessage(
+                        commissionExportResult,
+                        `导出成功：${statusResult.download_name || '店铺自卖.zip'}`,
+                        true
+                    );
+                    break;
+                }
+            }
+        } catch (error) {
+            showImportMessage(commissionExportResult, `店铺自卖导出失败：${error.message}`, false);
+        } finally {
+            btnExportStoreSelfSale.disabled = false;
+            btnExportStoreSelfSale.textContent = '店铺自卖下载';
         }
     }
 
@@ -1005,15 +1089,16 @@
 
             const responseType = response.headers.get('Content-Type') || '';
             const disposition = response.headers.get('Content-Disposition') || '';
-            const isExcelResponse = responseType.includes('spreadsheetml.sheet')
+            const isDownloadResponse = responseType.includes('zip')
+                || responseType.includes('spreadsheetml.sheet')
                 || disposition.toLowerCase().includes('attachment');
-            if (!isExcelResponse) {
+            if (!isDownloadResponse) {
                 await parseJsonResponse(response);
             }
 
             const blob = await response.blob();
             const downloadUrl = window.URL.createObjectURL(blob);
-            let fileName = '导出数据.xlsx';
+            let fileName = '导出数据.zip';
             const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
             const normalMatch = disposition.match(/filename="?([^";]+)"?/i);
 
@@ -1036,7 +1121,7 @@
             showImportMessage(exportResult, `导出失败：${error.message}`, false);
         } finally {
             btnExportExcel.disabled = false;
-            btnExportExcel.textContent = '导出 Excel';
+            btnExportExcel.textContent = '导出 ZIP';
         }
     }
 
@@ -1239,6 +1324,12 @@
                 loadingText: '正在导出明细...',
                 defaultButtonText: '主播/团长佣金明细导出'
             });
+        });
+    }
+
+    if (btnExportStoreSelfSale) {
+        btnExportStoreSelfSale.addEventListener('click', async function () {
+            await handleStoreSelfSaleExport();
         });
     }
 

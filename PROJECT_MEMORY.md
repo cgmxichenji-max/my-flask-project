@@ -1,3 +1,43 @@
+## [2026-07-15 12:55] 修改记录
+- 修改内容：修复微信小店“店铺自卖下载”在单月及全日期范围同步生成 ZIP 时因 Cloudflare 约 100 秒断开而失败的问题。导出改为单任务后台生成：启动接口立即返回任务 ID，页面每 2 秒轮询状态，完成后通过独立地址下载磁盘 ZIP；同一时间只允许一个店铺自卖任务，避免并发耗尽服务器内存，任务文件保留 24 小时并在后续启动时清理。磁盘 ZIP 内的来源明细和未匹配表继续按最多 50000 行分割；全日期任务进一步按自然月分批查询、写入并释放 DataFrame，分片 Excel 使用 openpyxl write_only 模式，避免一次性构造完整历史宽表。已部署至马德里服务器 `208.85.17.83`，部署前备份为 `/root/backups/my-flask-project/manual-code-backups/store_self_sale_background_20260715_121455`。生产库验证 2026 年 6 月后台任务启动耗时约 0.149 秒、生成耗时约 44 秒，ZIP 约 4.61 MB，汇总金额 `85039.00`；全日期 2024-12-01 至 2026-06-30 生成耗时约 764.4 秒，ZIP 约 101.63 MB，共 40 个文件（来源明细 19 个分片、未匹配 20 个分片、汇总 1 个），汇总金额 `1070709.65`、来源明细 14458 行、未匹配/不计入 291668 行。
+- 修改文件：`wechat_shop/services.py`；`wechat_shop/routes.py`；`templates/wechat_shop.html`；服务器对应 3 个文件；`PROJECT_MEMORY.md`
+- 修改原因：原实现虽然返回 ZIP 且按 50000 行切割 Excel，但仍会先把全量关联数据和完整 ZIP 放在内存中，响应前生成时间超过上游连接限制；重复点击还会产生并发残留任务。
+- 影响范围：仅影响微信小店店铺自卖下载的任务执行、文件生成和下载交互；不改变技术服务费日期入口、带货方式筛选、商品实际价格统计口径，不影响佣金汇总/明细、原始数据导入导出和其他模块。
+- 是否涉及数据库：否（只读业务数据；生成的临时 ZIP 写入数据库同目录下的 `wechat_shop_export_jobs`，不改数据库）
+- 是否需要回滚：是（可恢复上述服务器备份中的 3 个业务文件和 `PROJECT_MEMORY.md` 后安全重启 Flask）
+
+## [2026-07-15 11:52] 修改记录
+- 修改内容：调整微信小店“店铺自卖下载”统计口径，按资金流水表 `技术服务费` 的记账时间确定结算订单和期间，关联订单表后仅统计 `带货方式=-` 的商品行，统一使用 `商品实际价格(总共)` 作为统计金额；不查询订单退款流水，保留未匹配/不计入表及 ZIP 分片下载。已同步至马德里服务器 `208.85.17.83` 的 `/root/my-flask-project`，部署前备份为 `/root/backups/my-flask-project/manual-code-backups/store_self_sale_tech_20260715_115136`。生产库验证 2026 年 6 月生成 `店铺自卖_2026年6月_85039.00.zip`，来源明细 917 行、未匹配/不计入 11202 行，表一汇总金额、表二统计金额合计及表二商品实际价格合计均为 `85039.00`。
+- 修改文件：`wechat_shop/services.py`；服务器 `/root/my-flask-project/wechat_shop/services.py`；`PROJECT_MEMORY.md`
+- 修改原因：订单支付不能代表最终结算，用户确认使用技术服务费作为店铺自卖结算入口，并要求不查询订单退款流水，保证不同时间重复导出使用固定口径。
+- 影响范围：仅影响微信小店店铺自卖下载；不影响佣金汇总/明细、原始数据导入导出、数据库结构和其他模块。
+- 是否涉及数据库：否（仅只读查询，不写业务数据）
+- 是否需要回滚：是（可恢复上述服务器备份中的 `services.py` 和 `PROJECT_MEMORY.md` 后安全重启 Flask）
+
+## [2026-07-14 15:53] 修改记录
+- 修改内容：将微信小店“店铺自卖下载”由单个 Excel 改为 ZIP 分片下载。ZIP 内包含 `店铺自卖_汇总.xlsx`、按每 50000 行切割的 `店铺自卖_来源明细_第NNN部分.xlsx`、按每 50000 行切割的 `店铺自卖_未匹配_第NNN部分.xlsx`，统计口径不变。已上传代码到马德里服务器 `208.85.17.83` 的 `/root/my-flask-project`，部署前备份为 `/root/backups/my-flask-project/manual-code-backups/wechat_store_self_sale_zip_before_20260714_155139.tar.gz`。服务器端 `py_compile` 通过，生产库验证 2026 年 6 月可生成 `店铺自卖_2026年6月_125472.56.zip`，ZIP 内含汇总、来源明细分片和未匹配分片，汇总金额 `125472.56`。随后重启 Flask 时脚本误杀了服务器其它监听进程，导致 SSH 与 nginx/80 当前异常；公网直连 `http://208.85.17.83:5001/auth/login` 返回 200，说明 Flask 5001 已运行新代码，但需要通过服务商控制台重启服务器或恢复 `sshd`、`nginx`、`xray` 后再同步本记录到服务器并复核 80/域名入口。
+- 修改文件：`wechat_shop/services.py`；`wechat_shop/routes.py`；`templates/wechat_shop.html`；服务器 `/root/my-flask-project/wechat_shop/services.py`；服务器 `/root/my-flask-project/wechat_shop/routes.py`；服务器 `/root/my-flask-project/templates/wechat_shop.html`；`PROJECT_MEMORY.md`
+- 修改原因：用户反馈店铺自卖单个 Excel 下载仍会失败，需要改为 ZIP 或分割文件以提升大范围导出稳定性。
+- 影响范围：仅影响微信小店店铺自卖下载的文件承载方式；不改变店铺自卖统计口径，不影响现有佣金汇总/明细导出、原始数据导入导出、数据库结构和其他模块。当前服务器 Flask 5001 正常，SSH/nginx/xray 需控制台恢复后复核。
+- 是否涉及数据库：否（仅只读查询导出，不写业务数据）
+- 是否需要回滚：是（可恢复服务器备份包，或回滚上述 3 个代码文件后重启 Flask；服务器入口服务需先恢复 SSH/nginx）
+
+## [2026-07-14 15:40] 修改记录
+- 修改内容：微信小店佣金导出区块新增“店铺自卖下载”按钮，复用同区块开始日期/结束日期且不受带货账号昵称/别名/关键词影响。新增后端导出接口 `/wechat_shop/export_store_self_sale`，按资金流水表 `记账时间` 筛选 `订单支付`、`订单交易｜先用后付` 两类记录，并用 `关联订单号` 匹配订单表；匹配 1 条且 `带货方式=-` 时按资金流水 `收支金额` 计入，匹配多条且全部 `带货方式=-` 时按自卖订单行 `商品实际价格(总共)` 拆入来源明细，匹配多条且部分 `带货方式=-` 时仅统计这些自卖订单行的 `商品实际价格(总共)`，未匹配或无自卖订单行进入“未匹配”表。导出 Excel 包含“店铺自卖”“来源明细”“未匹配”三张表，文件名为 `店铺自卖_月份_汇总金额.xlsx`。已同步到马德里服务器 `208.85.17.83` 的 `/root/my-flask-project`，部署前备份为 `/root/backups/my-flask-project/manual-code-backups/wechat_store_self_sale_before_20260714_153734.tar.gz`，并重启 Flask 进程。服务器端 `py_compile` 通过，生产库验证 2026 年 6 月可生成 `店铺自卖_2026年6月_125472.56.xlsx`，包含 3 张 sheet，汇总金额 `125472.56`、来源明细 1380 行、未匹配/不计入 9200 行；公网 `5001` 与 `80` 的 `/auth/login` 均返回 200，`/wechat_shop/` 未登录访问返回 302。
+- 修改文件：`wechat_shop/services.py`；`wechat_shop/routes.py`；`templates/wechat_shop.html`；服务器 `/root/my-flask-project/wechat_shop/services.py`；服务器 `/root/my-flask-project/wechat_shop/routes.py`；服务器 `/root/my-flask-project/templates/wechat_shop.html`；`PROJECT_MEMORY.md`
+- 修改原因：用户需要在微信小店按日期导出店铺自卖金额，并明确多订单行匹配时只统计 `带货方式=-` 的自卖部分，未匹配或不计入数据单独输出供核对。
+- 影响范围：仅影响微信小店佣金导出区块新增的店铺自卖下载功能；不影响现有佣金汇总/明细导出、原始数据导入导出、数据库结构和其他模块。
+- 是否涉及数据库：否（仅只读查询导出，不写业务数据）
+- 是否需要回滚：是（可恢复服务器备份包，或回滚上述 3 个代码文件后重启 Flask）
+
+## [2026-07-14 14:31] 修改记录
+- 修改内容：微信小店原始数据处理区块导出由单个 Excel 改为 ZIP 下载，ZIP 内按每 50000 行切割生成多个 Excel 文件；后端导出改为 SQLite 游标分批读取并使用 openpyxl write_only 模式写入，降低订单表/资金流水表大范围导出时的内存压力。页面按钮文案由“导出 Excel”改为“导出 ZIP”，前端下载响应兼容 ZIP。已同步到马德里服务器 `208.85.17.83` 的 `/root/my-flask-project`，部署前备份为 `/root/backups/my-flask-project/manual-code-backups/wechat_export_zip_before_20260714_142933.tar.gz`，并重启 Flask 进程。服务器端 `py_compile` 通过，生产库小范围订单导出可生成 ZIP，公网 `5001` 与 `80` 的 `/auth/login` 均返回 200，`/wechat_shop/` 未登录访问返回 302，`sshd`、`nginx`、`xray`、Flask 监听正常。
+- 修改文件：`wechat_shop/services.py`；`wechat_shop/routes.py`；`templates/wechat_shop.html`；服务器 `/root/my-flask-project/wechat_shop/services.py`；服务器 `/root/my-flask-project/wechat_shop/routes.py`；服务器 `/root/my-flask-project/templates/wechat_shop.html`；`PROJECT_MEMORY.md`
+- 修改原因：微信小店订单表全量约 45 万行且字段多，资金流水表约 120 万行已超过 Excel 单 sheet 行数上限；原实现一次性读入 pandas 并生成单个 xlsx，在低内存服务器上容易连续导出失败。
+- 影响范围：仅影响微信小店原始数据处理区块导出格式和导出生成方式；不影响数据导入、佣金导出、数据库结构和其他业务模块。
+- 是否涉及数据库：否（仅只读查询导出，不写业务数据）
+- 是否需要回滚：是（可恢复服务器备份包，或回滚上述 3 个代码文件后重启 Flask）
+
 ## [2026-06-28 14:36] 修改记录
 - 修改内容：将香娜露儿/慕莲蔓按明细表佣金导出与佣金/招商明细防重调整提交并推送到 GitHub `main`，业务提交为 `3065176`；随后在西班牙服务器 `208.85.17.83` 的 `/root/my-flask-project` 创建代码备份 `/root/my-flask-project_code_backup_before_detail_commission_20260628_063551.tar.gz`，从旧提交 `11194a8` 快进到 `3065176`，并用 `.venv/bin/python` 重启 Flask 服务。重启后新进程监听 `0.0.0.0:5001`，服务器本机 `/auth/login` 返回 200，`/douyin_shop_chantelle/` 与 `/douyin_shop_mulianman/` 未登录访问均返回 302。
 - 修改文件：GitHub `main`；服务器 `/root/my-flask-project`；PROJECT_MEMORY.md
@@ -1893,6 +1933,14 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 是否涉及数据库：否
 - 是否需要回滚：是
 
+## [2026-07-15 15:09] 修改记录
+- 修改内容：香娜露儿和幕莲蔓抖音店铺共用的佣金导出区块新增“店铺自卖下载”；按佣金日期筛选资金结算表已结算记录并忽略昵称筛选，匹配订单表后仅统计小店自卖或 `-`、已完成或已发货且无达人/团长费用的订单应付金额；导出 ZIP，内含汇总、来源明细和未匹配/排除明细，Excel 每 50000 行分片；任务改为后台生成和轮询下载。
+- 修改文件：`douyin_shop_common/services.py`；`douyin_shop_common/__init__.py`；`templates/douyin_shop.html`；`PROJECT_MEMORY.md`
+- 修改原因：需要使用资金结算日期确定已结算自卖订单，同时保证表一金额严格等于表二订单应付金额之和，并避免大文件同步下载失败。
+- 影响范围：仅影响香娜露儿和幕莲蔓抖音店铺的店铺自卖导出；不改变现有佣金导出、导入和其他模块。
+- 是否涉及数据库：否
+- 是否需要回滚：是
+
 ## [2026-07-03 14:20] 修改记录
 - 修改内容：达人/团长昵称管理页面新增账单周期筛选。筛选框下方可通过“店铺/平台 + 账单周期”下拉选择添加周期标签，标签支持点击 `×` 取消，点击查询后仅统计已添加的平台周期；未添加周期的平台金额显示为 `0`。同时修复别名列表金额计算口径：先按别名归类下的昵称/客户分别读取 `expected_amount` 真实应开金额，再汇总到别名行；顶部汇总会随前端关键词筛选当前可见行实时重算，避免截图中只筛选“罐头”时顶部快手金额仍显示全部别名合计。已同步到马德里服务器 `208.85.17.83`，部署前备份为 `/root/backups/my-flask-project/manual-code-backups/invoicing_customer_period_filter_before_20260703_061926.tar.gz`，并重启 Flask 进程。服务器生产库验证不选周期时别名汇总保持原全周期金额；只选 `澳柯 26年6月` 时澳柯金额为 `268126.06`，香娜露儿/快手/幕莲蔓均为 `0.00`，周期标签正常渲染；公网 `5001` 与 `80` 的 `/auth/login` 均返回 200。
 - 修改文件：`invoicing/routes.py`；`templates/invoicing_customers.html`；服务器 `/root/my-flask-project/invoicing/routes.py`；服务器 `/root/my-flask-project/templates/invoicing_customers.html`；`PROJECT_MEMORY.md`
@@ -1924,3 +1972,62 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅影响达人/团长昵称管理页面别名发票弹窗的数据读取与展示；不修改数据库结构，不改变发票匹配保存逻辑、应开金额导入和佣金导出。
 - 是否涉及数据库：否
 - 是否需要回滚：是
+## [2026-07-15 15:25] 修改记录
+- 修改内容：修复抖音店铺自卖后台任务返回错误轮询和下载地址的问题，改由 Flask `url_for` 按当前店铺蓝图生成实际 URL；部署后重启服务以终止因前端 404 而失联的高 CPU 导出线程。
+- 修改文件：`douyin_shop_common/__init__.py`；`PROJECT_MEMORY.md`
+- 修改原因：店铺蓝图实际前缀为 `/douyin_shop_chantelle` 和 `/douyin_shop_mulianman`，原代码错误使用 `/douyin_chantelle`、`/douyin_mulianman`，导致任务创建后状态轮询返回 HTTP 404。
+- 影响范围：仅影响香娜露儿和幕莲蔓店铺自卖后台任务的状态轮询与文件下载地址。
+- 是否涉及数据库：否
+- 是否需要回滚：是
+## [2026-07-15 15:35] 修改记录
+- 修改内容：重写抖音店铺自卖数据匹配实现；资金结算表和订单表改为仅顺序读取必要字段，在 pandas 中统一去除订单号前导单引号、汇总同订单全部达人/团长费用并匹配订单，避免 SQLite 对表达式字段执行高消耗连接。服务器真实 2026 年 6 月验证：香娜露儿约 7.94 秒，表一与表二均为 157689.60；幕莲蔓约 0.23 秒，表一与表二均为 1813.43。
+- 修改文件：`douyin_shop_common/services.py`；`PROJECT_MEMORY.md`
+- 修改原因：原 SQLite 表达式连接在 1.82 GB 数据库上长时间占满 CPU，导致店铺自卖任务无法完成并拖累页面数据状态显示。
+- 影响范围：仅影响香娜露儿和幕莲蔓店铺自卖 ZIP 的数据读取与匹配性能；业务筛选、金额口径和分片规则不变。
+- 是否涉及数据库：否
+- 是否需要回滚：是
+## [2026-07-16 11:53] 修改记录
+- 修改内容：快手澳柯佣金区块新增“店铺自卖下载”。按佣金区块日期筛选资金流水实际结算时间，使用去前导单引号后的订单号+商品ID匹配订单表，仅统计渠道为自营且不存在达人、团长、快赚客、服务商或授权达人推广费用的记录；金额为合计收入减订单退款，普通商城信息服务费和技术服务费不影响自营身份。导出采用单后台任务 ZIP，包含汇总、来源明细、未匹配及不计入明细，每个 Excel 最多 50000 行。生产库验证 2026 年 6 月耗时约 1.5 秒，表一与表二合计均为 7431.80，表二 71 行、表三 912 行。
+- 修改文件：`kuaishou_aoke/services.py`；`kuaishou_aoke/routes.py`；`templates/kuaishou_aoke.html`；`PROJECT_MEMORY.md`
+- 修改原因：需要按快手实际结算日期导出店铺自卖金额，并通过后台 ZIP 和分片避免下载超时，同时避免 SQLite 规范化表达式连接拖累 1G 内存服务器。
+- 影响范围：仅新增快手澳柯店铺自卖导出；不改变原佣金汇总、佣金明细、原始数据导出和售后导入逻辑。
+- 是否涉及数据库：否
+- 是否需要回滚：是
+## [2026-07-16 16:00] 修改记录
+- 修改内容：将提醒中心周度提醒功能部署到服务器 `208.85.17.83` 的 `/root/my-flask-project`，复用现有 `reminder_settings` 表，以周一至周日 1-7 多选方式配置当天提醒，支持启用、标题、内容、新增、编辑和删除并接入全站广播。服务器数据库已新增并启用记录 ID 12966，标题“开票提醒”、内容“开发票”、提醒日为周一和周五；通过 `my-flask-project.service` 安全重启，服务新 PID 为 34824，5001 监听及登录页响应正常。部署前备份位于 `/root/backups/my-flask-project/manual-code-backups/weekly_reminder_20260716_075701`。
+- 修改文件：服务器 `reminder_center/services.py`；服务器 `reminder_center/routes.py`；服务器 `templates/reminder_center.html`；服务器 `PROJECT_MEMORY.md`；服务器数据库 `reminder_settings` 表
+- 修改原因：用户实际使用的是服务器页面，需要将已完成的本地周度提醒功能及周一、周五开票提醒配置同步到线上服务器。
+- 影响范围：服务器提醒中心设置页和全站提醒广播新增周度提醒；不改变月度提醒、豁免到期提醒、广播总开关及其他业务模块。
+- 是否涉及数据库：是（不修改表结构；复用 `reminder_settings` 表新增一条 `weekly` 类型配置记录）
+- 是否需要回滚：是（恢复上述备份中的三个业务文件和 `PROJECT_MEMORY.md`，删除 `reminder_settings.id=12966` 后重启 `my-flask-project.service`）
+## [2026-07-16 16:12] 修改记录
+- 修改内容：将发票确认入库自动标记及合并弹窗功能部署到服务器 `208.85.17.83`。上传时暂存原始 PDF 文件名；确认入库时，文件名严格匹配 `download.pdf` 或 `download (数字).pdf` 的发票写入现有 `online_invoice=1`。入库成功后，对自动勾选网上开票、普通发票且税率精确为 `6%` 两类情况进行一次合并弹窗提示，弹窗后清除提示参数。部署以服务器现有 `invoicing/routes.py` 为基准合并，保留服务器已有的匹配金额口径修正；通过 `my-flask-project.service` 安全重启，新 PID 为 36347。部署前备份位于 `/root/backups/my-flask-project/manual-code-backups/invoice_auto_online_20260716_080903`。
+- 修改文件：服务器 `invoicing/routes.py`；服务器 `templates/invoicing_invoices.html`；服务器 `PROJECT_MEMORY.md`
+- 修改原因：此前功能仅落在本地，用户确认实际目标为服务器，需要补部署且不得覆盖服务器已有后续修正。
+- 影响范围：仅影响服务器新上传 PDF 的发票确认入库及入库成功后的列表提示；不影响历史发票、非严格匹配文件名、其他发票字段和其他模块。
+- 是否涉及数据库：是（不修改表结构；仅在符合严格文件名规则的新发票入库时将现有 `invoice.online_invoice` 字段写为 1）
+- 是否需要回滚：是（恢复上述备份中的两个业务文件和 `PROJECT_MEMORY.md`，然后重启 `my-flask-project.service`）
+
+## [2026-07-16 08:44] 修改记录
+- 修改内容：统一微信小店、快手澳柯、抖音香娜露儿/幕莲蔓达人/团长佣金明细 ZIP 内部文件名的字段间隔为单个半角空格；保留金额固定两位小数；抖音团长明细文件名改为“团长+名称 金额 招商佣金 月份”结构。
+- 修改文件：wechat_shop/services.py；kuaishou_aoke/services.py；douyin_shop_common/services.py
+- 修改原因：避免达人名称末尾数字与金额粘连导致误读（例如“娟姐在香港1”+23.60 被看成 123.60），并排查/规范导出明细文件名金额小数显示。
+- 影响范围：仅影响上述模块达人/团长佣金明细导出 ZIP 内部 Excel 文件命名；不影响汇总/明细金额计算、不影响数据库结构、不影响导入逻辑。
+- 是否涉及数据库：否
+- 是否需要回滚：是
+
+## [2026-07-17 11:50] 修改记录
+- 修改内容：发票列表在“导出选中 Excel”后新增“全部报税”两阶段操作。第一次点击切换为全部未报税发票并默认勾选，允许取消个别记录；第二次点击并确认后，仅将仍被选中且当前仍未报税的发票更新为已报税，并按北京时间登记报税时间。发票列表新增“报税日期”列；历史已报税但无时间的记录显示“历史已报税（时间未知）”。单张报税切换同步维护报税时间。已在马德里服务器完成代码和数据库备份、部署、重启及验证；本次未操作 GitHub。
+- 修改文件：`invoicing/routes.py`；`templates/invoicing_invoices.html`；服务器 `data/main.db`；本地 `AGENTS.md`；`PROJECT_MEMORY.md`
+- 修改原因：需要批量处理全部未报税发票，同时允许在正式入库前排除个别发票，并保留可审计的北京时间；按用户要求取消简单任务强制输出 PLAN 和大段执行指令的本地协作规则。
+- 影响范围：仅影响发票列表的报税状态、报税日期展示、单张报税切换及新增批量报税操作；不影响发票上传、PDF 下载、Excel 导出、匹配和其他业务模块。服务器现有 500 张发票状态未因部署和验证发生改变。
+- 是否涉及数据库：是（`invoice` 表新增可空的 `tax_filed_at` 字段；部署和验证阶段未批量修改任何发票状态，后续仅在用户确认报税操作时写入选中记录）
+- 是否需要回滚：是（服务器备份位于 `/root/backups/my-flask-project/manual-code-backups/invoice_bulk_tax_20260717_114000`，可恢复相关代码与完整数据库后按原方式重启 Flask）
+
+## [2026-07-17 11:59] 修改记录
+- 修改内容：修复发票列表“全部报税”第一次点击后的模式跳转。原跳转地址中的参数连接符被 HTML 转义为 `&amp;`，导致后端未识别批量报税模式，页面虽然筛选未报税记录，但按钮不变且选择框未自动勾选；现改为通过模板 JSON 编码输出跳转地址。服务器验证第一次点击地址为 `/invoicing/invoices?tax_filed=0&bulk_tax=1`，页面显示 83 张未报税记录、“确认报税”按钮及全选逻辑。
+- 修改文件：`templates/invoicing_invoices.html`；`PROJECT_MEMORY.md`
+- 修改原因：修复首次部署遗漏的前端 URL HTML 转义问题。
+- 影响范围：仅影响“全部报税”第一次点击进入确认模式；不修改发票状态、报税日期、数据库结构或其他功能。
+- 是否涉及数据库：否
+- 是否需要回滚：是（修复前模板备份位于 `/root/backups/my-flask-project/manual-code-backups/invoice_bulk_tax_first_click_fix_20260717_115500`）

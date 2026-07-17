@@ -324,6 +324,7 @@
             <div class="export-actions">
                 <button class="btn btn-primary" type="button" id="btn-export-commission-summary">佣金汇总导出</button>
                 <button class="btn btn-primary" type="button" id="btn-export-commission-details">达人/团长明细导出</button>
+                <button class="btn btn-primary" type="button" id="btn-export-store-self-sale">店铺自卖下载</button>
             </div>
             <div id="commission-export-result" class="import-result-box" style="width:100%;"></div>
             <div class="hint-box">
@@ -423,6 +424,7 @@
     const commissionNicknameQueryInput = document.getElementById('commission_nickname_query');
     const btnExportCommissionSummary = document.getElementById('btn-export-commission-summary');
     const btnExportCommissionDetails = document.getElementById('btn-export-commission-details');
+    const btnExportStoreSelfSale = document.getElementById('btn-export-store-self-sale');
     const commissionExportResult = document.getElementById('commission-export-result');
     const filterEmptyBox = document.getElementById('filter-empty-box');
     const filterRowsContainer = document.getElementById('filter-rows-container');
@@ -778,6 +780,57 @@
         }
     }
 
+    async function handleStoreSelfSaleExport() {
+        const startDate = (commissionStartDateInput.value || '').trim();
+        const endDate = (commissionEndDateInput.value || '').trim();
+        if (!startDate || !endDate) {
+            showImportMessage(commissionExportResult, '请选择店铺自卖导出的开始日期和结束日期', false);
+            return;
+        }
+        if (startDate > endDate) {
+            showImportMessage(commissionExportResult, '店铺自卖导出开始日期不能晚于结束日期', false);
+            return;
+        }
+        const formData = new FormData();
+        formData.append('start_date', startDate);
+        formData.append('end_date', endDate);
+        btnExportStoreSelfSale.disabled = true;
+        btnExportStoreSelfSale.textContent = '正在生成...';
+        try {
+            const createResponse = await fetch('/kuaishou_aoke/export_store_self_sale', {
+                method: 'POST',
+                body: formData,
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            const job = await parseJsonResponse(createResponse);
+            if (!createResponse.ok) throw new Error(job.message || '创建店铺自卖任务失败');
+            while (true) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                const statusResponse = await fetch(job.status_url, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                const status = await parseJsonResponse(statusResponse);
+                if (!statusResponse.ok || status.status === 'failed') {
+                    throw new Error(status.message || '店铺自卖导出失败');
+                }
+                if (status.status === 'complete') {
+                    const link = document.createElement('a');
+                    link.href = status.download_url;
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    showImportMessage(commissionExportResult, '店铺自卖 ZIP 已生成，正在下载', true);
+                    break;
+                }
+            }
+        } catch (error) {
+            showImportMessage(commissionExportResult, `店铺自卖下载失败：${error.message}`, false);
+        } finally {
+            btnExportStoreSelfSale.disabled = false;
+            btnExportStoreSelfSale.textContent = '店铺自卖下载';
+        }
+    }
+
     bindImport('btn-import-orders', 'order-files-input', 'import-orders-result', '/kuaishou_aoke/import_orders', '正在导入文件...', '导入订单表');
     bindImport('btn-import-fund-flow', 'fund-flow-files-input', 'import-fund-flow-result', '/kuaishou_aoke/import_fund_flow', '正在导入资金流水...', '导入资金流水表');
     bindImport('btn-import-after-sales', 'after-sales-files-input', 'import-after-sales-result', '/kuaishou_aoke/import_after_sales', '正在导入售后文件...', '导入售后表');
@@ -797,6 +850,7 @@
     btnExportCommissionDetails.addEventListener('click', () => {
         handleCommissionExport('/kuaishou_aoke/export_commission_details', btnExportCommissionDetails, '正在导出明细...', '达人/团长明细导出');
     });
+    btnExportStoreSelfSale.addEventListener('click', handleStoreSelfSaleExport);
     sourceTableSelect.addEventListener('change', () => {
         applyExportDateRange(sourceTableSelect.value);
         renderExportFields(sourceTableSelect.value);

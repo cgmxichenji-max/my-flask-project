@@ -1,11 +1,12 @@
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 import zipfile
 
 import pandas as pd
+from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from flask import current_app
 import re
@@ -282,6 +283,9 @@ def _reset_upload_source(file_obj: Any) -> None:
         stream.seek(0)
 
 # === Begin export to excel helpers ===
+EXPORT_ZIP_CHUNK_SIZE = 50000
+
+
 def _normalize_export_datetime_text(value: str | None) -> str | None:
     """把前端传入的日期/时间文本统一转换为可用于 SQLite 比较的字符串。"""
     if value is None:
@@ -314,8 +318,8 @@ def _normalize_export_datetime_text(value: str | None) -> str | None:
 
 
 
-def _build_export_download_name(table_key: str, start_time: str | None, end_time: str | None) -> str:
-    """生成导出文件名。"""
+def _build_export_download_base_name(table_key: str, start_time: str | None, end_time: str | None) -> str:
+    """生成导出文件基础名，不包含扩展名。"""
     table_name_map = {
         'orders': '订单表',
         'fund_flows': '资金流水表',
@@ -328,7 +332,17 @@ def _build_export_download_name(table_key: str, start_time: str | None, end_time
             return '全部时间'
         return re.sub(r'[\\/:*?"<>|\s]+', '_', value)
 
-    return f"{table_name}_{_safe_part(start_time)}_到_{_safe_part(end_time)}.xlsx"
+    return f"{table_name}_{_safe_part(start_time)}_到_{_safe_part(end_time)}"
+
+
+def _build_export_download_name(table_key: str, start_time: str | None, end_time: str | None) -> str:
+    """生成导出 Excel 文件名。"""
+    return f"{_build_export_download_base_name(table_key, start_time, end_time)}.xlsx"
+
+
+def _build_export_zip_download_name(table_key: str, start_time: str | None, end_time: str | None) -> str:
+    """生成导出 ZIP 文件名。"""
+    return f"{_build_export_download_base_name(table_key, start_time, end_time)}.zip"
 
 
 # ===== Excel导出列宽自适应辅助函数 =====
@@ -362,6 +376,108 @@ def _auto_adjust_excel_columns(worksheet) -> None:
         column_letter = get_column_letter(column_index)
         worksheet.column_dimensions[column_letter].width = adjusted_width
 
+
+def _build_export_headers(table_key: str, selected_fields: list[str]) -> list[str]:
+    header_mapping = EXPORT_HEADER_MAPPING.get(table_key, {})
+    headers: list[str] = []
+    used_headers: dict[str, int] = {}
+
+    for column_name in selected_fields:
+        base_header = header_mapping.get(column_name, column_name)
+        if base_header not in used_headers:
+            used_headers[base_header] = 1
+            headers.append(base_header)
+        else:
+            used_headers[base_header] += 1
+            headers.append(f"{base_header}_{used_headers[base_header]}")
+
+    return headers
+
+
+def _write_rows_to_excel_bytes(headers: list[str], rows: list[tuple[Any, ...]]) -> BytesIO:
+    output = BytesIO()
+    workbook = Workbook(write_only=True)
+    worksheet = workbook.create_sheet(title='导出结果')
+    worksheet.append(headers)
+
+    max_widths = [_get_excel_display_width(header) for header in headers]
+    for row in rows:
+        values = list(row)
+        worksheet.append(values)
+        for index, value in enumerate(values):
+            if index >= len(max_widths):
+                continue
+            value_width = _get_excel_display_width(value)
+            if value_width > max_widths[index]:
+                max_widths[index] = value_width
+
+    for column_index, width in enumerate(max_widths, start=1):
+        column_letter = get_column_letter(column_index)
+        worksheet.column_dimensions[column_letter].width = min(max(width + 2, 10), 40)
+
+    workbook.save(output)
+    output.seek(0)
+    return output
+
+
+def _build_export_query_parts(
+    table_key: str,
+    start_time: str | None,
+    end_time: str | None,
+    selected_fields: list[str],
+    filter_conditions: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any], str | None, str | None, str, list[Any]]:
+    config = EXPORT_TABLE_CONFIG.get(table_key)
+    if not config:
+        raise ValueError('不支持的导出表类型')
+
+    if not selected_fields:
+        raise ValueError('请至少选择一个导出字段')
+
+    allowed_fields = set(config['allowed_fields'])
+    column_types = config.get('column_types', {})
+    invalid_fields = [field for field in selected_fields if field not in allowed_fields]
+    if invalid_fields:
+        raise ValueError(f"存在无效导出字段：{', '.join(invalid_fields)}")
+
+    start_text = _normalize_export_datetime_text(start_time)
+    end_text = _normalize_export_datetime_text(end_time)
+
+    if start_text and end_text and start_text > end_text:
+        raise ValueError('开始时间不能大于结束时间')
+    if filter_conditions is None:
+        filter_conditions = []
+    if not isinstance(filter_conditions, list):
+        raise ValueError('筛选条件格式不正确')
+
+    fields_sql = ', '.join(selected_fields)
+    sql = f"SELECT {fields_sql} FROM {config['source_table']}"
+    where_parts: list[str] = []
+    params: list[Any] = []
+
+    date_compare_expr = _build_datetime_compare_expr(config['date_field'])
+
+    if start_text:
+        where_parts.append(f"{date_compare_expr} >= ?")
+        params.append(start_text)
+
+    if end_text:
+        where_parts.append(f"{date_compare_expr} <= ?")
+        params.append(end_text)
+
+    filter_sql_parts, filter_sql_params = _build_filter_sql_parts(
+        filter_conditions=filter_conditions,
+        allowed_fields=allowed_fields,
+        column_types=column_types,
+    )
+    if filter_sql_parts:
+        where_parts.append('(' + ' '.join(filter_sql_parts) + ')')
+        params.extend(filter_sql_params)
+
+    if where_parts:
+        sql += ' WHERE ' + ' AND '.join(where_parts)
+
+    return config, start_text, end_text, sql, params
 
 
 def _normalize_filter_logic(value: Any) -> str:
@@ -605,59 +721,16 @@ def export_data_to_excel(
     filter_conditions: list[dict[str, Any]] | None = None,
 ) -> tuple[BytesIO, str]:
     """按表、时间范围、字段选择从数据库导出 Excel。"""
-    config = EXPORT_TABLE_CONFIG.get(table_key)
-    if not config:
-        raise ValueError('不支持的导出表类型')
-
-    if not selected_fields:
-        raise ValueError('请至少选择一个导出字段')
-
-    allowed_fields = set(config['allowed_fields'])
-    column_types = config.get('column_types', {})
-    invalid_fields = [field for field in selected_fields if field not in allowed_fields]
-    if invalid_fields:
-        raise ValueError(f"存在无效导出字段：{', '.join(invalid_fields)}")
-
-    start_text = _normalize_export_datetime_text(start_time)
-    end_text = _normalize_export_datetime_text(end_time)
-
-    if start_text and end_text and start_text > end_text:
-        raise ValueError('开始时间不能大于结束时间')
-    if filter_conditions is None:
-        filter_conditions = []
-
     db_path = _get_database_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fields_sql = ', '.join(selected_fields)
-    sql = f"SELECT {fields_sql} FROM {config['source_table']}"
-    where_parts: list[str] = []
-    params: list[Any] = []
-
-    date_compare_expr = _build_datetime_compare_expr(config['date_field'])
-
-    if start_text:
-        where_parts.append(f"{date_compare_expr} >= ?")
-        params.append(start_text)
-
-    if end_text:
-        where_parts.append(f"{date_compare_expr} <= ?")
-        params.append(end_text)
-
-    if not isinstance(filter_conditions, list):
-        raise ValueError('筛选条件格式不正确')
-
-    filter_sql_parts, filter_sql_params = _build_filter_sql_parts(
+    config, start_text, end_text, sql, params = _build_export_query_parts(
+        table_key=table_key,
+        start_time=start_time,
+        end_time=end_time,
+        selected_fields=selected_fields,
         filter_conditions=filter_conditions,
-        allowed_fields=allowed_fields,
-        column_types=column_types,
     )
-    if filter_sql_parts:
-        where_parts.append('(' + ' '.join(filter_sql_parts) + ')')
-        params.extend(filter_sql_params)
-
-    if where_parts:
-        sql += ' WHERE ' + ' AND '.join(where_parts)
 
     sql += f" ORDER BY {config['date_field']} ASC, id ASC"
 
@@ -699,7 +772,66 @@ def export_data_to_excel(
     return output, download_name
 
 
+def export_data_to_zip(
+    table_key: str,
+    start_time: str | None,
+    end_time: str | None,
+    selected_fields: list[str],
+    filter_conditions: list[dict[str, Any]] | None = None,
+    chunk_size: int = EXPORT_ZIP_CHUNK_SIZE,
+) -> tuple[BytesIO, str]:
+    """按表、时间范围、字段选择导出 ZIP，内部 Excel 按固定行数切割。"""
+    if chunk_size <= 0:
+        raise ValueError('导出切割行数配置不正确')
+
+    db_path = _get_database_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    config, start_text, end_text, sql, params = _build_export_query_parts(
+        table_key=table_key,
+        start_time=start_time,
+        end_time=end_time,
+        selected_fields=selected_fields,
+        filter_conditions=filter_conditions,
+    )
+    ordered_sql = f"{sql} ORDER BY {config['date_field']} ASC, id ASC"
+    headers = _build_export_headers(table_key, selected_fields)
+    base_name = _build_export_download_base_name(table_key, start_text, end_text)
+
+    archive = BytesIO()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (config['source_table'],),
+        )
+        table_exists = cursor.fetchone() is not None
+        if not table_exists:
+            raise ValueError(f"数据表不存在：{config['source_table']}")
+
+        with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            cursor.execute(ordered_sql, params)
+            part_index = 1
+            while True:
+                rows = cursor.fetchmany(chunk_size)
+                if not rows:
+                    break
+
+                excel_output = _write_rows_to_excel_bytes(headers, rows)
+                part_name = f"{base_name}_第{part_index:03d}部分.xlsx"
+                zf.writestr(part_name, excel_output.getvalue())
+                part_index += 1
+
+            if part_index == 1:
+                empty_excel = _write_rows_to_excel_bytes(headers, [])
+                zf.writestr(f"{base_name}_无数据.xlsx", empty_excel.getvalue())
+
+    archive.seek(0)
+    return archive, _build_export_zip_download_name(table_key, start_text, end_text)
+
+
 COMMISSION_TRANSACTION_TYPES = ('达人佣金', '带货机构服务费')
+STORE_SELF_SALE_TRANSACTION_TYPE = '技术服务费'
 COMMISSION_UNMATCHED_NICKNAME = '未匹配带货账号昵称'
 COMMISSION_DETAIL_COLUMNS = [
     '流水单号',
@@ -848,9 +980,15 @@ def _build_commission_zip_name(prefix: str, start_text: str, end_text: str) -> s
     return f"{prefix}_{safe_month}.zip"
 
 
+def _build_store_self_sale_zip_name(month_text: str, total_amount: float) -> str:
+    safe_month = _safe_download_part(month_text)
+    safe_amount = _safe_download_part(f"{total_amount:.2f}")
+    return f"店铺自卖_{safe_month}_{safe_amount}.zip"
+
+
 def _build_commission_detail_filename(nickname: str, amount_sum: float, start_text: str, end_text: str) -> str:
     month_text = _build_commission_month_text(start_text, end_text, short_year=True)
-    return _safe_download_part(f"{nickname}{amount_sum:.2f}澳柯{month_text}份.xlsx")
+    return _safe_download_part(f"{nickname} {amount_sum:.2f} 澳柯{month_text}份.xlsx")
 
 
 def _write_dataframe_excel(
@@ -1004,6 +1142,440 @@ def _build_commission_summary_frames(df: pd.DataFrame) -> tuple[pd.DataFrame, pd
     return creator_df, agency_df, invoice_df
 
 
+def _query_store_self_sale_joined_rows(
+    conn: sqlite3.Connection,
+    start_text: str,
+    end_text: str,
+) -> pd.DataFrame:
+    _ensure_commission_export_indexes(conn)
+
+    if not _table_exists(conn, WECHAT_FUND_FLOW_TABLE_NAME):
+        raise ValueError(f'数据表不存在：{WECHAT_FUND_FLOW_TABLE_NAME}')
+    if not _table_exists(conn, WECHAT_ORDER_TABLE_NAME):
+        raise ValueError(f'数据表不存在：{WECHAT_ORDER_TABLE_NAME}')
+
+    sql = f"""
+        SELECT
+            f.id AS fund_id,
+            CAST(f.flow_no AS TEXT) AS 资金流水_流水单号,
+            f.booking_time AS 资金流水_记账时间,
+            f.transaction_type AS 资金流水_动账类型,
+            f.income_expense_type AS 资金流水_收支类型,
+            COALESCE(CAST(f.amount AS REAL), 0) AS 资金流水_收支金额,
+            f.account_balance AS 资金流水_账户余额,
+            CAST(f.related_order_no AS TEXT) AS 资金流水_关联订单号,
+            CAST(f.related_after_sales_no AS TEXT) AS 资金流水_关联售后单号,
+            CAST(f.related_withdrawal_no AS TEXT) AS 资金流水_关联提现单号,
+            CAST(f.related_policy_no AS TEXT) AS 资金流水_关联保单号,
+            CAST(f.related_gift_no AS TEXT) AS 资金流水_关联礼物单号,
+            f.detail AS 资金流水_详情,
+            o.id AS order_row_id,
+            CAST(o.order_no AS TEXT) AS 订单_订单号,
+            o.order_created_at AS 订单_订单下单时间,
+            o.order_shipped_at AS 订单_订单发货时间,
+            o.order_received_at AS 订单_订单确认收货时间,
+            o.order_settled_at AS 订单_订单完成结算时间,
+            o.order_status AS 订单_订单状态,
+            o.delivery_method AS 订单_发货方式,
+            o.recipient_name AS 订单_收件人姓名,
+            o.recipient_address AS 订单_收件人地址,
+            o.province AS 订单_省,
+            o.city AS 订单_市,
+            o.district AS 订单_区,
+            CAST(o.recipient_phone AS TEXT) AS 订单_收件人手机,
+            o.buyer_note AS 订单_买家备注,
+            o.seller_note AS 订单_商家备注,
+            o.label_color AS 订单_打标颜色,
+            o.product_total_amount AS 订单_商品总价,
+            o.order_paid_amount AS 订单_订单实际支付金额,
+            o.order_received_amount AS 订单_订单实际收款金额,
+            o.order_shipping_fee AS 订单_订单运费,
+            o.product_discount_amount AS 订单_商品优惠,
+            o.cross_store_discount_amount AS 订单_跨店优惠,
+            o.product_price_adjustment AS 订单_商品改价,
+            o.points_deduction_amount AS 订单_积分抵扣,
+            o.payment_method AS 订单_支付方式,
+            o.payment_at AS 订单_支付时间,
+            CAST(o.transaction_no AS TEXT) AS 订单_交易单号,
+            o.logistics_company AS 订单_物流公司,
+            CAST(o.tracking_no AS TEXT) AS 订单_快递单号,
+            o.technical_service_fee AS 订单_技术服务费,
+            o.technical_service_fee_refund_popularity_card AS 订单_技术服务费_人气卡返还,
+            o.shipping_insurance_estimated_fee AS 订单_运费险预计投保费用,
+            o.promotion_method AS 订单_带货方式,
+            o.promotion_account_type AS 订单_带货账号类型,
+            o.promotion_account_nickname AS 订单_带货账号昵称,
+            o.promotion_fee_type AS 订单_带货费用类型,
+            o.promotion_fee_amount AS 订单_带货费用,
+            o.promotion_fee_channel AS 订单_带货费用渠道,
+            o.promotion_commission_rate AS 订单_带货佣金率,
+            CAST(o.gift_order_no AS TEXT) AS 订单_礼物单号,
+            o.product_name AS 订单_商品名称,
+            CAST(o.platform_product_code AS TEXT) AS 订单_商品编码_平台,
+            CAST(o.custom_product_code AS TEXT) AS 订单_商品编码_自定义,
+            CAST(o.custom_sku_code AS TEXT) AS 订单_SKU编码_自定义,
+            o.product_attributes AS 订单_商品属性,
+            o.product_unit_price AS 订单_商品价格_单件,
+            o.product_actual_unit_price AS 订单_商品实际价格_单件,
+            o.product_actual_total_price AS 订单_商品实际价格_总共,
+            o.is_presale AS 订单_是否预售,
+            o.product_quantity AS 订单_商品数量,
+            o.platform_coupon_discount_amount AS 订单_商品平台券优惠,
+            o.average_shipping_fee_per_item AS 订单_商品平均运费,
+            o.customization_info AS 订单_定制信息,
+            o.customization_preview_image AS 订单_定制预览图,
+            o.product_delivery_status AS 订单_商品发货,
+            o.product_after_sales_status AS 订单_商品售后,
+            o.product_refunded_amount AS 订单_商品已退款金额
+        FROM {WECHAT_FUND_FLOW_TABLE_NAME} f
+        LEFT JOIN {WECHAT_ORDER_TABLE_NAME} o ON o.order_no = f.related_order_no
+        WHERE REPLACE(CAST(f.booking_time AS TEXT), '/', '-') >= ?
+          AND REPLACE(CAST(f.booking_time AS TEXT), '/', '-') <= ?
+          AND f.transaction_type = ?
+        ORDER BY f.booking_time ASC, f.flow_no ASC, f.related_order_no ASC, o.id ASC
+    """
+    df = pd.read_sql_query(sql, conn, params=[start_text, end_text, STORE_SELF_SALE_TRANSACTION_TYPE])
+    if not df.empty:
+        for column_name in {
+            '资金流水_收支金额',
+            '订单_商品实际价格_总共',
+            '订单_订单实际收款金额',
+            '订单_订单实际支付金额',
+            '订单_商品总价',
+        }:
+            if column_name in df.columns:
+                df[column_name] = pd.to_numeric(df[column_name], errors='coerce').fillna(0)
+    return df
+
+
+def _build_store_self_sale_frames(
+    joined_df: pd.DataFrame,
+    start_text: str,
+    end_text: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, float]:
+    month_text = _build_commission_month_text(start_text, end_text)
+    detail_rows: list[dict[str, Any]] = []
+    unmatched_rows: list[dict[str, Any]] = []
+
+    if joined_df.empty:
+        summary_df = pd.DataFrame([{
+            '项目': '店铺自卖',
+            '期间': month_text,
+            '账期起点': start_text[:10],
+            '账期终点': end_text[:10],
+            '汇总金额': 0.0,
+            '计入明细行数': 0,
+            '未匹配/不计入资金流水条数': 0,
+        }])
+        return summary_df, pd.DataFrame(), pd.DataFrame(), 0.0
+
+    for _fund_id, group in joined_df.groupby('fund_id', sort=False):
+        first_row = group.iloc[0]
+        order_mask = group['order_row_id'].notna()
+        order_count = int(order_mask.sum())
+        self_mask = order_mask & (group['订单_带货方式'].fillna('').astype(str).str.strip() == '-')
+        self_count = int(self_mask.sum())
+
+        base_info = {
+            '匹配订单行数': order_count,
+            '自卖订单行数': self_count,
+        }
+
+        if order_count == 0:
+            row = first_row.to_dict()
+            row.update(base_info)
+            row['不计入原因'] = '未匹配订单'
+            unmatched_rows.append(row)
+            continue
+
+        if self_count == 0:
+            row = first_row.to_dict()
+            row.update(base_info)
+            row['不计入原因'] = '无带货方式=-的订单行'
+            unmatched_rows.append(row)
+            continue
+
+        self_rows = group[self_mask]
+        for _index, self_row in self_rows.iterrows():
+            row = self_row.to_dict()
+            row.update(base_info)
+            row['计入口径'] = '计入-自卖商品实际价格'
+            row['统计金额'] = float(row.get('订单_商品实际价格_总共') or 0)
+            detail_rows.append(row)
+
+    detail_df = pd.DataFrame(detail_rows)
+    unmatched_df = pd.DataFrame(unmatched_rows)
+
+    total_amount = 0.0 if detail_df.empty else float(pd.to_numeric(detail_df['统计金额'], errors='coerce').fillna(0).sum())
+    summary_df = pd.DataFrame([{
+        '项目': '店铺自卖',
+        '期间': month_text,
+        '账期起点': start_text[:10],
+        '账期终点': end_text[:10],
+        '汇总金额': total_amount,
+        '计入明细行数': int(len(detail_df)),
+        '未匹配/不计入资金流水条数': int(len(unmatched_df)),
+    }])
+
+    preferred_detail_columns = [
+        '计入口径', '统计金额', '匹配订单行数', '自卖订单行数',
+        'fund_id', '资金流水_流水单号', '资金流水_记账时间', '资金流水_动账类型',
+        '资金流水_收支类型', '资金流水_收支金额', '资金流水_账户余额',
+        '资金流水_关联订单号', '资金流水_关联售后单号', '资金流水_关联提现单号',
+        '资金流水_关联保单号', '资金流水_关联礼物单号', '资金流水_详情',
+        'order_row_id', '订单_订单号', '订单_订单下单时间', '订单_订单发货时间',
+        '订单_订单确认收货时间', '订单_订单完成结算时间', '订单_订单状态',
+        '订单_发货方式', '订单_收件人姓名', '订单_收件人地址', '订单_省',
+        '订单_市', '订单_区', '订单_收件人手机', '订单_买家备注', '订单_商家备注',
+        '订单_打标颜色', '订单_商品总价', '订单_订单实际支付金额',
+        '订单_订单实际收款金额', '订单_订单运费', '订单_商品优惠',
+        '订单_跨店优惠', '订单_商品改价', '订单_积分抵扣', '订单_支付方式',
+        '订单_支付时间', '订单_交易单号', '订单_物流公司', '订单_快递单号',
+        '订单_技术服务费', '订单_技术服务费_人气卡返还', '订单_运费险预计投保费用',
+        '订单_带货方式', '订单_带货账号类型', '订单_带货账号昵称',
+        '订单_带货费用类型', '订单_带货费用', '订单_带货费用渠道',
+        '订单_带货佣金率', '订单_礼物单号', '订单_商品名称', '订单_商品编码_平台',
+        '订单_商品编码_自定义', '订单_SKU编码_自定义', '订单_商品属性',
+        '订单_商品价格_单件', '订单_商品实际价格_单件', '订单_商品实际价格_总共',
+        '订单_是否预售', '订单_商品数量', '订单_商品平台券优惠',
+        '订单_商品平均运费', '订单_定制信息', '订单_定制预览图',
+        '订单_商品发货', '订单_商品售后', '订单_商品已退款金额',
+    ]
+    preferred_unmatched_columns = [
+        '不计入原因', '匹配订单行数', '自卖订单行数',
+        *[column for column in preferred_detail_columns if column not in {'计入口径', '统计金额', '匹配订单行数', '自卖订单行数'}],
+    ]
+
+    if detail_df.empty:
+        detail_df = pd.DataFrame(columns=preferred_detail_columns)
+    else:
+        detail_df = detail_df[[column for column in preferred_detail_columns if column in detail_df.columns]]
+
+    if unmatched_df.empty:
+        unmatched_df = pd.DataFrame(columns=preferred_unmatched_columns)
+    else:
+        unmatched_df = unmatched_df[[column for column in preferred_unmatched_columns if column in unmatched_df.columns]]
+
+    return summary_df, detail_df, unmatched_df, total_amount
+
+
+def _store_self_sale_amount_columns() -> set[str]:
+    return {
+        '汇总金额', '统计金额', '资金流水_收支金额', '资金流水_账户余额',
+        '订单_商品总价', '订单_订单实际支付金额', '订单_订单实际收款金额',
+        '订单_订单运费', '订单_商品优惠', '订单_跨店优惠', '订单_商品改价',
+        '订单_积分抵扣', '订单_技术服务费', '订单_技术服务费_人气卡返还',
+        '订单_运费险预计投保费用', '订单_带货费用', '订单_商品价格_单件',
+        '订单_商品实际价格_单件', '订单_商品实际价格_总共',
+        '订单_商品平台券优惠', '订单_商品平均运费', '订单_商品已退款金额',
+    }
+
+
+def _store_self_sale_text_columns() -> set[str]:
+    return {
+        '资金流水_流水单号', '资金流水_关联订单号', '资金流水_关联售后单号',
+        '资金流水_关联提现单号', '资金流水_关联保单号', '资金流水_关联礼物单号',
+        '订单_订单号', '订单_收件人手机', '订单_交易单号', '订单_快递单号',
+        '订单_礼物单号', '订单_商品编码_平台', '订单_商品编码_自定义',
+        '订单_SKU编码_自定义',
+    }
+
+
+def _iter_dataframe_chunks(df: pd.DataFrame, chunk_size: int):
+    if chunk_size <= 0:
+        raise ValueError('导出切割行数配置不正确')
+    for start_index in range(0, len(df), chunk_size):
+        yield df.iloc[start_index:start_index + chunk_size].copy()
+
+
+def _write_dataframe_excel_streaming(df: pd.DataFrame, sheet_name: str) -> BytesIO:
+    output = BytesIO()
+    workbook = Workbook(write_only=True)
+    worksheet = workbook.create_sheet(title=sheet_name)
+    worksheet.append(list(df.columns))
+    for row in df.itertuples(index=False, name=None):
+        worksheet.append([None if pd.isna(value) else value for value in row])
+    workbook.save(output)
+    output.seek(0)
+    return output
+
+
+def _write_chunked_dataframe_excels_to_zip(
+    zf: zipfile.ZipFile,
+    df: pd.DataFrame,
+    sheet_name: str,
+    filename_prefix: str,
+    amount_columns: set[str],
+    text_columns: set[str],
+    chunk_size: int,
+) -> None:
+    if df.empty:
+        excel = _write_dataframe_excel_streaming(df, sheet_name)
+        zf.writestr(f"{filename_prefix}_无数据.xlsx", excel.getvalue())
+        return
+
+    for part_index, chunk_df in enumerate(_iter_dataframe_chunks(df, chunk_size), start=1):
+        excel = _write_dataframe_excel_streaming(chunk_df, sheet_name)
+        zf.writestr(f"{filename_prefix}_第{part_index:03d}部分.xlsx", excel.getvalue())
+
+
+def _write_store_self_sale_zip(
+    archive_target: BytesIO | str | Path,
+    start_date: str | None,
+    end_date: str | None,
+    chunk_size: int = EXPORT_ZIP_CHUNK_SIZE,
+) -> str:
+    start_text, end_text = _normalize_commission_date_range(start_date, end_date)
+    db_path = _get_database_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        joined_df = _query_store_self_sale_joined_rows(conn, start_text, end_text)
+
+    summary_df, detail_df, unmatched_df, total_amount = _build_store_self_sale_frames(
+        joined_df,
+        start_text,
+        end_text,
+    )
+    month_text = _build_commission_month_text(start_text, end_text)
+    amount_columns = _store_self_sale_amount_columns()
+    text_columns = _store_self_sale_text_columns()
+
+    with zipfile.ZipFile(archive_target, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        summary_excel = _write_dataframe_excel(
+            [('店铺自卖', summary_df)],
+            amount_columns=amount_columns,
+            text_columns=text_columns,
+        )
+        zf.writestr('店铺自卖_汇总.xlsx', summary_excel.getvalue())
+        _write_chunked_dataframe_excels_to_zip(
+            zf,
+            detail_df,
+            '来源明细',
+            '店铺自卖_来源明细',
+            amount_columns,
+            text_columns,
+            chunk_size,
+        )
+        _write_chunked_dataframe_excels_to_zip(
+            zf,
+            unmatched_df,
+            '未匹配',
+            '店铺自卖_未匹配',
+            amount_columns,
+            text_columns,
+            chunk_size,
+        )
+
+    return _build_store_self_sale_zip_name(month_text, total_amount)
+
+
+def export_store_self_sale_zip(
+    start_date: str | None,
+    end_date: str | None,
+    chunk_size: int = EXPORT_ZIP_CHUNK_SIZE,
+) -> tuple[BytesIO, str]:
+    archive = BytesIO()
+    download_name = _write_store_self_sale_zip(archive, start_date, end_date, chunk_size)
+    archive.seek(0)
+    return archive, download_name
+
+
+def export_store_self_sale_zip_file(
+    output_path: str | Path,
+    start_date: str | None,
+    end_date: str | None,
+    chunk_size: int = EXPORT_ZIP_CHUNK_SIZE,
+) -> str:
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    start_text, end_text = _normalize_commission_date_range(start_date, end_date)
+    db_path = _get_database_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    start_datetime = datetime.strptime(start_text, '%Y-%m-%d %H:%M:%S')
+    end_datetime = datetime.strptime(end_text, '%Y-%m-%d %H:%M:%S')
+    total_amount = 0.0
+    detail_row_count = 0
+    unmatched_row_count = 0
+    detail_part_index = 1
+    unmatched_part_index = 1
+
+    with sqlite3.connect(db_path) as conn, zipfile.ZipFile(
+        output_file,
+        'w',
+        compression=zipfile.ZIP_DEFLATED,
+    ) as zf:
+        conn.row_factory = sqlite3.Row
+        current_start = start_datetime
+        while current_start <= end_datetime:
+            if current_start.month == 12:
+                next_month = datetime(current_start.year + 1, 1, 1)
+            else:
+                next_month = datetime(current_start.year, current_start.month + 1, 1)
+            current_end = min(end_datetime, next_month - timedelta(seconds=1))
+
+            joined_df = _query_store_self_sale_joined_rows(
+                conn,
+                current_start.strftime('%Y-%m-%d %H:%M:%S'),
+                current_end.strftime('%Y-%m-%d %H:%M:%S'),
+            )
+            _summary_df, detail_df, unmatched_df, month_amount = _build_store_self_sale_frames(
+                joined_df,
+                current_start.strftime('%Y-%m-%d %H:%M:%S'),
+                current_end.strftime('%Y-%m-%d %H:%M:%S'),
+            )
+            total_amount += month_amount
+            detail_row_count += len(detail_df)
+            unmatched_row_count += len(unmatched_df)
+
+            for chunk_df in _iter_dataframe_chunks(detail_df, chunk_size):
+                excel = _write_dataframe_excel_streaming(chunk_df, '来源明细')
+                zf.writestr(
+                    f'店铺自卖_来源明细_第{detail_part_index:03d}部分.xlsx',
+                    excel.getvalue(),
+                )
+                detail_part_index += 1
+
+            for chunk_df in _iter_dataframe_chunks(unmatched_df, chunk_size):
+                excel = _write_dataframe_excel_streaming(chunk_df, '未匹配')
+                zf.writestr(
+                    f'店铺自卖_未匹配_第{unmatched_part_index:03d}部分.xlsx',
+                    excel.getvalue(),
+                )
+                unmatched_part_index += 1
+
+            del joined_df, detail_df, unmatched_df
+            current_start = next_month
+
+        if detail_part_index == 1:
+            empty_excel = _write_dataframe_excel_streaming(pd.DataFrame(), '来源明细')
+            zf.writestr('店铺自卖_来源明细_无数据.xlsx', empty_excel.getvalue())
+        if unmatched_part_index == 1:
+            empty_excel = _write_dataframe_excel_streaming(pd.DataFrame(), '未匹配')
+            zf.writestr('店铺自卖_未匹配_无数据.xlsx', empty_excel.getvalue())
+
+        month_text = _build_commission_month_text(start_text, end_text)
+        summary_df = pd.DataFrame([{
+            '项目': '店铺自卖',
+            '期间': month_text,
+            '账期起点': start_text[:10],
+            '账期终点': end_text[:10],
+            '汇总金额': total_amount,
+            '计入明细行数': detail_row_count,
+            '未匹配/不计入资金流水条数': unmatched_row_count,
+        }])
+        summary_excel = _write_dataframe_excel(
+            [('店铺自卖', summary_df)],
+            amount_columns=_store_self_sale_amount_columns(),
+            text_columns=_store_self_sale_text_columns(),
+        )
+        zf.writestr('店铺自卖_汇总.xlsx', summary_excel.getvalue())
+
+    return _build_store_self_sale_zip_name(month_text, total_amount)
+
+
 def export_commission_summary_zip(
     start_date: str | None,
     end_date: str | None,
@@ -1076,6 +1648,20 @@ def export_commission_detail_zip(
             )
             zf.writestr('无匹配佣金明细.xlsx', empty_excel.getvalue())
         else:
+            combined_detail_df = df[COMMISSION_DETAIL_COLUMNS].copy()
+            combined_detail_excel = _write_dataframe_excel(
+                [('明细', combined_detail_df)],
+                amount_columns={'收支金额'},
+                text_columns={'流水单号', '关联订单号', '带货账号昵称'},
+            )
+            month_text = _safe_download_part(
+                _build_commission_month_text(start_text, end_text)
+            )
+            zf.writestr(
+                f'澳柯视频号佣金合并明细总表_{month_text}.xlsx',
+                combined_detail_excel.getvalue(),
+            )
+
             grouped = df.groupby('带货账号昵称', sort=True)
             for nickname, group_df in grouped:
                 amount_sum = float(group_df['收支金额'].sum())

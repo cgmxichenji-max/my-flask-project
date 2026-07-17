@@ -116,7 +116,9 @@ def get_settings():
                 CASE reminder_type
                     WHEN 'global' THEN 0
                     WHEN 'exemption_expiry' THEN 1
-                    ELSE 2
+                    WHEN 'monthly' THEN 2
+                    WHEN 'weekly' THEN 3
+                    ELSE 4
                 END,
                 id
             """
@@ -126,6 +128,7 @@ def get_settings():
         'global': None,
         'exemption_expiry': None,
         'monthly': [],
+        'weekly': [],
     }
     for row in rows:
         item = row_to_dict(row)
@@ -135,6 +138,8 @@ def get_settings():
             result['exemption_expiry'] = item
         elif item['reminder_type'] == 'monthly':
             result['monthly'].append(item)
+        elif item['reminder_type'] == 'weekly':
+            result['weekly'].append(item)
     return result
 
 
@@ -282,6 +287,99 @@ def delete_monthly_reminder(record_id):
         conn.commit()
 
 
+def validate_weekly_payload(data):
+    title = (data.get('title') or '').strip()
+    message = (data.get('message') or '').strip()
+    if not title:
+        raise ValueError('提醒标题不能为空')
+    raw_weekdays = data.get('weekdays')
+    if not isinstance(raw_weekdays, list):
+        raise ValueError('请选择提醒星期')
+    weekdays = []
+    for value in raw_weekdays:
+        weekday = int_in_range(value, '星期', 1, 7)
+        if weekday not in weekdays:
+            weekdays.append(weekday)
+    if not weekdays:
+        raise ValueError('请至少选择一个星期')
+    weekdays.sort()
+    return {
+        'title': title,
+        'message': message,
+        'is_enabled': bool_from_payload(data.get('is_enabled')),
+        'weekdays': weekdays,
+    }
+
+
+def create_weekly_reminder(data):
+    ensure_tables()
+    payload = validate_weekly_payload(data)
+    current_time = now_text()
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO reminder_settings (
+                reminder_key, reminder_type, title, message, is_enabled,
+                config_json, created_at, updated_at
+            )
+            VALUES (?, 'weekly', ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"weekly_{uuid.uuid4().hex}",
+                payload['title'],
+                payload['message'],
+                payload['is_enabled'],
+                json.dumps({'weekdays': payload['weekdays']}, ensure_ascii=False),
+                current_time,
+                current_time,
+            ),
+        )
+        row_id = cursor.lastrowid
+        conn.execute(
+            "UPDATE reminder_settings SET reminder_key = ? WHERE id = ?",
+            (f'weekly_{row_id}', row_id),
+        )
+        conn.commit()
+    return row_id
+
+
+def update_weekly_reminder(record_id, data):
+    ensure_tables()
+    payload = validate_weekly_payload(data)
+    current_time = now_text()
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE reminder_settings
+            SET title = ?, message = ?, is_enabled = ?, config_json = ?, updated_at = ?
+            WHERE id = ? AND reminder_type = 'weekly'
+            """,
+            (
+                payload['title'],
+                payload['message'],
+                payload['is_enabled'],
+                json.dumps({'weekdays': payload['weekdays']}, ensure_ascii=False),
+                current_time,
+                record_id,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError('提醒不存在')
+        conn.commit()
+
+
+def delete_weekly_reminder(record_id):
+    ensure_tables()
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM reminder_settings WHERE id = ? AND reminder_type = 'weekly'",
+            (record_id,),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError('提醒不存在')
+        conn.commit()
+
+
 def get_global_enabled():
     settings = get_settings()
     global_setting = settings.get('global')
@@ -303,6 +401,7 @@ def get_active_reminders():
             int(exemption_setting.get('config', {}).get('days_before', 7) or 7),
         ))
     reminders.extend(get_monthly_reminders(today, settings.get('monthly') or []))
+    reminders.extend(get_weekly_reminders(today, settings.get('weekly') or []))
     return reminders
 
 
@@ -389,5 +488,29 @@ def get_monthly_reminders(today, monthly_settings):
             'message': f"{message}（{matched_target.isoformat()}，{day_text}）",
             'date': matched_target.isoformat(),
             'days_left': matched_days_left,
+        })
+    return reminders
+
+
+def get_weekly_reminders(today, weekly_settings):
+    reminders = []
+    weekday = today.isoweekday()
+    for setting in weekly_settings:
+        if not setting.get('is_enabled'):
+            continue
+        config = setting.get('config') or {}
+        weekdays = config.get('weekdays') or []
+        try:
+            selected_weekdays = {int(value) for value in weekdays}
+        except (TypeError, ValueError):
+            continue
+        if weekday not in selected_weekdays:
+            continue
+        reminders.append({
+            'type': 'weekly',
+            'title': setting.get('title') or '周度提醒',
+            'message': setting.get('message') or setting.get('title') or '',
+            'date': today.isoformat(),
+            'days_left': 0,
         })
     return reminders

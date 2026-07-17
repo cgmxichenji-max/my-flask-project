@@ -192,6 +192,7 @@
             <div class="export-actions">
                 <button class="btn btn-primary" type="button" id="btn-export-dy-commission-summary">佣金汇总导出</button>
                 <button class="btn btn-primary" type="button" id="btn-export-dy-commission-details">达人/团长明细导出（ZIP）</button>
+                <button class="btn btn-primary" type="button" id="btn-export-dy-store-self-sale">店铺自卖下载</button>
                 {% if enable_detail_source_commission %}
                 <button class="btn btn-primary" type="button" id="btn-export-dy-detail-commission-summary">按明细表佣金汇总导出</button>
                 <button class="btn btn-primary" type="button" id="btn-export-dy-detail-commission-details">按明细表达人/团长明细导出（ZIP）</button>
@@ -295,7 +296,8 @@
         "import_merchant":  "{{ url_for(bp_name + '.import_merchant') }}",
         "export_data":      "{{ url_for(bp_name + '.export_data') }}",
         "export_commission_summary": "{{ url_for(bp_name + '.export_commission_summary') }}",
-        "export_commission_details": "{{ url_for(bp_name + '.export_commission_details') }}"
+        "export_commission_details": "{{ url_for(bp_name + '.export_commission_details') }}",
+        "export_store_self_sale": "{{ url_for(bp_name + '.export_store_self_sale') }}"
         {% if enable_detail_source_commission %}
         ,
         "export_detail_source_commission_summary": "{{ url_for(bp_name + '.export_detail_source_commission_summary') }}",
@@ -570,6 +572,49 @@
         const btnExportDyCommissionDetails = document.getElementById('btn-export-dy-commission-details');
         const btnExportDyDetailCommissionSummary = document.getElementById('btn-export-dy-detail-commission-summary');
         const btnExportDyDetailCommissionDetails = document.getElementById('btn-export-dy-detail-commission-details');
+        const btnExportDyStoreSelfSale = document.getElementById('btn-export-dy-store-self-sale');
+
+        async function handleStoreSelfSaleExport() {
+            if (!btnExportDyStoreSelfSale || !dyCommissionStartDateInput || !dyCommissionEndDateInput) return;
+            const startDate = (dyCommissionStartDateInput.value || '').trim();
+            const endDate = (dyCommissionEndDateInput.value || '').trim();
+            if (!startDate || !endDate || startDate > endDate) {
+                showMessage(dyCommissionExportResult, '请选择有效的开始日期和结束日期', false);
+                return;
+            }
+            const fd = new FormData();
+            fd.append('start_date', startDate);
+            fd.append('end_date', endDate);
+            rememberDyCommissionDateRange(startDate, endDate);
+            btnExportDyStoreSelfSale.disabled = true;
+            btnExportDyStoreSelfSale.textContent = '正在生成…';
+            try {
+                const createResponse = await fetch(API_URLS.export_store_self_sale, {method: 'POST', body: fd});
+                const job = await parseJsonResponse(createResponse);
+                if (!createResponse.ok) throw new Error(job.message || '创建导出任务失败');
+                while (true) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    const statusResponse = await fetch(job.status_url);
+                    const status = await parseJsonResponse(statusResponse);
+                    if (!statusResponse.ok || status.status === 'failed') throw new Error(status.message || '导出失败');
+                    if (status.status === 'complete') {
+                        const link = document.createElement('a');
+                        link.href = status.download_url || job.download_url;
+                        document.body.appendChild(link);
+                        link.click();
+                        link.remove();
+                        showMessage(dyCommissionExportResult, '店铺自卖报表已生成，正在下载 ZIP', true);
+                        break;
+                    }
+                }
+            } catch (error) {
+                showMessage(dyCommissionExportResult, `店铺自卖下载失败：${error.message}`, false);
+            } finally {
+                btnExportDyStoreSelfSale.disabled = false;
+                btnExportDyStoreSelfSale.textContent = '店铺自卖下载';
+            }
+        }
+        if (btnExportDyStoreSelfSale) btnExportDyStoreSelfSale.addEventListener('click', handleStoreSelfSaleExport);
         if (btnExportDyCommissionSummary) {
             btnExportDyCommissionSummary.addEventListener('click', () => handleCommissionExport({
                 url: API_URLS.export_commission_summary,

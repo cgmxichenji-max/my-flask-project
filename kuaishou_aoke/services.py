@@ -1319,7 +1319,7 @@ def export_commission_detail_zip(
                     amount_columns=KUAISHOU_COMMISSION_AMOUNT_COLUMNS,
                     text_columns={'订单号', '商品ID', '达人ID', '团长id'},
                 )
-                filename = _safe_download_part(f'{creator_name}_{amount_sum:.2f}_快手{month_text}') + '.xlsx'
+                filename = _safe_download_part(f'{creator_name} {amount_sum:.2f} 快手{month_text}') + '.xlsx'
                 zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
 
         if not leader_rows.empty:
@@ -1334,7 +1334,7 @@ def export_commission_detail_zip(
                     amount_columns=KUAISHOU_COMMISSION_AMOUNT_COLUMNS,
                     text_columns={'订单号', '商品ID', '达人ID', '团长id'},
                 )
-                filename = _safe_download_part(f'{leader_name}_{amount_sum:.2f}_团长快手{month_text}') + '.xlsx'
+                filename = _safe_download_part(f'{leader_name} {amount_sum:.2f} 团长快手{month_text}') + '.xlsx'
                 zf.writestr(_unique_zip_name(used_names, filename), detail_excel.getvalue())
 
         if not unmatched_df.empty:
@@ -1351,3 +1351,155 @@ def export_commission_detail_zip(
 
     archive.seek(0)
     return archive, _build_commission_zip_name('快手澳柯佣金明细', start_text, end_text)
+
+
+def export_store_self_sale_zip_file(
+    output_path: str | Path,
+    start_date: str | None,
+    end_date: str | None,
+    chunk_size: int = 50000,
+) -> str:
+    start_text, end_text = _normalize_commission_date_range(start_date, end_date)
+    db_path = _get_database_path()
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    fund_fields = [
+        'id', 'actual_settlement_time', 'order_no', 'product_id', 'product_name',
+        'product_quantity', 'order_paid_amount', 'total_income', 'order_refund_amount',
+        'payment_marketing_refund', 'technical_service_fee',
+        'presale_increment_technical_service_fee', 'creator_id', 'creator_commission',
+        'leader_id', 'leader_commission', 'kuaizhuanke_id', 'kuaizhuanke_commission',
+        'service_provider_id', 'service_provider_commission', 'other_fee',
+        'other_fee_detail', 'total_expense', 'actual_settlement_amount',
+        'settlement_rule', 'fund_channel', 'remark',
+    ]
+    order_fields = [
+        'id', 'order_no', 'product_id', 'product_name', 'product_spec', 'sku_code',
+        'order_created_at', 'order_paid_at', 'order_status', 'paid_amount',
+        'after_sales_status', 'channel', 'cps_creator_id', 'cps_creator_nickname',
+        'leader_id', 'leader_nickname', 'kuaizhuanke_id', 'kuaizhuanke_nickname',
+        'authorized_promoter_id', 'authorized_promoter_nickname',
+    ]
+
+    with sqlite3.connect(db_path) as conn:
+        _ensure_commission_tables(conn)
+        fund_df = pd.read_sql_query(
+            f"""SELECT {', '.join(fund_fields)}
+                FROM {KUAISHOU_FUND_FLOW_TABLE_NAME}
+                WHERE {_commission_date_expr()} >= ? AND {_commission_date_expr()} <= ?
+                ORDER BY actual_settlement_time, id""",
+            conn,
+            params=[start_text, end_text],
+        )
+        order_df = pd.read_sql_query(
+            f"SELECT {', '.join(order_fields)} FROM {KUAISHOU_ORDER_TABLE_NAME} ORDER BY id",
+            conn,
+        )
+
+    def normalized_key(series: pd.Series) -> pd.Series:
+        return series.fillna('').astype(str).str.strip().str.lstrip("'")
+
+    for df, order_column, product_column in (
+        (fund_df, 'order_no', 'product_id'),
+        (order_df, 'order_no', 'product_id'),
+    ):
+        df['_order_key'] = normalized_key(df[order_column])
+        df['_product_key'] = normalized_key(df[product_column])
+
+    key_columns = ['_order_key', '_product_key']
+    fund_counts = fund_df.groupby(key_columns, dropna=False).size().rename('资金记录条数').reset_index()
+    order_counts = order_df.groupby(key_columns, dropna=False).size().rename('订单匹配条数').reset_index()
+    latest_orders = order_df.drop_duplicates(key_columns, keep='last')
+
+    fund_reverse = {value: key for key, value in FUND_FLOW_COLUMN_MAPPING.items()}
+    order_reverse = {value: key for key, value in ORDER_COLUMN_MAPPING.items()}
+    fund_df = fund_df.rename(columns={
+        column: f"资金流水_{fund_reverse.get(column, column)}"
+        for column in fund_fields
+    })
+    latest_orders = latest_orders.rename(columns={
+        column: f"订单_{order_reverse.get(column, column)}"
+        for column in order_fields
+    })
+
+    rows_df = fund_df.merge(fund_counts, on=key_columns, how='left')
+    rows_df = rows_df.merge(order_counts, on=key_columns, how='left')
+    rows_df = rows_df.merge(latest_orders, on=key_columns, how='left', indicator=True)
+    rows_df['订单匹配条数'] = rows_df['订单匹配条数'].fillna(0).astype(int)
+    rows_df['资金记录条数'] = rows_df['资金记录条数'].fillna(0).astype(int)
+
+    amount_columns = [
+        '资金流水_合计收入(元)', '资金流水_订单退款(元)',
+        '资金流水_达人佣金(元)', '资金流水_团长佣金(元)',
+        '资金流水_快赚客佣金(元)', '资金流水_服务商佣金(元)',
+    ]
+    for column in amount_columns:
+        rows_df[column] = pd.to_numeric(rows_df[column], errors='coerce').fillna(0.0)
+    rows_df['店铺自卖金额'] = (
+        rows_df['资金流水_合计收入(元)'] - rows_df['资金流水_订单退款(元)']
+    )
+
+    rows_df['不计入原因'] = ''
+    rows_df.loc[rows_df['资金记录条数'] > 1, '不计入原因'] = '资金流水同订单商品存在多条记录'
+    eligible = rows_df['不计入原因'].eq('')
+    rows_df.loc[eligible & rows_df['_merge'].eq('left_only'), '不计入原因'] = '未匹配订单'
+    eligible = rows_df['不计入原因'].eq('')
+    rows_df.loc[eligible & rows_df['订单匹配条数'].gt(1), '不计入原因'] = '订单表匹配多条'
+    eligible = rows_df['不计入原因'].eq('')
+    rows_df.loc[
+        eligible & rows_df['订单_渠道'].fillna('').astype(str).str.strip().ne('自营'),
+        '不计入原因',
+    ] = '非自营渠道'
+    eligible = rows_df['不计入原因'].eq('')
+    has_explicit_commission = pd.Series(False, index=rows_df.index)
+    for column in amount_columns[2:]:
+        has_explicit_commission |= rows_df[column].abs().gt(0.0001)
+    authorized_promotion = rows_df['资金流水_其他收费明细'].fillna('').astype(str).str.contains(
+        '授权达人推广', regex=False,
+    )
+    rows_df.loc[eligible & has_explicit_commission, '不计入原因'] = '存在达人/团长/快赚客/服务商佣金'
+    eligible = rows_df['不计入原因'].eq('')
+    rows_df.loc[eligible & authorized_promotion, '不计入原因'] = '存在授权达人推广费用'
+
+    rows_df = rows_df.drop(columns=key_columns + ['_merge'])
+    detail_df = rows_df[rows_df['不计入原因'].eq('')].drop(columns=['不计入原因']).copy()
+    excluded_df = rows_df[rows_df['不计入原因'].ne('')].copy()
+    detail_total = round(float(pd.to_numeric(detail_df['店铺自卖金额'], errors='coerce').fillna(0).sum()), 2)
+    summary_df = pd.DataFrame([{
+        '项目': '快手澳柯店铺自卖',
+        '期间': _build_commission_month_text(start_text, end_text),
+        '开始日期': start_text,
+        '结束日期': end_text,
+        '汇总金额': detail_total,
+        '计入明细行数': len(detail_df),
+        '未匹配/不计入行数': len(excluded_df),
+    }])
+    source_total = round(float(detail_df['店铺自卖金额'].sum()), 2)
+    if source_total != detail_total:
+        raise ValueError('店铺自卖汇总金额与表二店铺自卖金额合计不一致')
+
+    def write_parts(archive: zipfile.ZipFile, df: pd.DataFrame, prefix: str, sheet_name: str) -> None:
+        if df.empty:
+            archive.writestr(
+                f'{prefix}_无数据.xlsx',
+                _write_dataframe_excel([(sheet_name, df)]).getvalue(),
+            )
+            return
+        for offset in range(0, len(df), chunk_size):
+            part = offset // chunk_size + 1
+            archive.writestr(
+                f'{prefix}_第{part:03d}部分.xlsx',
+                _write_dataframe_excel([(sheet_name, df.iloc[offset:offset + chunk_size])]).getvalue(),
+            )
+
+    with zipfile.ZipFile(output_file, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            '表一_店铺自卖汇总.xlsx',
+            _write_dataframe_excel([('店铺自卖汇总', summary_df)]).getvalue(),
+        )
+        write_parts(archive, detail_df, '表二_店铺自卖来源明细', '来源明细')
+        write_parts(archive, excluded_df, '表三_未匹配及不计入', '未匹配及不计入')
+
+    safe_month = _safe_download_part(_build_commission_month_text(start_text, end_text))
+    return f'快手澳柯_店铺自卖_{safe_month}_{detail_total:.2f}.zip'

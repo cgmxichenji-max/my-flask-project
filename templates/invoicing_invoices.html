@@ -74,6 +74,24 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 }
 </style></head>
 <body>
+{% if request.args.get('auto_online_invoice') == '1' or request.args.get('ordinary_six_percent') == '1' %}
+<script>
+(function(){
+  var messages=[];
+  {% if request.args.get('auto_online_invoice') == '1' %}
+  messages.push('检测到抖音平台下载文件，已自动勾选“网上开票”。');
+  {% endif %}
+  {% if request.args.get('ordinary_six_percent') == '1' %}
+  messages.push('该发票为税率 6% 的普通发票，请注意核查。');
+  {% endif %}
+  alert(messages.join('\n'));
+  var url=new URL(window.location.href);
+  url.searchParams.delete('auto_online_invoice');
+  url.searchParams.delete('ordinary_six_percent');
+  window.history.replaceState({},'',url.pathname+(url.search ? url.search : '')+url.hash);
+})();
+</script>
+{% endif %}
 <header>发票列表</header>
 <div class="nav">
 <a href="/">← 首页</a>
@@ -99,6 +117,7 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 <a href="{{ url_for('invoicing.invoices_upload_form') }}" class="btn-upload">+ 上传新发票</a>
 <button type="submit" form="download-form" class="btn-download" id="download-selected-btn" disabled>下载选中发票</button>
 <button type="submit" form="download-form" formaction="{{ url_for('invoicing.invoices_export_selected') }}" class="btn-download" id="export-selected-btn" disabled>导出选中 Excel</button>
+<button type="button" class="btn-download" id="bulk-tax-btn">{{ '确认报税' if bulk_tax_mode else '全部报税' }}</button>
 <input type="text" id="filter-input" placeholder="筛选：发票号/类型/税率/销售方/购买方/达人团长/别名/项目（任一含关键字）">
 <span>共 <span id="total">{{ rows|length }}</span> 张，显示 <span id="visible">{{ rows|length }}</span> 张</span>
 </div>
@@ -118,6 +137,7 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 <th class="sortable" data-sort="alias_name" data-type="text" data-unmatched-first="1">别名 <span class="sort-mark"></span></th>
 <th class="sortable" data-sort="is_usable" data-type="number">可用 <span class="sort-mark"></span></th>
 <th class="sortable" data-sort="tax_filed" data-type="number">已报税 <span class="sort-mark"></span></th>
+<th class="sortable" data-sort="tax_filed_at" data-type="text">报税日期 <span class="sort-mark"></span></th>
 <th class="sortable" data-sort="online_invoice" data-type="number">网上开票 <span class="sort-mark"></span></th>
 <th>PDF</th><th>操作</th>
 </tr></thead>
@@ -139,6 +159,7 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
     data-alias_unmatched="{{ 1 if not r.alias_name else 0 }}"
     data-is_usable="{{ r.is_usable or 0 }}"
     data-tax_filed="{{ r.tax_filed or 0 }}"
+    data-tax_filed_at="{{ r.tax_filed_at or '' }}"
     data-online_invoice="{{ r.online_invoice or 0 }}">
 <td class="checkbox-col"><input type="checkbox" class="row-check" name="invoice_ids" value="{{ r.id }}" form="download-form"></td>
 <td>
@@ -184,6 +205,7 @@ td input[type=text]{padding:3px;font-size:12px;width:60px;}
 <button type="submit" class="btn-mini {{ 'btn-del' if r.tax_filed else 'btn-save' }}">{{ '撤销' if r.tax_filed else '标记' }}</button>
 </form>
 </td>
+<td>{% if r.tax_filed_at %}{{ r.tax_filed_at }}{% elif r.tax_filed %}历史已报税（时间未知）{% else %}—{% endif %}</td>
 <td class="{{ 'usable-yes' if r.online_invoice else 'usable-no' }}">
 <form class="inline-form" method="post" action="{{ url_for('invoicing.invoice_toggle_online_invoice', invoice_id=r.id) }}">
 <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -304,6 +326,9 @@ var visible=document.getElementById('visible');
 var selectAll=document.getElementById('select-all');
 var downloadBtn=document.getElementById('download-selected-btn');
 var exportBtn=document.getElementById('export-selected-btn');
+var bulkTaxBtn=document.getElementById('bulk-tax-btn');
+var downloadForm=document.getElementById('download-form');
+var bulkTaxMode={{ 'true' if bulk_tax_mode else 'false' }};
 var currentSort={key:null,dir:'asc'};
 var modal=document.getElementById('match-modal');
 var modalTitle=document.getElementById('match-modal-title');
@@ -702,6 +727,20 @@ tbody.querySelectorAll('.row-check').forEach(function(box){
     updateDownloadButton();
   });
 });
+bulkTaxBtn.addEventListener('click',function(){
+  if(!bulkTaxMode){
+    window.location.href={{ url_for('invoicing.invoices_list', tax_filed=0, bulk_tax=1)|tojson }};
+    return;
+  }
+  var checked=tbody.querySelectorAll('.row-check:checked').length;
+  if(checked===0){
+    alert('请至少保留一张已勾选的发票');
+    return;
+  }
+  if(!confirm('确认将选中的 '+checked+' 张发票标记为已报税，并登记北京时间吗？')) return;
+  downloadForm.action="{{ url_for('invoicing.invoices_bulk_tax_filed') }}";
+  downloadForm.submit();
+});
 document.querySelectorAll('.invoice-number-btn').forEach(function(button){
   button.addEventListener('click',function(){
     loadMatchDetails(button);
@@ -729,6 +768,10 @@ document.addEventListener('keydown',function(event){
   if(event.key==='Escape'&&!customerBillsModal.hidden) setCustomerBillsOpen(false);
 });
 applyFilter();
+if(bulkTaxMode){
+  tbody.querySelectorAll('.row-check').forEach(function(box){ box.checked=true; });
+  selectAll.checked=rows.length>0;
+}
 updateDownloadButton();
 })();
 </script>

@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, current_app, jsonify
 from copy import copy
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import json
 import io
 import os
@@ -198,6 +199,8 @@ def _ensure_invoice_expected_match_table(conn):
     existing = {row[1] for row in conn.execute("PRAGMA table_info(invoice)").fetchall()}
     if 'tax_filed' not in existing:
         conn.execute("ALTER TABLE invoice ADD COLUMN tax_filed INTEGER NOT NULL DEFAULT 0")
+    if 'tax_filed_at' not in existing:
+        conn.execute("ALTER TABLE invoice ADD COLUMN tax_filed_at TEXT")
     if 'online_invoice' not in existing:
         conn.execute("ALTER TABLE invoice ADD COLUMN online_invoice INTEGER NOT NULL DEFAULT 0")
 
@@ -1342,6 +1345,11 @@ def invoices_list():
     only_unmatched = request.args.get('filter') == 'unmatched'
     usable_filter = (request.args.get('usable') or '').strip()
     tax_filed_filter = (request.args.get('tax_filed') or '').strip()
+    bulk_tax_mode = request.args.get('bulk_tax') == '1'
+    if bulk_tax_mode:
+        only_unmatched = False
+        usable_filter = ''
+        tax_filed_filter = '0'
     download_ok = (request.args.get('download_ok') or '').strip()
     download_error = (request.args.get('download_error') or '').strip()
     with get_db_connection() as conn:
@@ -1351,7 +1359,8 @@ def invoices_list():
                    i.invoice_type, i.tax_rate,
                    i.seller_name, i.buyer_name, i.project_name,
                    i.alias_name,
-                   i.pdf_remark, i.is_usable, i.tax_filed, i.online_invoice, i.customer_id, i.entity_id,
+                   i.pdf_remark, i.is_usable, i.tax_filed, i.tax_filed_at,
+                   i.online_invoice, i.customer_id, i.entity_id,
                    i.pdf_file_path, i.qr_content, i.created_at,
                    m.expected_amount_id AS matched_expected_amount_id,
                    COALESCE(m.match_count, 0) AS matched_bill_count,
@@ -1399,6 +1408,7 @@ def invoices_list():
         only_unmatched=only_unmatched,
         usable_filter=usable_filter,
         tax_filed_filter=tax_filed_filter,
+        bulk_tax_mode=bulk_tax_mode,
         download_ok=download_ok,
         download_error=download_error,
     )
@@ -2112,6 +2122,43 @@ def invoices_export_selected():
     )
 
 
+@invoicing_bp.route('/invoices/bulk-tax-filed', methods=['POST'])
+@module_required('invoicing')
+def invoices_bulk_tax_filed():
+    selected_ids = []
+    for raw_id in request.form.getlist('invoice_ids'):
+        raw_id = (raw_id or '').strip()
+        if raw_id.isdigit():
+            selected_ids.append(int(raw_id))
+    selected_ids = list(dict.fromkeys(selected_ids))
+
+    if not selected_ids:
+        return redirect(url_for('invoicing.invoices_list', tax_filed=0, bulk_tax=1,
+                                download_error='请选择至少一张发票'))
+
+    placeholders = ','.join('?' for _ in selected_ids)
+    tax_filed_at = datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+    with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
+        cursor = conn.execute(
+            f"""
+            UPDATE invoice
+               SET tax_filed = 1,
+                   tax_filed_at = ?
+             WHERE id IN ({placeholders})
+               AND tax_filed = 0
+            """,
+            [tax_filed_at, *selected_ids],
+        )
+        updated_count = cursor.rowcount
+        conn.commit()
+
+    return redirect(url_for(
+        'invoicing.invoices_list',
+        download_ok=f'已将 {updated_count} 张发票标记为已报税',
+    ))
+
+
 @invoicing_bp.route('/invoices/upload', methods=['GET'])
 @module_required('invoicing')
 def invoices_upload_form():
@@ -2151,6 +2198,7 @@ def invoices_upload_submit():
     parsed['suggested_entity_id'] = suggested_entity_id
     parsed['suggested_is_usable'] = suggest_is_usable(parsed.get('project_name'), parsed.get('pdf_remark'))
     parsed['duplicate_existing_invoice_id'] = duplicate_id
+    parsed['original_filename'] = pdf_file.filename
 
     json_path = _pending_dir() / f'{pending_id}.json'
     with open(json_path, 'w', encoding='utf-8') as f:
@@ -2368,6 +2416,13 @@ def invoices_review_confirm(pending_id):
     entity_id_raw = (request.form.get('entity_id') or '').strip()
     is_usable = 1 if (request.form.get('is_usable') == '1') else 0
 
+    original_filename = ''
+    if json_path.exists():
+        with open(json_path, encoding='utf-8') as f:
+            original_filename = (json.load(f).get('original_filename') or '').strip()
+    auto_online_invoice = 1 if re.fullmatch(r'download(?: \(\d+\))?\.pdf', original_filename) else 0
+    ordinary_six_percent = invoice_type == '普通发票' and tax_rate == '6%'
+
     try:
         amount = float(amount_str) if amount_str else None
     except ValueError:
@@ -2416,14 +2471,14 @@ def invoices_review_confirm(pending_id):
                 alias_name,
                 amount, invoice_type, tax_rate, seller_name, buyer_name,
                 pdf_file_path, qr_content, manual_confirmed,
-                project_name, pdf_remark, is_usable
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                project_name, pdf_remark, is_usable, online_invoice
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
         """, (
             invoice_number, invoice_date, customer_id, entity_id,
             alias_name,
             amount, invoice_type, tax_rate, seller_name, buyer_name,
             relative_path, qr_content,
-            project_name, pdf_remark, is_usable,
+            project_name, pdf_remark, is_usable, auto_online_invoice,
         ))
         _replace_invoice_expected_match(
             conn,
@@ -2433,7 +2488,11 @@ def invoices_review_confirm(pending_id):
         )
         conn.commit()
 
-    return redirect(url_for('invoicing.invoices_list'))
+    return redirect(url_for(
+        'invoicing.invoices_list',
+        auto_online_invoice=auto_online_invoice or None,
+        ordinary_six_percent=1 if ordinary_six_percent else None,
+    ))
 
 
 @invoicing_bp.route('/invoices/review/<pending_id>/discard', methods=['POST'])
@@ -2685,10 +2744,18 @@ def invoice_toggle_tax_filed(invoice_id):
     next_url = request.form.get('next') or request.referrer or url_for('invoicing.invoices_list')
     with get_db_connection() as conn:
         _ensure_invoice_expected_match_table(conn)
-        conn.execute(
-            "UPDATE invoice SET tax_filed = CASE WHEN tax_filed = 1 THEN 0 ELSE 1 END WHERE id = ?",
-            (invoice_id,)
-        )
+        row = conn.execute("SELECT tax_filed FROM invoice WHERE id = ?", (invoice_id,)).fetchone()
+        if row and row['tax_filed'] == 1:
+            conn.execute(
+                "UPDATE invoice SET tax_filed = 0, tax_filed_at = NULL WHERE id = ?",
+                (invoice_id,),
+            )
+        elif row:
+            tax_filed_at = datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+            conn.execute(
+                "UPDATE invoice SET tax_filed = 1, tax_filed_at = ? WHERE id = ?",
+                (tax_filed_at, invoice_id),
+            )
         conn.commit()
     return redirect(next_url)
 

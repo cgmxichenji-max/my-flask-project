@@ -82,6 +82,16 @@
             gap: 8px;
             min-height: 36px;
         }
+        .weekday-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 12px;
+            min-height: 36px;
+            align-items: center;
+        }
+        .weekday-options label {
+            white-space: nowrap;
+        }
         button {
             border: 1px solid #2563eb;
             background: #2563eb;
@@ -220,6 +230,53 @@
                 </tbody>
             </table>
         </section>
+
+        <section class="panel">
+            <h2>周度提醒</h2>
+            <form id="weeklyForm" class="form-row">
+                <input id="weeklyId" type="hidden">
+                <label class="check-field">
+                    <input id="weeklyEnabled" type="checkbox" checked>
+                    启用
+                </label>
+                <div class="field">
+                    <label for="weeklyTitle">标题</label>
+                    <input id="weeklyTitle" type="text" required placeholder="例如：开票提醒">
+                </div>
+                <div class="field">
+                    <label for="weeklyMessage">内容</label>
+                    <textarea id="weeklyMessage" placeholder="广播中显示的内容"></textarea>
+                </div>
+                <div class="field">
+                    <label>每周提醒日</label>
+                    <div class="weekday-options">
+                        <label><input class="weekly-day" type="checkbox" value="1">周一</label>
+                        <label><input class="weekly-day" type="checkbox" value="2">周二</label>
+                        <label><input class="weekly-day" type="checkbox" value="3">周三</label>
+                        <label><input class="weekly-day" type="checkbox" value="4">周四</label>
+                        <label><input class="weekly-day" type="checkbox" value="5">周五</label>
+                        <label><input class="weekly-day" type="checkbox" value="6">周六</label>
+                        <label><input class="weekly-day" type="checkbox" value="7">周日</label>
+                    </div>
+                </div>
+                <button type="submit">保存周度提醒</button>
+                <button id="resetWeeklyButton" class="secondary" type="button">清空</button>
+            </form>
+            <table>
+                <thead>
+                    <tr>
+                        <th>状态</th>
+                        <th>标题</th>
+                        <th>内容</th>
+                        <th>提醒星期</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="weeklyTableBody">
+                    <tr><td colspan="5">加载中</td></tr>
+                </tbody>
+            </table>
+        </section>
     </main>
 
     {% include '_reminder_broadcast.html' %}
@@ -281,6 +338,7 @@
             document.getElementById('exemptionDaysBefore').value =
                 (exemption.config && exemption.config.days_before) || 7;
             renderMonthlyRows();
+            renderWeeklyRows();
         }
 
         function renderMonthlyRows() {
@@ -299,6 +357,36 @@
                         <td>${escapeHtml(row.message)}</td>
                         <td>${escapeHtml(config.day_of_month)}</td>
                         <td>${escapeHtml(config.lead_days || 0)}</td>
+                        <td>
+                            <button class="secondary" type="button" data-action="edit" data-id="${row.id}">编辑</button>
+                            <button class="danger" type="button" data-action="delete" data-id="${row.id}">删除</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+        function renderWeeklyRows() {
+            const rows = state.settings.weekly || [];
+            const tbody = document.getElementById('weeklyTableBody');
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="5">暂无周度提醒</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rows.map(row => {
+                const config = row.config || {};
+                const weekdays = (config.weekdays || [])
+                    .map(value => weekdayLabels[Number(value) - 1])
+                    .filter(Boolean)
+                    .join('、');
+                return `
+                    <tr>
+                        <td>${row.is_enabled ? '启用' : '关闭'}</td>
+                        <td>${escapeHtml(row.title)}</td>
+                        <td>${escapeHtml(row.message)}</td>
+                        <td>${escapeHtml(weekdays)}</td>
                         <td>
                             <button class="secondary" type="button" data-action="edit" data-id="${row.id}">编辑</button>
                             <button class="danger" type="button" data-action="delete" data-id="${row.id}">删除</button>
@@ -392,6 +480,77 @@
                 if (!window.confirm('确认删除这条月度提醒？')) return;
                 try {
                     const data = await requestJson(`/reminder_center/api/monthly/${id}/delete`, {
+                        method: 'POST',
+                        body: JSON.stringify({}),
+                    });
+                    setMessage(data.message);
+                    await loadSettings();
+                } catch (error) {
+                    setMessage(error.message, true);
+                }
+            }
+        });
+
+        function selectedWeeklyDays() {
+            return Array.from(document.querySelectorAll('.weekly-day:checked'))
+                .map(input => Number(input.value));
+        }
+
+        document.getElementById('weeklyForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const id = document.getElementById('weeklyId').value;
+            const url = id ? `/reminder_center/api/weekly/${id}` : '/reminder_center/api/weekly';
+            try {
+                const data = await requestJson(url, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        is_enabled: document.getElementById('weeklyEnabled').checked,
+                        title: document.getElementById('weeklyTitle').value,
+                        message: document.getElementById('weeklyMessage').value,
+                        weekdays: selectedWeeklyDays(),
+                    }),
+                });
+                setMessage(data.message);
+                resetWeeklyForm();
+                await loadSettings();
+            } catch (error) {
+                setMessage(error.message, true);
+            }
+        });
+
+        function resetWeeklyForm() {
+            document.getElementById('weeklyId').value = '';
+            document.getElementById('weeklyEnabled').checked = true;
+            document.getElementById('weeklyTitle').value = '';
+            document.getElementById('weeklyMessage').value = '';
+            document.querySelectorAll('.weekly-day').forEach(input => {
+                input.checked = false;
+            });
+        }
+
+        document.getElementById('resetWeeklyButton').addEventListener('click', resetWeeklyForm);
+
+        document.getElementById('weeklyTableBody').addEventListener('click', async event => {
+            const button = event.target.closest('button[data-action]');
+            if (!button) return;
+            const id = Number(button.dataset.id);
+            const row = (state.settings.weekly || []).find(item => item.id === id);
+            if (!row) return;
+            if (button.dataset.action === 'edit') {
+                const config = row.config || {};
+                const weekdays = new Set((config.weekdays || []).map(Number));
+                document.getElementById('weeklyId').value = row.id;
+                document.getElementById('weeklyEnabled').checked = Boolean(row.is_enabled);
+                document.getElementById('weeklyTitle').value = row.title || '';
+                document.getElementById('weeklyMessage').value = row.message || '';
+                document.querySelectorAll('.weekly-day').forEach(input => {
+                    input.checked = weekdays.has(Number(input.value));
+                });
+                document.getElementById('weeklyForm').scrollIntoView({behavior: 'smooth'});
+            } else if (button.dataset.action === 'delete') {
+                if (!window.confirm('确认删除这条周度提醒？')) return;
+                try {
+                    const data = await requestJson(`/reminder_center/api/weekly/${id}/delete`, {
                         method: 'POST',
                         body: JSON.stringify({}),
                     });
