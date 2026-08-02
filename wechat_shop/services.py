@@ -1814,6 +1814,32 @@ def _ensure_order_table_exists() -> tuple[bool, str]:
     return False, f'订单表已存在：{WECHAT_ORDER_TABLE_NAME}（数据库：{db_path.name}）'
 
 
+def _sanitize_xlsx_nan_numeric_values(file_bytes: bytes) -> bytes:
+    """将 XLSX 工作表中无效的数值 NaN 转为空单元格，避免读取器在解析前报错。"""
+    try:
+        with zipfile.ZipFile(BytesIO(file_bytes), 'r') as source_zip:
+            sanitized_files: dict[str, bytes] = {}
+            has_nan_values = False
+            for info in source_zip.infolist():
+                content = source_zip.read(info.filename)
+                if info.filename.startswith('xl/worksheets/') and info.filename.endswith('.xml'):
+                    cleaned_content = content.replace(b'<v>NaN</v>', b'<v></v>')
+                    has_nan_values = has_nan_values or cleaned_content != content
+                    content = cleaned_content
+                sanitized_files[info.filename] = content
+
+            if not has_nan_values:
+                return file_bytes
+
+            output = BytesIO()
+            with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target_zip:
+                for info in source_zip.infolist():
+                    target_zip.writestr(info, sanitized_files[info.filename])
+            return output.getvalue()
+    except zipfile.BadZipFile:
+        return file_bytes
+
+
 def _prepare_orders_dataframe_for_db(df: pd.DataFrame) -> pd.DataFrame:
     """按数据库表结构整理订单 DataFrame，确保字段齐全、顺序一致、类型尽量可落库。"""
     db_columns = list(ORDER_COLUMN_TYPES.keys())
@@ -2422,7 +2448,7 @@ def read_order_excel_files(files: list[FileStorage]) -> dict[str, Any]:
         filename = _get_upload_source_filename(file_obj)
 
         try:
-            file_bytes = _read_upload_source_bytes(file_obj)
+            file_bytes = _sanitize_xlsx_nan_numeric_values(_read_upload_source_bytes(file_obj))
             excel_buffer = BytesIO(file_bytes)
             dtype_mapping = _build_text_dtype_mapping(excel_buffer)
             df = pd.read_excel(excel_buffer, dtype=dtype_mapping if dtype_mapping else None)

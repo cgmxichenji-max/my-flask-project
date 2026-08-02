@@ -2039,3 +2039,11 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：GitHub `main` 与马德里服务器 Git 提交历史；不修改生产数据库和业务数据，不改变当前 Flask 运行代码内容。
 - 是否涉及数据库：否（仅提交并推送代码与记录文件）
 - 是否需要回滚：是（可在 GitHub 对相关提交执行 revert；同步前文件备份位于 `/root/backups/my-flask-project/manual-code-backups/before_github_sync_20260717_121000.tar.gz`）
+
+## [2026-08-02 11:44] 修改记录
+- 修改内容：微信小店订单导入在读取 `.xlsx` 前，自动将工作表 XML 中无效的数值 `NaN` 转为空单元格后再解析；仅作用于订单导入。
+- 修改文件：`wechat_shop/services.py`；`PROJECT_MEMORY.md`
+- 修改原因：2026 年 8 月 2 日订单文件的“运费险预计投保费用”列存在数值 `NaN`，openpyxl 在进入现有空值清洗前即解析失败，导致整批订单预检失败。
+- 影响范围：仅影响微信小店订单 `.xlsx` 导入对数值 `NaN` 的兼容；空值将按现有数值清洗规则入库为 NULL，不改变订单必填字段、去重、其他导入或数据库结构。
+- 是否涉及数据库：否
+- 是否需要回滚：是（恢复 `/root/backups/my-flask-project/manual-code-backups/wechat_order_nan_20260802_114257/` 中的两个文件后重启 Flask）
