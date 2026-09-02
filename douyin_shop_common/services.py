@@ -1602,6 +1602,37 @@ def _load_exemption_ranges(conn: sqlite3.Connection, config: ShopConfig) -> dict
     return result
 
 
+def _load_active_exemption_uids(conn: sqlite3.Connection, config: ShopConfig) -> set[str]:
+    brand = _detail_export_brand_key(config)
+    if not brand or not _table_exists(conn, 'creator_exemptions'):
+        return set()
+    rows = conn.execute(
+        '''
+        SELECT creator_uid
+        FROM creator_exemptions
+        WHERE brand = ?
+          AND status = 'active'
+          AND TRIM(COALESCE(creator_uid, '')) <> ''
+        ''',
+        (brand,),
+    ).fetchall()
+    return {
+        uid
+        for row in rows
+        if (uid := _normalize_summary_id(row['creator_uid']))
+    }
+
+
+def _is_active_exemption_summary_row(identity: Any, active_uids: set[str]) -> bool:
+    if not active_uids:
+        return False
+    return any(
+        _normalize_summary_id(item) in active_uids
+        for item in re.split(r'[;；,，]', str(identity or ''))
+        if _normalize_summary_id(item)
+    )
+
+
 def _is_exempted_by_ranges(identity: Any, date_value: Any, ranges: dict[str, list[tuple[str, str]]]) -> bool:
     identity_text = _normalize_summary_id(identity)
     if not identity_text:
@@ -2022,14 +2053,23 @@ def export_commission_summary_zip(
         creator_df = _query_creator_summary(conn, start_text, end_text, keyword, alias_nicknames, config)
         leader_df = _query_leader_summary(conn, start_text, end_text, keyword, alias_nicknames, config)
         unmatched_df = _query_unmatched_leader_rows(conn, start_text, end_text, config)
+        active_exemption_uids = _load_active_exemption_uids(conn, config)
 
+    creator_export_df = creator_df[['达人名称', '达人ID', '佣金金额']].copy()
+    creator_export_df.insert(
+        2,
+        '是否豁免',
+        creator_export_df['达人ID'].map(
+            lambda value: '豁免' if _is_active_exemption_summary_row(value, active_exemption_uids) else '非豁免'
+        ),
+    )
     summary_excel = _write_dataframe_excel(
         [
-            ('达人汇总', creator_df[['达人名称', '达人ID', '佣金金额']]),
+            ('达人汇总', creator_export_df),
             ('团长汇总', leader_df[['团长名称', '团长ID', '佣金金额']]),
         ],
         amount_columns={'佣金金额'},
-        text_columns={'达人名称', '达人ID', '团长名称', '团长ID'},
+        text_columns={'达人名称', '达人ID', '是否豁免', '团长名称', '团长ID'},
     )
     invoice_df = _build_invoice_import_df(creator_df, leader_df)
     invoice_excel = _write_dataframe_excel(

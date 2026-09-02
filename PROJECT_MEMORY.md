@@ -2047,3 +2047,19 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅影响微信小店订单 `.xlsx` 导入对数值 `NaN` 的兼容；空值将按现有数值清洗规则入库为 NULL，不改变订单必填字段、去重、其他导入或数据库结构。
 - 是否涉及数据库：否
 - 是否需要回滚：是（恢复 `/root/backups/my-flask-project/manual-code-backups/wechat_order_nan_20260802_114257/` 中的两个文件后重启 Flask）
+
+## [2026-09-02 06:16] 修改记录
+- 修改内容：根据用户提供的抖音联盟截图，手工对齐香娜露儿区块豁免数据：将 19 条原误标为生效中的历史记录调整为已结束并校正结束日期；补录 6 条生效中的新周期记录及 3 条遗漏的已结束记录。对同一 UID 的不同豁免周期保留独立记录，未覆盖历史数据。对齐后香娜露儿共 69 条，其中生效中 13 条、已结束 56 条。
+- 修改文件：服务器数据库 `data/main.db` 的 `creator_exemptions` 表；服务器 `PROJECT_MEMORY.md`
+- 修改原因：本地代码滞后，且线上豁免记录存在老板手动停止后状态与结束日期不一致、以及截图中部分周期未入库的问题。
+- 影响范围：仅香娜露儿（`brand=chantelle`）的达人豁免状态、起止日期和遗漏周期；不修改其他品牌、其他表或应用代码。
+- 是否涉及数据库：是（更新 19 条、插入 9 条；变更前逐行快照备份位于 `/root/backups/my-flask-project/manual-data-backups/chantelle_exemptions_20260902_061532/creator_exemptions_chantelle_before.json`）
+- 是否需要回滚：是（使用上述 JSON 快照恢复 `creator_exemptions` 中 `brand=chantelle` 的原 60 条记录，并删除本次新增的 9 条周期记录）
+
+## [2026-09-02 06:36] 修改记录
+- 修改内容：香娜露儿与幕莲蔓共用的抖音“佣金汇总导出”中，仅在“佣金汇总.xlsx”的“达人汇总”工作表新增“是否豁免”列。导出时按店铺品牌读取 `creator_exemptions` 表中状态为 `active` 的达人 UID；导出行的达人 ID（含同名达人聚合后的多个 ID）任一命中即显示“豁免”，其余显示“非豁免”。不按报表月份或豁免起止日期回溯，不修改团长汇总、按明细表导出、应开金额导入或其他 Excel 文件。
+- 修改文件：服务器 `douyin_shop_common/services.py`；服务器 `PROJECT_MEMORY.md`
+- 修改原因：用户要求佣金汇总导出直观标识当前仍处于生效中的达人豁免状态，香娜露儿和幕莲蔓使用同一套导出逻辑。
+- 影响范围：仅香娜露儿与幕莲蔓的“佣金汇总导出”ZIP 内“佣金汇总.xlsx”的“达人汇总”工作表；不修改数据库数据和前端页面。
+- 是否涉及数据库：否（仅读取既有 `creator_exemptions` 表）
+- 是否需要回滚：是（恢复 `/root/backups/my-flask-project/manual-code-backups/douyin_active_exemption_export_20260902_063359/` 中的 `services.py` 和 `PROJECT_MEMORY.md`，然后重启 `my-flask-project.service`）
