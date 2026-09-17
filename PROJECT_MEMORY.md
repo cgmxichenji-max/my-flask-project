@@ -2063,3 +2063,73 @@ app.config['DATABASE_PATH'] = 'data/main.db'
 - 影响范围：仅香娜露儿与幕莲蔓的“佣金汇总导出”ZIP 内“佣金汇总.xlsx”的“达人汇总”工作表；不修改数据库数据和前端页面。
 - 是否涉及数据库：否（仅读取既有 `creator_exemptions` 表）
 - 是否需要回滚：是（恢复 `/root/backups/my-flask-project/manual-code-backups/douyin_active_exemption_export_20260902_063359/` 中的 `services.py` 和 `PROJECT_MEMORY.md`，然后重启 `my-flask-project.service`）
+
+## [2026-09-09 11:27] 修改记录
+- 修改内容：直接在马德里服务器当前版本中扩展发票确认入库的“网上开票”自动勾选规则；保留 `download.pdf`、`download (数字).pdf`，新增识别 `电子发票_任意内容_0.pdf`，扩展名大小写不敏感。部署前备份当前服务器文件，完成语法和正反匹配测试后重启 `my-flask-project.service`。
+- 修改文件：服务器 `/root/my-flask-project/invoicing/routes.py`；服务器及本地 `PROJECT_MEMORY.md`
+- 修改原因：服务器当前代码可能领先本地，且文件名形如 `电子发票_XXXX_0.PDF` 的电子发票也需要在确认入库时自动标记为网上开票。
+- 影响范围：仅影响后续符合文件名规则的新发票入库时的 `online_invoice` 值；不修改历史发票，不覆盖服务器其他未提交代码。
+- 是否涉及数据库：否（后续符合规则的新发票入库时会按业务流程保存 `online_invoice=1`）
+- 是否需要回滚：是（服务器备份：`/root/backups/my-flask-project/manual-code-backups/auto_online_invoice_filename_20260909_032625`）
+## [2026-09-16 05:40] 修改记录
+- 修改内容：按用户授权读取香娜露儿抖音联盟“豁免达人管理”页面的生效中、已结束全量清单并与服务器比对后，同步新增两条生效中记录：UID `2697518549580202`（大罐头跑遍全球，2026-09-15 至 2027-03-31）和 UID `3415528158539200`（大罐头.环球之旅，2026-09-07 至 2027-05-31）。同时按网页 UID 更新 31 条既有记录昵称（包含同一 UID 的历史周期），不改变其状态和起止日期。同步后香娜露儿共 71 条：生效中 15 条、已结束 56 条，与网页数量一致。
+- 修改文件：服务器数据库 `data/main.db` 的 `creator_exemptions` 表；服务器 `PROJECT_MEMORY.md`
+- 修改原因：服务器记录缺少网页新增的两条生效豁免，且部分既有 UID 的昵称已在抖音联盟侧改名。
+- 影响范围：仅香娜露儿（`brand=chantelle`）豁免记录的昵称及两条新增生效周期；不修改慕莲蔓、其他业务表或应用代码。
+- 是否涉及数据库：是（新增 2 条、更新昵称 31 条；变更前逐行快照备份位于 `/root/backups/my-flask-project/manual-data-backups/chantelle_exemptions_nickname_sync_20260916_053932/creator_exemptions_chantelle_before.json`）
+- 是否需要回滚：是（使用上述 JSON 快照恢复 `creator_exemptions` 中 `brand=chantelle` 的原 69 条记录，并删除本次新增两条记录）
+## [2026-09-16 14:01] 修改记录
+- 修改内容：在豁免管理中新增“微信小店豁免管理”入口及独立的 `wechat_creator_exemptions` 数据表与增删改查接口；微信页面使用合作类型、合作对象昵称、微信合作对象 ID 和精确到分钟的生效/结束时间。“待结束”统一按“豁免中”入库，已按微信小店设置豁免列表截图录入 21 条记录（16 条豁免中、5 条已结束）。
+- 修改文件：`exemption_management/routes.py`；`exemption_management/wechat_services.py`；`templates/exemption_management.html`；`PROJECT_MEMORY.md`
+- 修改原因：为微信小店佣金汇总后续按达人昵称匹配豁免提供独立、可维护的数据源，且保留平台截止到 23:59 的时间精度。
+- 影响范围：仅新增豁免管理中的微信小店标签、独立数据表与接口；不修改现有香娜露儿/慕莲蔓豁免记录，不修改微信佣金汇总导出。
+- 是否涉及数据库：是（新增 `wechat_creator_exemptions` 与初始化状态表，不修改现有业务表）
+- 是否需要回滚：是（删除本次新增的两个微信豁免表并恢复本次代码备份即可）
+
+## [2026-09-16 14:16] 修改记录
+- 修改内容：更正微信小店豁免记录中合作对象 ID `wx02436fab503d5092` 的昵称：`小涵一家在美国` 改为 `小潘一家在美国`；同时修正微信豁免初始名单，确保后续新环境初始化一致。
+- 修改文件：`exemption_management/wechat_services.py`；服务器 `data/main.db` 的 `wechat_creator_exemptions` 表；`PROJECT_MEMORY.md`
+- 修改原因：重新逐字核对微信小店原页面后，发现首次转录将“潘”误录为“涵”。
+- 影响范围：仅这一条微信小店豁免记录的昵称，不改变合作对象 ID、类型、状态、生效时间或结束时间，不影响佣金汇总导出。
+- 是否涉及数据库：是（更新 1 条记录；更新前 JSON 备份位于 `/root/backups/my-flask-project/manual-data-backups/wechat_exemption_nickname_correction_20260916_061500/row_before.json`）
+- 是否需要回滚：是（可用上述 JSON 将该条昵称恢复为“小涵一家在美国”）
+
+## [2026-09-16 14:20] 修改记录
+- 修改内容：重新逐字核对微信小店豁免截图后，将初始名单首条昵称统一为已验证的“噜可夫妇在荷兰”（微信合作对象 ID `wx5c5172ca33abb4f8`）。服务器当前数据库记录已正确，无需写库；仅同步初始化代码。
+- 修改文件：`exemption_management/wechat_services.py`；`PROJECT_MEMORY.md`
+- 修改原因：首次截图转录与后续复核均对首字出现误判，需确保未来新环境初始化不会产生昵称偏差。
+- 影响范围：仅微信小店豁免初始名单的一个昵称；不修改现有数据库记录、状态、日期或佣金汇总导出。
+- 是否涉及数据库：否
+- 是否需要回滚：是（恢复本次变更前的 `wechat_services.py` 即可）
+
+## [2026-09-16 14:41] 修改记录
+- 修改内容：微信小店“佣金汇总_老版”导出的“主播佣金”和“团长佣金”工作表均新增“是否豁免”列。按导出账期与 `wechat_creator_exemptions` 的生效/结束日期是否有任意日期重叠，并以名称完全匹配判定；不以当前状态过滤，因此已结束但覆盖该月份任意一天的昵称仍标记“豁免”。
+- 修改文件：`wechat_shop/services.py`；服务器 `wechat_shop/services.py`；`PROJECT_MEMORY.md`
+- 修改原因：需要在微信佣金汇总中反映历史和当前的豁免周期，整月汇总只要昵称存在任意重叠日期即视为豁免。
+- 影响范围：仅影响微信小店佣金汇总 ZIP 内“澳柯视频号佣金汇总_老版”文件的主播佣金、团长佣金两张表；不修改佣金明细、应开金额导入、店铺自卖、豁免数据或数据库结构。
+- 是否涉及数据库：否（仅只读 `wechat_creator_exemptions`）
+- 是否需要回滚：是（服务器备份位于 `/root/backups/my-flask-project/manual-code-backups/wechat_commission_exemption_20260916_062500/services.py`）
+
+## [2026-09-16 15:05] 修改记录
+- 修改内容：按佣金汇总实际名称直接更正微信小店豁免表 8 条昵称：小囡和大维新西兰农场主日常、意大利媳妇琳达、馒头哥一家美国、馒头哥在美国、馒头哥在美国主号、法拉港靓货、海芋&kevin的澳洲生活、素玙棉麻原创女装；同步更新微信豁免初始名单。重新生成 2026 年 8 月汇总验证，所有名称匹配且周期重叠的导出行均为“豁免”，包括馒头哥在美国主号。
+- 修改文件：`exemption_management/wechat_services.py`；服务器 `data/main.db` 的 `wechat_creator_exemptions` 表；`PROJECT_MEMORY.md`
+- 修改原因：首次录入的部分昵称与微信佣金汇总中的实际名称有错别字，导致严格名称匹配未命中。
+- 影响范围：仅上述 8 条微信豁免昵称；不改变其微信 ID、合作类型、状态、生效/结束时间和佣金汇总判定逻辑。
+- 是否涉及数据库：是（更新 8 条记录；修改前快照位于 `/root/backups/my-flask-project/manual-data-backups/wechat_exemption_nickname_bulk_correction_20260916_063200/rows_before.json`）
+- 是否需要回滚：是（使用上述 JSON 快照恢复这 8 条昵称，并恢复同目录的 `wechat_services.py.before`）
+
+
+## [2026-09-17 11:28] 修改记录
+- 修改内容：直接在马德里服务器当前版本中扩展发票确认入库的“网上开票”自动识别规则，新增匹配 `receive_任意非空内容.pdf`，扩展名及英文前缀大小写不敏感；保留原有 `download.pdf`、`download (数字).pdf`、`电子发票_任意内容_0.pdf` 规则。完成语法和正反匹配测试后重启 `my-flask-project.service`，服务与 HTTP 回查正常。
+- 修改文件：服务器 `/root/my-flask-project/invoicing/routes.py`；服务器及本地 `PROJECT_MEMORY.md`
+- 修改原因：上传文件名如 `receive_A2000000018093638.pdf` 的电子发票也需要在确认入库时自动标记网上开票。
+- 影响范围：仅影响后续符合 `receive_*.pdf` 文件名的新发票入库时的 `online_invoice` 值；不修改历史发票，不覆盖服务器其他未提交代码。
+- 是否涉及数据库：否（后续符合规则的新发票入库时会按现有流程保存 `online_invoice=1`）
+- 是否需要回滚：是（服务器备份：`/root/backups/my-flask-project/manual-code-backups/auto_online_receive_filename_20260917_032756`）
+## [2026-09-17 11:44] 修改记录
+- 修改内容：以马德里服务器当前运行代码为权威版本，整理并上传 GitHub `main`。提交包含发票网上开票文件名自动识别、发票别名账单导出、微信小店豁免管理及佣金汇总豁免标记等服务器已验证功能；明确排除 `.bak` 备份文件和 `flask.log`。提交前完成 `git diff --check`、相关 Python 文件语法检查及 Flask 应用加载验证（215 条路由）。
+- 修改文件：`PROJECT_MEMORY.md`；`exemption_management/routes.py`；`exemption_management/wechat_services.py`；`invoicing/routes.py`；`templates/exemption_management.html`；`templates/invoicing_customers.html`；`wechat_shop/services.py`；GitHub `main`
+- 修改原因：将马德里服务器当前已运行、已验证但尚未提交的业务代码同步至 GitHub 主分支，避免本地滞后导致代码丢失。
+- 影响范围：GitHub `main` 代码仓库；不修改生产数据库，不重启或变更服务器当前运行服务。
+- 是否涉及数据库：否
+- 是否需要回滚：是（提交前备份：`/root/backups/my-flask-project/manual-code-backups/github_main_sync_20260917_1144/server_changes_before_commit.tar.gz`；GitHub 可回退本次提交）

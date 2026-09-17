@@ -1846,6 +1846,224 @@ def alias_invoice_details():
     })
 
 
+@invoicing_bp.route('/customers/alias-invoice-export')
+@module_required('invoicing')
+def export_alias_invoice_bills():
+    """Export all aliases matched by the current alias-list filters."""
+    search_query = (request.args.get('q') or '').strip().lower()
+
+    with get_db_connection() as conn:
+        _ensure_invoice_expected_match_table(conn)
+        period_options = _customer_period_options(conn)
+        _, _, selected_periods_by_platform = _selected_customer_period_filters(
+            period_options, request.args.getlist('period_filter')
+        )
+        member_rows = conn.execute(
+            """
+            SELECT ca.alias, c.id AS customer_id, c.short_name
+            FROM customer_alias ca
+            JOIN customer c ON c.id = ca.customer_id
+            WHERE TRIM(COALESCE(ca.alias, '')) <> ''
+            ORDER BY ca.alias, c.short_name, c.id
+            """
+        ).fetchall()
+
+        aliases: dict[str, dict[str, object]] = {}
+        for row in member_rows:
+            alias = (row['alias'] or '').strip()
+            bucket = aliases.setdefault(alias, {'customer_ids': set(), 'nicknames': []})
+            bucket['customer_ids'].add(row['customer_id'])
+            nickname = row['short_name'] or ''
+            if nickname and nickname not in bucket['nicknames']:
+                bucket['nicknames'].append(nickname)
+        selected_aliases = [
+            alias for alias, item in aliases.items()
+            if not search_query or search_query in f"{alias}|{','.join(item['nicknames'])}".lower()
+        ]
+        selected_customer_ids = sorted({
+            customer_id
+            for alias in selected_aliases
+            for customer_id in aliases[alias]['customer_ids']
+        })
+        bill_rows = []
+        if selected_customer_ids:
+            placeholders = ','.join('?' for _ in selected_customer_ids)
+            bill_rows = conn.execute(
+                f"""
+                SELECT e.id, e.customer_id, e.platform, e.period, e.period_start,
+                       e.period_end, e.amount, c.short_name AS customer_short_name,
+                       b.name AS entity_name
+                FROM expected_amount e
+                JOIN customer c ON c.id = e.customer_id
+                LEFT JOIN billing_entity b ON b.id = e.entity_id
+                WHERE e.customer_id IN ({placeholders}) AND e.amount <> 0
+                ORDER BY COALESCE(e.period_start, '') DESC, e.id DESC
+                """,
+                selected_customer_ids,
+            ).fetchall()
+        bill_rows = [
+            row for row in bill_rows
+            if _customer_period_allowed(selected_periods_by_platform, row['platform'] or '', row['period'] or '')
+        ]
+        bill_ids = [row['id'] for row in bill_rows]
+        matches = []
+        if bill_ids:
+            placeholders = ','.join('?' for _ in bill_ids)
+            matches = conn.execute(
+                f"""
+                SELECT m.expected_amount_id, m.matched_amount, i.id AS invoice_id,
+                       i.invoice_number, i.invoice_date, i.amount AS invoice_amount,
+                       i.is_usable, i.seller_name, i.buyer_name
+                FROM invoice_expected_match m
+                JOIN invoice i ON i.id = m.invoice_id
+                WHERE m.expected_amount_id IN ({placeholders})
+                ORDER BY COALESCE(i.invoice_date, ''), i.id
+                """,
+                bill_ids,
+            ).fetchall()
+
+        alias_invoices = []
+        if selected_aliases:
+            placeholders = ','.join('?' for _ in selected_aliases)
+            alias_invoices = conn.execute(
+                f"""
+                SELECT m.expected_amount_id, m.matched_amount, i.id AS invoice_id,
+                       i.invoice_number, i.invoice_date, i.amount AS invoice_amount,
+                       i.is_usable, i.seller_name, i.buyer_name,
+                       COALESCE(e.platform, i.platform, '') AS platform,
+                       COALESCE(e.period, i.period, '') AS period
+                FROM invoice i
+                LEFT JOIN invoice_expected_match m ON m.invoice_id = i.id
+                LEFT JOIN expected_amount e ON e.id = m.expected_amount_id
+                WHERE i.alias_name IN ({placeholders})
+                ORDER BY COALESCE(i.invoice_date, ''), i.id
+                """,
+                selected_aliases,
+            ).fetchall()
+
+    bills_by_id = {row['id']: row for row in bill_rows}
+    matches_by_bill: dict[int, list[dict[str, object]]] = {}
+    for row in matches:
+        bill = bills_by_id[row['expected_amount_id']]
+        invoice_amount = row['invoice_amount'] or 0
+        matches_by_bill.setdefault(row['expected_amount_id'], []).append({
+            'invoice_id': row['invoice_id'],
+            'invoice_number': row['invoice_number'] or '',
+            'invoice_date': row['invoice_date'] or '',
+            'invoice_amount': invoice_amount,
+            'matched_amount': _display_bill_matched_amount(row['matched_amount'], invoice_amount, bill['amount']),
+            'is_usable': bool(row['is_usable']),
+            'seller_name': row['seller_name'] or '',
+            'buyer_name': row['buyer_name'] or '',
+        })
+
+    export_bills = []
+    export_invoices = []
+    seen_invoice_keys = set()
+    for bill in bill_rows:
+        invoices = matches_by_bill.get(bill['id'], [])
+        usable_total = sum(item['invoice_amount'] for item in invoices if item['is_usable'])
+        status, status_text, diff = _match_status(bill['amount'] or 0, usable_total)
+        start_date, end_date = (bill['period_start'] or '').strip(), (bill['period_end'] or '').strip()
+        export_bills.append({
+            'platform': bill['platform'] or '', 'nickname': bill['customer_short_name'] or '',
+            'bill_id': bill['id'], 'period': bill['period'] or '',
+            'period_range': f'{start_date} ~ {end_date}' if start_date or end_date else '',
+            'entity_name': bill['entity_name'] or '', 'amount': bill['amount'] or 0,
+            'usable_total': usable_total, 'diff': diff, 'status': status_text,
+            'invoice_count': f"{sum(1 for item in invoices if item['is_usable'])} / {len(invoices)}",
+        })
+        for item in invoices:
+            key = (item['invoice_id'], bill['id'])
+            seen_invoice_keys.add(key)
+            export_invoices.append({
+                'platform': bill['platform'] or '', 'nickname': bill['customer_short_name'] or '',
+                'bill_id': bill['id'], **item,
+            })
+
+    for row in alias_invoices:
+        platform, period = row['platform'] or '', row['period'] or ''
+        if not _customer_period_allowed(selected_periods_by_platform, platform, period):
+            continue
+        key = (row['invoice_id'], row['expected_amount_id'] or 0)
+        if key in seen_invoice_keys:
+            continue
+        bill = bills_by_id.get(row['expected_amount_id'])
+        invoice_amount = row['invoice_amount'] or 0
+        export_invoices.append({
+            'platform': platform, 'nickname': (bill['customer_short_name'] if bill else ''),
+            'bill_id': row['expected_amount_id'] or '', 'invoice_id': row['invoice_id'],
+            'invoice_number': row['invoice_number'] or '', 'invoice_date': row['invoice_date'] or '',
+            'invoice_amount': invoice_amount,
+            'matched_amount': _display_bill_matched_amount(
+                row['matched_amount'], invoice_amount, bill['amount'] if bill else None
+            ),
+            'is_usable': bool(row['is_usable']), 'seller_name': row['seller_name'] or '',
+            'buyer_name': row['buyer_name'] or '',
+        })
+        seen_invoice_keys.add(key)
+
+    workbook = Workbook()
+    bill_sheet = workbook.active
+    bill_sheet.title = '账单'
+    bill_headers = ['平台', '达人昵称', '账单ID', '期间', '账期范围', '开票主体', '账单金额', '可用发票合计', '差额', '状态', '发票数']
+    expected_total = sum(item['amount'] for item in export_bills)
+    usable_total = sum(item['usable_total'] for item in export_bills)
+    total_invoice_count = sum(len(matches_by_bill.get(item['bill_id'], [])) for item in export_bills)
+    usable_invoice_count = sum(
+        sum(1 for invoice in matches_by_bill.get(item['bill_id'], []) if invoice['is_usable'])
+        for item in export_bills
+    )
+    bill_sheet.append(['导出别名', ' / '.join(selected_aliases)])
+    bill_sheet.append([
+        '账单数', len(export_bills), '账单合计', expected_total,
+        '可用发票合计', usable_total, '差额', expected_total - usable_total,
+        '发票数', f'{usable_invoice_count} / {total_invoice_count}',
+    ])
+    for cell_address in ('D2', 'F2', 'H2'):
+        bill_sheet[cell_address].number_format = '0.00'
+    bill_sheet.append([])
+    bill_sheet.append(bill_headers)
+    for item in export_bills:
+        bill_sheet.append([item[key] for key in ('platform', 'nickname', 'bill_id', 'period', 'period_range', 'entity_name', 'amount', 'usable_total', 'diff', 'status', 'invoice_count')])
+    invoice_sheet = workbook.create_sheet('发票')
+    invoice_headers = ['平台', '达人昵称', '账单ID', '发票号', '日期', '发票金额', '本账单匹配金额', '可用', '销售方', '购买方']
+    invoice_sheet.append(invoice_headers)
+    for item in export_invoices:
+        invoice_sheet.append([item['platform'], item['nickname'], item['bill_id'], item['invoice_number'], item['invoice_date'], item['invoice_amount'], item['matched_amount'], '是' if item['is_usable'] else '否', item['seller_name'], item['buyer_name']])
+    for sheet, header_row, money_columns, widths in (
+        (bill_sheet, 4, (7, 8, 9), (16, 20, 12, 14, 24, 28, 16, 18, 16, 28, 12)),
+        (invoice_sheet, 1, (6, 7), (16, 20, 12, 28, 14, 16, 20, 10, 36, 36)),
+    ):
+        for cell in sheet[header_row]:
+            header_font = copy(cell.font)
+            header_font.bold = True
+            cell.font = header_font
+        sheet.freeze_panes = f'A{header_row + 1}'
+        for column_index, width in enumerate(widths, start=1):
+            sheet.column_dimensions[chr(64 + column_index)].width = width
+        for row in sheet.iter_rows(min_row=header_row + 1):
+            for column_index in money_columns:
+                row[column_index - 1].number_format = '0.00'
+        for row in sheet.iter_rows(min_row=header_row + 1):
+            if sheet == bill_sheet:
+                row[2].number_format = '@'
+            else:
+                row[2].number_format = '@'
+                row[3].number_format = '@'
+
+    workbook_buffer = io.BytesIO()
+    workbook.save(workbook_buffer)
+    workbook.close()
+    workbook_buffer.seek(0)
+    archive_buffer = io.BytesIO()
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    with zipfile.ZipFile(archive_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(f'账单和发票_{timestamp}.xlsx', workbook_buffer.getvalue())
+    archive_buffer.seek(0)
+    return send_zip_download(archive_buffer, f'账单和发票_{timestamp}.zip')
+
+
 @invoicing_bp.route('/expected-amounts/match-details')
 @module_required('invoicing')
 def expected_amount_match_details():
@@ -2420,7 +2638,11 @@ def invoices_review_confirm(pending_id):
     if json_path.exists():
         with open(json_path, encoding='utf-8') as f:
             original_filename = (json.load(f).get('original_filename') or '').strip()
-    auto_online_invoice = 1 if re.fullmatch(r'download(?: \(\d+\))?\.pdf', original_filename) else 0
+    auto_online_invoice = 1 if re.fullmatch(
+        r'(?:download(?: \(\d+\))?|电子发票_.+_0|receive_.+)\.pdf',
+        original_filename,
+        flags=re.IGNORECASE,
+    ) else 0
     ordinary_six_percent = invoice_type == '普通发票' and tax_rate == '6%'
 
     try:

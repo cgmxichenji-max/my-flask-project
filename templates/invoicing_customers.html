@@ -18,7 +18,7 @@
         .filter-bar button,
         .filter-bar .link-button { padding: 6px 16px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 14px; }
         .filter-bar .link-button.secondary { background: #757575; }
-        .filter-input-row { width: 100%; }
+        .filter-input-row { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .period-filter-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; margin-top: 10px; }
         .period-chip-list { display: flex; flex-wrap: wrap; gap: 6px; min-height: 28px; align-items: center; }
         .period-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; background: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9; border-radius: 14px; font-size: 13px; }
@@ -114,6 +114,9 @@
     <div class="panel filter-bar">
         <div class="filter-input-row">
             <input type="text" id="filter-input" name="q" form="period-filter-form" value="{{ search_query }}" placeholder="{% if view == 'alias' %}筛选：别名 / 昵称{% else %}筛选：昵称 / 别名{% endif %} 任一含关键字（不区分大小写）">
+            {% if view == 'alias' %}
+            <a class="link-button" id="alias-invoice-export-button" href="{{ url_for('invoicing.export_alias_invoice_bills', q=search_query, period_filter=selected_period_values) }}">导出账单和发票</a>
+            {% endif %}
         </div>
         <form class="period-filter-form" method="get" id="period-filter-form">
             <input type="hidden" name="view" value="{{ view }}">
@@ -331,6 +334,7 @@
 	(function() {
 	    const periodOptionsByPlatform = {{ period_options_json | safe }};
 	    const input = document.getElementById('filter-input');
+	    const aliasInvoiceExportButton = document.getElementById('alias-invoice-export-button');
 	    const table = document.getElementById('customer-table');
 	    const tbody = table ? table.querySelector('tbody') : null;
 	    const rows = tbody ? Array.from(tbody.querySelectorAll('tr')) : [];
@@ -842,7 +846,18 @@
 	    }
 	    initPeriodControls();
 	    initAliasInvoiceModal();
-	    input.addEventListener('input', applyFilter);
+	    function updateAliasInvoiceExportUrl() {
+	        if (!aliasInvoiceExportButton || !input) return;
+	        const url = new URL(aliasInvoiceExportButton.href, window.location.origin);
+	        const keyword = (input.value || '').trim();
+	        if (keyword) url.searchParams.set('q', keyword);
+	        else url.searchParams.delete('q');
+	        aliasInvoiceExportButton.href = url.pathname + (url.search || '');
+	    }
+	    input.addEventListener('input', function() {
+	        applyFilter();
+	        updateAliasInvoiceExportUrl();
+	    });
 	    if (selectAll) {
 	        selectAll.addEventListener('change', function() {
 	            rows.forEach(function(r) {
@@ -853,6 +868,7 @@
 	        });
 	    }
 	    applyFilter();
+	    updateAliasInvoiceExportUrl();
 	})();
 	</script>
 {% include '_reminder_broadcast.html' %}

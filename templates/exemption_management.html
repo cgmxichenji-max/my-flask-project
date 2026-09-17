@@ -249,11 +249,12 @@
         <div class="tabs" id="brandTabs">
             <button class="tab-button active" data-brand="chantelle">香娜露儿豁免管理</button>
             <button class="tab-button" data-brand="mulianman">慕莲蔓豁免管理</button>
+            <button class="tab-button" data-brand="wechat">微信小店豁免管理</button>
         </div>
 
         <div class="toolbar">
             <div class="field">
-                <label for="keywordInput">达人信息</label>
+                <label for="keywordInput" id="keywordLabel">达人信息</label>
                 <input id="keywordInput" class="keyword-input" type="text" placeholder="达人渠道 / 昵称 / UID">
             </div>
             <div class="field">
@@ -265,19 +266,19 @@
                 </select>
             </div>
             <div class="field">
-                <label for="startFromInput">生效日期从</label>
+                <label for="startFromInput" id="startFromLabel">生效日期从</label>
                 <input id="startFromInput" class="date-input" type="date">
             </div>
             <div class="field">
-                <label for="startToInput">生效日期至</label>
+                <label for="startToInput" id="startToLabel">生效日期至</label>
                 <input id="startToInput" class="date-input" type="date">
             </div>
             <div class="field">
-                <label for="endFromInput">结束日期从</label>
+                <label for="endFromInput" id="endFromLabel">结束日期从</label>
                 <input id="endFromInput" class="date-input" type="date">
             </div>
             <div class="field">
-                <label for="endToInput">结束日期至</label>
+                <label for="endToInput" id="endToLabel">结束日期至</label>
                 <input id="endToInput" class="date-input" type="date">
             </div>
             <button class="button" id="searchButton" type="button">查询</button>
@@ -291,12 +292,12 @@
             <table>
                 <thead>
                     <tr>
-                        <th>达人渠道</th>
-                        <th>达人昵称</th>
-                        <th>达人UID</th>
+                        <th id="channelHeader">达人渠道</th>
+                        <th id="nicknameHeader">达人昵称</th>
+                        <th id="uidHeader">达人UID</th>
                         <th>豁免状态</th>
-                        <th>生效日期</th>
-                        <th>结束日期</th>
+                        <th id="startHeader">生效日期</th>
+                        <th id="endHeader">结束日期</th>
                         <th>操作</th>
                     </tr>
                 </thead>
@@ -321,6 +322,7 @@
                         <select id="brandInput" required>
                             <option value="chantelle">香娜露儿</option>
                             <option value="mulianman">慕莲蔓</option>
+                            <option value="wechat">微信小店</option>
                         </select>
                     </div>
                     <div class="field">
@@ -331,23 +333,23 @@
                         </select>
                     </div>
                     <div class="field">
-                        <label for="channelInput">达人渠道</label>
+                        <label for="channelInput" id="channelLabel">达人渠道</label>
                         <input id="channelInput" type="text" required>
                     </div>
                     <div class="field">
-                        <label for="uidInput">达人UID</label>
+                        <label for="uidInput" id="uidLabel">达人UID</label>
                         <input id="uidInput" type="text" required>
                     </div>
                     <div class="field full">
-                        <label for="nicknameInput">达人昵称</label>
+                        <label for="nicknameInput" id="nicknameLabel">达人昵称</label>
                         <input id="nicknameInput" type="text" required>
                     </div>
                     <div class="field">
-                        <label for="startDateInput">生效日期</label>
+                        <label for="startDateInput" id="startDateLabel">生效日期</label>
                         <input id="startDateInput" type="date" required>
                     </div>
                     <div class="field">
-                        <label for="endDateInput">结束日期</label>
+                        <label for="endDateInput" id="endDateLabel">结束日期</label>
                         <input id="endDateInput" type="date" required>
                     </div>
                 </div>
@@ -386,6 +388,45 @@
             startDateInput: document.getElementById('startDateInput'),
             endDateInput: document.getElementById('endDateInput'),
         };
+
+        function isWechat() {
+            return state.brand === 'wechat';
+        }
+
+        function apiPrefix() {
+            return isWechat() ? '/exemption_management/api/wechat' : '/exemption_management/api';
+        }
+
+        function updateWechatLabels() {
+            const wechat = isWechat();
+            const labels = wechat ? {
+                keywordLabel: '合作对象信息', keywordPlaceholder: '合作类型 / 昵称 / 微信合作对象ID',
+                channelHeader: '合作类型', nicknameHeader: '合作对象昵称', uidHeader: '微信合作对象ID',
+                startHeader: '生效时间', endHeader: '结束时间',
+                channelLabel: '合作类型', nicknameLabel: '合作对象昵称', uidLabel: '微信合作对象ID',
+                startDateLabel: '生效时间', endDateLabel: '结束时间',
+                startFromLabel: '生效时间从', startToLabel: '生效时间至',
+                endFromLabel: '结束时间从', endToLabel: '结束时间至',
+            } : {
+                keywordLabel: '达人信息', keywordPlaceholder: '达人渠道 / 昵称 / UID',
+                channelHeader: '达人渠道', nicknameHeader: '达人昵称', uidHeader: '达人UID',
+                startHeader: '生效日期', endHeader: '结束日期',
+                channelLabel: '达人渠道', nicknameLabel: '达人昵称', uidLabel: '达人UID',
+                startDateLabel: '生效日期', endDateLabel: '结束日期',
+                startFromLabel: '生效日期从', startToLabel: '生效日期至',
+                endFromLabel: '结束日期从', endToLabel: '结束日期至',
+            };
+            Object.entries(labels).forEach(([key, value]) => {
+                const element = document.getElementById(key);
+                if (element) element.textContent = value;
+            });
+            elements.keyword.placeholder = labels.keywordPlaceholder;
+            elements.startDateInput.type = wechat ? 'datetime-local' : 'date';
+            elements.endDateInput.type = wechat ? 'datetime-local' : 'date';
+            elements.brandInput.disabled = wechat;
+            document.querySelector('#statusSelect option[value="active"]').textContent = wechat ? '豁免中' : '生效中';
+            document.querySelector('#statusInput option[value="active"]').textContent = wechat ? '豁免中' : '生效中';
+        }
 
         function escapeHtml(value) {
             return String(value ?? '')
@@ -433,7 +474,7 @@
         async function loadRows() {
             elements.tableBody.innerHTML = '<tr><td colspan="7" class="empty">加载中</td></tr>';
             try {
-                const data = await requestJson(`/exemption_management/api/list?${buildQuery()}`, {
+                const data = await requestJson(`${apiPrefix()}/list?${buildQuery()}`, {
                     method: 'GET',
                 });
                 state.rows = data.rows || [];
@@ -457,12 +498,12 @@
                     : '';
                 return `
                     <tr>
-                        <td>${escapeHtml(row.creator_channel)}</td>
+                        <td>${escapeHtml(isWechat() ? row.creator_type : row.creator_channel)}</td>
                         <td>${escapeHtml(row.creator_nickname)}</td>
                         <td>${escapeHtml(row.creator_uid)}</td>
                         <td><span class="status-dot ${dotClass}"></span>${escapeHtml(row.status_label)}</td>
-                        <td>${escapeHtml(row.start_date)}</td>
-                        <td>${escapeHtml(row.end_date)}</td>
+                        <td>${escapeHtml(isWechat() ? row.start_at : row.start_date)}</td>
+                        <td>${escapeHtml(isWechat() ? row.end_at : row.end_date)}</td>
                         <td>
                             <button class="button link" data-action="edit" data-id="${row.id}" type="button">编辑</button>
                             ${stopButton}
@@ -474,16 +515,17 @@
         }
 
         function openModal(row = null) {
+            updateWechatLabels();
             elements.form.reset();
             elements.recordId.value = row ? row.id : '';
             elements.modalTitle.textContent = row ? '编辑豁免' : '新增豁免';
-            elements.brandInput.value = row ? row.brand : state.brand;
+            elements.brandInput.value = row ? (isWechat() ? 'wechat' : row.brand) : state.brand;
             elements.statusInput.value = row ? row.status : 'active';
-            elements.channelInput.value = row ? row.creator_channel : '抖音火山';
+            elements.channelInput.value = row ? (isWechat() ? row.creator_type : row.creator_channel) : (isWechat() ? '带货者' : '抖音火山');
             elements.uidInput.value = row ? row.creator_uid : '';
             elements.nicknameInput.value = row ? row.creator_nickname : '';
-            elements.startDateInput.value = row ? row.start_date : '';
-            elements.endDateInput.value = row ? row.end_date : '';
+            elements.startDateInput.value = row ? (isWechat() ? row.start_at.replace(' ', 'T') : row.start_date) : '';
+            elements.endDateInput.value = row ? (isWechat() ? row.end_at.replace(' ', 'T') : row.end_date) : '';
             elements.modal.classList.add('open');
         }
 
@@ -492,6 +534,16 @@
         }
 
         function collectFormPayload() {
+            if (isWechat()) {
+                return {
+                    creator_type: elements.channelInput.value,
+                    creator_uid: elements.uidInput.value,
+                    creator_nickname: elements.nicknameInput.value,
+                    status: elements.statusInput.value,
+                    start_at: elements.startDateInput.value,
+                    end_at: elements.endDateInput.value,
+                };
+            }
             return {
                 brand: elements.brandInput.value,
                 status: elements.statusInput.value,
@@ -506,9 +558,7 @@
         async function saveForm(event) {
             event.preventDefault();
             const id = elements.recordId.value;
-            const url = id
-                ? `/exemption_management/api/update/${id}`
-                : '/exemption_management/api/create';
+            const url = id ? `${apiPrefix()}/update/${id}` : `${apiPrefix()}/create`;
             try {
                 const data = await requestJson(url, {
                     method: 'POST',
@@ -528,16 +578,17 @@
             document.querySelectorAll('.tab-button').forEach(button => {
                 button.classList.toggle('active', button.dataset.brand === state.brand);
             });
+            updateWechatLabels();
         }
 
         async function stopRow(id) {
-            const today = new Date().toISOString().slice(0, 10);
-            const endDate = window.prompt('请输入结束日期', today);
+            const today = new Date().toISOString().slice(0, isWechat() ? 16 : 10);
+            const endDate = window.prompt(isWechat() ? '请输入结束时间（YYYY-MM-DD HH:MM）' : '请输入结束日期', today.replace('T', ' '));
             if (endDate === null) return;
             try {
-                const data = await requestJson(`/exemption_management/api/stop/${id}`, {
+                const data = await requestJson(`${apiPrefix()}/stop/${id}`, {
                     method: 'POST',
-                    body: JSON.stringify({end_date: endDate}),
+                    body: JSON.stringify(isWechat() ? {end_at: endDate} : {end_date: endDate}),
                 });
                 setMessage(data.message || '已停止');
                 await loadRows();
@@ -549,7 +600,7 @@
         async function deleteRow(id) {
             if (!window.confirm('确认删除这条豁免记录？')) return;
             try {
-                const data = await requestJson(`/exemption_management/api/delete/${id}`, {
+                const data = await requestJson(`${apiPrefix()}/delete/${id}`, {
                     method: 'POST',
                     body: JSON.stringify({}),
                 });

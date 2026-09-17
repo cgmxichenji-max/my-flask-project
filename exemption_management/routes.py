@@ -13,6 +13,14 @@ from .services import (
     stop_exemption,
     update_exemption,
 )
+from .wechat_services import (
+    create_wechat_exemption,
+    delete_wechat_exemption,
+    ensure_wechat_table,
+    list_wechat_exemptions,
+    stop_wechat_exemption,
+    update_wechat_exemption,
+)
 
 
 def json_error(message, status_code=400):
@@ -23,6 +31,7 @@ def json_error(message, status_code=400):
 @module_required('exemption_management')
 def index():
     ensure_tables()
+    ensure_wechat_table()
     return render_template(
         'exemption_management.html',
         brands=BRANDS,
@@ -76,6 +85,56 @@ def api_stop(record_id):
 def api_delete(record_id):
     try:
         delete_exemption(record_id)
+        return jsonify({'success': True, 'message': '删除成功'})
+    except ValueError as exc:
+        return json_error(str(exc))
+
+
+@exemption_management_bp.route('/api/wechat/list')
+@module_required('exemption_management')
+def api_wechat_list():
+    try:
+        rows = list_wechat_exemptions(request.args)
+        return jsonify({'success': True, 'rows': rows, 'total': len(rows)})
+    except ValueError as exc:
+        return json_error(str(exc))
+
+
+@exemption_management_bp.route('/api/wechat/create', methods=['POST'])
+@module_required('exemption_management')
+def api_wechat_create():
+    try:
+        row = create_wechat_exemption(request.get_json(silent=True) or {})
+        return jsonify({'success': True, 'row': row, 'message': '新增成功'})
+    except ValueError as exc:
+        return json_error(str(exc))
+
+
+@exemption_management_bp.route('/api/wechat/update/<int:record_id>', methods=['POST'])
+@module_required('exemption_management')
+def api_wechat_update(record_id):
+    try:
+        row = update_wechat_exemption(record_id, request.get_json(silent=True) or {})
+        return jsonify({'success': True, 'row': row, 'message': '保存成功'})
+    except ValueError as exc:
+        return json_error(str(exc))
+
+
+@exemption_management_bp.route('/api/wechat/stop/<int:record_id>', methods=['POST'])
+@module_required('exemption_management')
+def api_wechat_stop(record_id):
+    try:
+        row = stop_wechat_exemption(record_id, (request.get_json(silent=True) or {}).get('end_at'))
+        return jsonify({'success': True, 'row': row, 'message': '已停止'})
+    except ValueError as exc:
+        return json_error(str(exc))
+
+
+@exemption_management_bp.route('/api/wechat/delete/<int:record_id>', methods=['POST'])
+@module_required('exemption_management')
+def api_wechat_delete(record_id):
+    try:
+        delete_wechat_exemption(record_id)
         return jsonify({'success': True, 'message': '删除成功'})
     except ValueError as exc:
         return json_error(str(exc))

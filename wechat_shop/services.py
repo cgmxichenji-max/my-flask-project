@@ -1142,6 +1142,40 @@ def _build_commission_summary_frames(df: pd.DataFrame) -> tuple[pd.DataFrame, pd
     return creator_df, agency_df, invoice_df
 
 
+def _add_commission_exemption_flags(
+    conn: sqlite3.Connection,
+    creator_df: pd.DataFrame,
+    agency_df: pd.DataFrame,
+    start_text: str,
+    end_text: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    # 已结束记录只要其周期覆盖导出期间任意一天，对应昵称整行仍标记为豁免。
+    exemption_names: set[str] = set()
+    if _table_exists(conn, 'wechat_creator_exemptions'):
+        rows = conn.execute(
+            '''
+            SELECT DISTINCT TRIM(creator_nickname) AS creator_nickname
+            FROM wechat_creator_exemptions
+            WHERE TRIM(creator_nickname) <> ''
+              AND SUBSTR(start_at, 1, 10) <= ?
+              AND SUBSTR(end_at, 1, 10) >= ?
+            ''',
+            (end_text[:10], start_text[:10]),
+        ).fetchall()
+        exemption_names = {str(row['creator_nickname']).strip() for row in rows}
+
+    def add_flag(frame: pd.DataFrame, name_column: str) -> pd.DataFrame:
+        result = frame.copy()
+        result['是否豁免'] = result[name_column].map(
+            lambda value: '豁免' if str(value).strip() in exemption_names else '非豁免'
+        )
+        return result[[name_column, '是否豁免', *[
+            column for column in result.columns if column not in {name_column, '是否豁免'}
+        ]]]
+
+    return add_flag(creator_df, '达人名称'), add_flag(agency_df, '带货机构名称')
+
+
 def _query_store_self_sale_joined_rows(
     conn: sqlite3.Connection,
     start_text: str,
@@ -1588,8 +1622,10 @@ def export_commission_summary_zip(
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         df = _query_commission_rows(conn, start_text, end_text, nickname_query)
-
-    creator_df, agency_df, invoice_df = _build_commission_summary_frames(df)
+        creator_df, agency_df, invoice_df = _build_commission_summary_frames(df)
+        creator_df, agency_df = _add_commission_exemption_flags(
+            conn, creator_df, agency_df, start_text, end_text
+        )
     month_text = _build_commission_month_text(start_text, end_text)
     safe_month_text = _safe_download_part(month_text)
 
